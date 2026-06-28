@@ -9,7 +9,40 @@ The workflow state is stored in two JSON files:
 
 ## Install
 
-Use this repository as a Codex skill directory. The skill entry point is `SKILL.md`; optional UI metadata is in `agents/openai.yaml`.
+Install or update Better Plan for all supported local agents:
+
+```sh
+python3 scripts/install.py
+```
+
+The installer is idempotent and installs:
+
+- Codex skill: `~/.codex/skills/better-plan`
+- Shared skill source for adapters: `~/.agents/skills/better-plan`
+- Claude Code skills-dir plugin: `~/.claude/skills/better-plan`
+- OpenCode primary agent: `~/.config/opencode/agents/better-plan.md`
+- Gemini/Antigravity extension: `~/.gemini/extensions/better-plan`
+
+Verify the local install:
+
+```sh
+python3 scripts/install.py doctor
+```
+
+Install a subset of agents:
+
+```sh
+python3 scripts/install.py --agents codex,claude
+python3 scripts/install.py update --agents opencode gemini
+```
+
+Remove installed adapters:
+
+```sh
+python3 scripts/install.py uninstall
+```
+
+The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation. Claude, OpenCode, and Gemini/Antigravity receive small adapter entries that point back to that implementation. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
 
 ## Commands
 
@@ -44,6 +77,7 @@ The test suite covers the validator state machine and CLI behavior.
 ## Minimal Release Checklist
 
 - `python3 -m unittest discover -s tests -v` passes.
+- `python3 scripts/install.py doctor` passes after local install.
 - `python3 scripts/manifest_tool.py uuid --count 1` prints one UUID4 value.
 - `python3 scripts/manifest_tool.py transition pending in_progress` succeeds.
 - `git status --short` contains only intended release files.
