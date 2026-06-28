@@ -13,23 +13,25 @@ Install or update Better Plan for all supported local agents:
 
 ```sh
 python3 scripts/install.py
+python3 scripts/update.py
 ```
 
 The installer is idempotent and installs:
 
-- Codex skill: `~/.codex/skills/better-plan`
-- Shared skill source for adapters: `~/.agents/skills/better-plan`
+- Shared skill source for Codex, Cursor, VS Code Copilot, and adapters when selected by the per-agent resolver: `~/.agents/skills/better-plan`
 - Claude Code skills-dir plugin: `~/.claude/skills/better-plan`
 - OpenCode primary agent: `~/.config/opencode/agents/better-plan.md`
-- Cursor skill: `~/.cursor/skills/better-plan`
-- VS Code Copilot skill: `~/.copilot/skills/better-plan`
 - Gemini/Antigravity extension: `~/.gemini/extensions/better-plan`
+
+Codex, Cursor, and VS Code Copilot can scan `~/.agents/skills`, but each client resolves its install target independently. A clean install defaults to `~/.agents/skills/better-plan`. If only a client's native path already has Better Plan, such as `~/.codex/skills/better-plan`, update keeps that native path as the source of truth instead of creating a duplicate in `~/.agents`. If both shared and native copies exist for the same client, shared wins and the native duplicate is moved to `skill-backups` outside the client's skill scan directory. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
 
 Verify the local install:
 
 ```sh
 python3 scripts/install.py doctor
 ```
+
+On Windows, `doctor` also checks running WSL distributions for OpenCode when `opencode` is not on the Windows `PATH`. If Docker is available, it checks running containers for `opencode` as additional diagnostic context.
 
 Install a subset of agents:
 
@@ -45,7 +47,7 @@ Remove installed adapters:
 python3 scripts/install.py uninstall
 ```
 
-The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation. Claude, OpenCode, and Gemini/Antigravity receive small adapter entries that point back to that implementation. Codex, Cursor, and VS Code Copilot receive complete skill-tree installs. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
+The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation for each resolved target. OpenCode and Gemini/Antigravity point to whichever skill tree the resolver selected. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
 
 ## Commands
 

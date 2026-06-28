@@ -22,6 +22,8 @@ AGENT_ALIASES = {
     "vscode-copilot": "copilot",
     "github-copilot": "copilot",
 }
+SHARED_SCAN_AGENTS = {"codex", "cursor", "copilot"}
+ADAPTER_SKILL_AGENTS = {"opencode", "gemini"}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COPY_IGNORE = (".git", "__pycache__", ".pytest_cache", ".DS_Store")
 DESCRIPTION = "Better Plan workflow for project planning, checkpoints, execution, validation, and commits."
@@ -87,6 +89,13 @@ class Check:
     message: str
 
 
+@dataclass(frozen=True)
+class RuntimeProbe:
+    runtime: str
+    location: str
+    version: str
+
+
 def default_paths(args: argparse.Namespace) -> InstallPaths:
     home = Path.home()
     repo_root = Path(args.source).expanduser().resolve() if args.source else REPO_ROOT
@@ -136,8 +145,8 @@ def parse_agents(values: list[str] | None) -> list[str]:
     return agents
 
 
-def adapter_needs_shared(agents: Iterable[str]) -> bool:
-    return any(agent in {"opencode", "gemini"} for agent in agents)
+def adapter_needs_skill_root(agents: Iterable[str]) -> bool:
+    return any(agent in ADAPTER_SKILL_AGENTS for agent in agents)
 
 
 def validate_source_tree(repo_root: Path) -> None:
@@ -209,8 +218,7 @@ def install_claude_plugin(paths: InstallPaths, *, dry_run: bool) -> None:
         raise
 
 
-def opencode_agent_text(paths: InstallPaths) -> str:
-    skill = paths.shared_skill
+def opencode_agent_text(skill: Path) -> str:
     return f"""---
 description: Follow the Better Plan workflow for project planning, checkpoints, execution, validation, and commits.
 mode: primary
@@ -241,8 +249,7 @@ def gemini_manifest() -> dict[str, str]:
     }
 
 
-def gemini_context_text(paths: InstallPaths) -> str:
-    skill = paths.shared_skill
+def gemini_context_text(skill: Path) -> str:
     return f"""# Better Plan
 
 When the user asks to use Better Plan, continue a Better Plan workflow, inspect project progress, or execute plan/checkpoint work, read `{skill / "SKILL.md"}` completely and follow it as the active workflow.
@@ -255,12 +262,12 @@ Work from the current project root unless the user gives another root, preserve 
 """
 
 
-def install_gemini_extension(paths: InstallPaths, *, dry_run: bool) -> None:
+def install_gemini_extension(paths: InstallPaths, skill: Path, *, dry_run: bool) -> None:
     if dry_run:
         return
     paths.gemini_extension.mkdir(parents=True, exist_ok=True)
     write_json(paths.gemini_extension / "gemini-extension.json", gemini_manifest(), backup=True)
-    write_text(paths.gemini_extension / "GEMINI.md", gemini_context_text(paths), backup=True)
+    write_text(paths.gemini_extension / "GEMINI.md", gemini_context_text(skill), backup=True)
     update_gemini_enablement(paths, enabled=True, dry_run=False)
 
 
@@ -312,17 +319,144 @@ def backup_file(path: Path) -> Path:
     return backup
 
 
+def native_skill_path(paths: InstallPaths, agent: str) -> Path:
+    if agent == "codex":
+        return paths.codex_skill
+    if agent == "cursor":
+        return paths.cursor_skill
+    if agent == "copilot":
+        return paths.copilot_skill
+    raise InstallError(f"{agent} does not have a native skill tree path")
+
+
+def shared_scan_skill_target(paths: InstallPaths, agent: str) -> tuple[str, Path]:
+    native = native_skill_path(paths, agent)
+    if paths.shared_skill.exists():
+        return "shared", paths.shared_skill
+    if native.exists():
+        return "native", native
+    return "shared", paths.shared_skill
+
+
+def shared_scan_targets(paths: InstallPaths, agents: Iterable[str]) -> dict[str, tuple[str, Path]]:
+    selected = set(agents)
+    selected_shared_scan = [agent for agent in AGENTS if agent in SHARED_SCAN_AGENTS and agent in selected]
+    if not selected_shared_scan:
+        return {}
+    if paths.shared_skill.exists():
+        return {agent: ("shared", paths.shared_skill) for agent in selected_shared_scan}
+    if any(native_skill_path(paths, agent).exists() for agent in selected_shared_scan):
+        return {agent: ("native", native_skill_path(paths, agent)) for agent in selected_shared_scan}
+    return {
+        agent: ("shared", paths.shared_skill)
+        for agent in selected_shared_scan
+    }
+
+
+def implementation_root(paths: InstallPaths, targets: dict[str, tuple[str, Path]]) -> Path:
+    if paths.shared_skill.exists():
+        return paths.shared_skill
+    for agent in AGENTS:
+        target = targets.get(agent)
+        if target and target[0] == "native":
+            return target[1]
+    for agent in AGENTS:
+        if agent in SHARED_SCAN_AGENTS:
+            native = native_skill_path(paths, agent)
+            if native.exists():
+                return native
+    return paths.shared_skill
+
+
+def backup_root_for_skill_tree(path: Path) -> Path:
+    return path.parent.parent / "skill-backups"
+
+
+def unique_backup_path(backup_root: Path, name: str) -> Path:
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    candidate = backup_root / f"{name}.bak-better-plan-{stamp}"
+    index = 1
+    while candidate.exists():
+        candidate = backup_root / f"{name}.bak-better-plan-{stamp}-{index}"
+        index += 1
+    return candidate
+
+
+def move_skill_tree_to_backup(path: Path, *, dry_run: bool) -> Path | None:
+    if not path.exists():
+        return None
+    backup_root = backup_root_for_skill_tree(path)
+    backup = unique_backup_path(backup_root, path.name)
+    if dry_run:
+        return backup
+    backup_root.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(path), str(backup))
+    return backup
+
+
+def migrate_shared_scan_duplicates(
+    paths: InstallPaths,
+    targets: dict[str, tuple[str, Path]],
+    *,
+    dry_run: bool,
+) -> list[str]:
+    messages: list[str] = []
+    for name, (kind, _) in targets.items():
+        if kind != "shared":
+            continue
+        path = native_skill_path(paths, name)
+        backup = move_skill_tree_to_backup(path, dry_run=dry_run)
+        if backup is None:
+            messages.append(f"{name}: no duplicate native skill at {path}")
+        else:
+            verb = "would move duplicate native skill" if dry_run else "moved duplicate native skill"
+            messages.append(f"{name}: {verb} {path} -> {backup}")
+    return messages
+
+
+def existing_install_paths(paths: InstallPaths, agents: Iterable[str]) -> list[Path]:
+    selected = set(agents)
+    values: list[Path] = []
+    if paths.shared_skill.exists() and (selected & (SHARED_SCAN_AGENTS | ADAPTER_SKILL_AGENTS)):
+        values.append(paths.shared_skill)
+    if "codex" in selected:
+        values.append(paths.codex_skill)
+    if "claude" in selected:
+        values.append(paths.claude_plugin)
+    if "opencode" in selected:
+        values.append(paths.opencode_agent)
+    if "cursor" in selected:
+        values.append(paths.cursor_skill)
+    if "copilot" in selected:
+        values.append(paths.copilot_skill)
+    if "gemini" in selected:
+        values.append(paths.gemini_extension)
+    return [path for path in values if path.exists()]
+
+
 def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]:
     validate_source_tree(paths.repo_root)
     messages: list[str] = []
+    targets = shared_scan_targets(paths, agents)
+    root = implementation_root(paths, targets)
+    updated_roots: set[Path] = set()
 
-    if adapter_needs_shared(agents):
-        copy_skill_tree(paths.repo_root, paths.shared_skill, dry_run=dry_run)
-        messages.append(f"shared: {'would update' if dry_run else 'updated'} {paths.shared_skill}")
+    def update_skill_root(target: Path, label: str) -> None:
+        if target in updated_roots:
+            return
+        copy_skill_tree(paths.repo_root, target, dry_run=dry_run)
+        updated_roots.add(target)
+        messages.append(f"{label}: {'would update' if dry_run else 'updated'} {target}")
+
+    for _, (kind, target) in targets.items():
+        update_skill_root(target, kind)
+
+    if adapter_needs_skill_root(agents):
+        update_skill_root(root, "shared" if root == paths.shared_skill else "implementation")
 
     if "codex" in agents:
-        copy_skill_tree(paths.repo_root, paths.codex_skill, dry_run=dry_run)
-        messages.append(f"codex: {'would update' if dry_run else 'updated'} {paths.codex_skill}")
+        kind, target = targets["codex"]
+        messages.append(f"codex: {'would use' if dry_run else 'using'} {kind} skill {target}")
 
     if "claude" in agents:
         install_claude_plugin(paths, dry_run=dry_run)
@@ -330,21 +464,22 @@ def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> 
 
     if "opencode" in agents:
         if not dry_run:
-            write_text(paths.opencode_agent, opencode_agent_text(paths), backup=True)
+            write_text(paths.opencode_agent, opencode_agent_text(root), backup=True)
         messages.append(f"opencode: {'would update' if dry_run else 'updated'} {paths.opencode_agent}")
 
     if "cursor" in agents:
-        copy_skill_tree(paths.repo_root, paths.cursor_skill, dry_run=dry_run)
-        messages.append(f"cursor: {'would update' if dry_run else 'updated'} {paths.cursor_skill}")
+        kind, target = targets["cursor"]
+        messages.append(f"cursor: {'would use' if dry_run else 'using'} {kind} skill {target}")
 
     if "copilot" in agents:
-        copy_skill_tree(paths.repo_root, paths.copilot_skill, dry_run=dry_run)
-        messages.append(f"copilot: {'would update' if dry_run else 'updated'} {paths.copilot_skill}")
+        kind, target = targets["copilot"]
+        messages.append(f"copilot: {'would use' if dry_run else 'using'} {kind} skill {target}")
 
     if "gemini" in agents:
-        install_gemini_extension(paths, dry_run=dry_run)
+        install_gemini_extension(paths, root, dry_run=dry_run)
         messages.append(f"gemini: {'would update' if dry_run else 'updated'} {paths.gemini_extension}")
 
+    messages.extend(migrate_shared_scan_duplicates(paths, targets, dry_run=dry_run))
     return messages
 
 
@@ -388,18 +523,144 @@ def remove_path(path: Path) -> None:
         path.unlink()
 
 
-def run_manifest_tool(skill_root: Path) -> bool:
-    tool = skill_root / "scripts" / "manifest_tool.py"
-    if not tool.is_file():
-        return False
-    result = subprocess.run(
-        [sys.executable, str(tool), "uuid"],
+def run_text_command(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=timeout,
+    )
+
+
+def decode_probe_output(data: bytes) -> str:
+    if not data:
+        return ""
+    if data.startswith(b"\xff\xfe") or data.count(b"\x00") > max(1, len(data) // 8):
+        return data.decode("utf-16le", errors="replace").replace("\ufeff", "")
+    return data.decode("utf-8", errors="replace")
+
+
+def parse_running_wsl_distros(output: str) -> list[str]:
+    distros: list[str] = []
+    for line in output.replace("\x00", "").splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        if value.startswith("*"):
+            value = value[1:].strip()
+        parts = value.split()
+        if not parts or parts[0].upper() == "NAME":
+            continue
+        if len(parts) >= 3 and parts[-2].lower() == "running":
+            distros.append(" ".join(parts[:-2]))
+    return distros
+
+
+def split_probe_stdout(stdout: str) -> tuple[str, str] | None:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    location = lines[0]
+    version = lines[1] if len(lines) > 1 else "version unknown"
+    return location, version
+
+
+OPENCODE_PROBE_SCRIPT = (
+    "path=$(command -v opencode 2>/dev/null) || exit 1; "
+    "printf '%s\\n' \"$path\"; "
+    "opencode --version 2>/dev/null | head -n 1 || true"
+)
+
+
+def discover_wsl_opencode() -> list[RuntimeProbe]:
+    if os.name != "nt":
+        return []
+    wsl = shutil.which("wsl.exe") or shutil.which("wsl")
+    if wsl is None:
+        return []
+
+    try:
+        result = subprocess.run(
+            [wsl, "-l", "-v"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+
+    probes: list[RuntimeProbe] = []
+    for distro in parse_running_wsl_distros(decode_probe_output(result.stdout)):
+        try:
+            probe = run_text_command(
+                [wsl, "-d", distro, "-e", "bash", "-lic", OPENCODE_PROBE_SCRIPT],
+                timeout=20,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        found = split_probe_stdout(probe.stdout if probe.returncode == 0 else "")
+        if found:
+            location, version = found
+            probes.append(RuntimeProbe(f"WSL {distro}", location, version))
+    return probes
+
+
+def discover_docker_opencode() -> list[RuntimeProbe]:
+    docker = shutil.which("docker")
+    if docker is None:
+        return []
+    try:
+        result = run_text_command([docker, "ps", "--format", "{{.ID}}\t{{.Names}}"], timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+
+    probes: list[RuntimeProbe] = []
+    for line in result.stdout.splitlines()[:20]:
+        value = line.strip()
+        if not value:
+            continue
+        parts = value.split("\t", 1)
+        container = parts[0].strip()
+        name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else container
+        if not container:
+            continue
+        try:
+            probe = run_text_command(
+                [docker, "exec", container, "sh", "-lc", OPENCODE_PROBE_SCRIPT],
+                timeout=20,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        found = split_probe_stdout(probe.stdout if probe.returncode == 0 else "")
+        if found:
+            location, version = found
+            probes.append(RuntimeProbe(f"Docker {name}", location, version))
+    return probes
+
+
+def discover_external_opencode() -> list[RuntimeProbe]:
+    return [*discover_wsl_opencode(), *discover_docker_opencode()]
+
+
+def format_runtime_probes(probes: list[RuntimeProbe]) -> str:
+    return "; ".join(f"{probe.runtime}: {probe.location} ({probe.version})" for probe in probes)
+
+
+def run_manifest_tool(skill_root: Path) -> bool:
+    tool = skill_root / "scripts" / "manifest_tool.py"
+    if not tool.is_file():
+        return False
+    result = run_text_command(
+        [sys.executable, str(tool), "uuid"],
         timeout=10,
     )
     return result.returncode == 0 and bool(result.stdout.strip())
@@ -428,23 +689,40 @@ def check_skill_tree(target: str, root: Path) -> Check:
     return Check("OK", target, f"installed at {root}")
 
 
+def check_shared_scan_agent(paths: InstallPaths, target: str) -> Check:
+    kind, root = shared_scan_skill_target(paths, target)
+    check = check_skill_tree(target, root)
+    if check.status != "OK":
+        return check
+    legacy_root = native_skill_path(paths, target)
+    if kind == "shared" and legacy_root.exists():
+        return Check(
+            "WARN",
+            target,
+            f"installed via shared skill at {root}; duplicate native skill still exists at {legacy_root}",
+        )
+    return Check("OK", target, f"installed via {kind} skill at {root}")
+
+
 def doctor(paths: InstallPaths, agents: list[str]) -> list[Check]:
     checks: list[Check] = []
+    targets = shared_scan_targets(paths, agents)
+    root = implementation_root(paths, targets)
 
-    if adapter_needs_shared(agents):
-        checks.append(check_skill_tree("shared", paths.shared_skill))
+    if adapter_needs_skill_root(agents) and not any(target == root for _, target in targets.values()):
+        checks.append(check_skill_tree("implementation", root))
     if "codex" in agents:
-        checks.append(check_skill_tree("codex", paths.codex_skill))
+        checks.append(check_shared_scan_agent(paths, "codex"))
     if "claude" in agents:
         checks.append(check_claude(paths))
     if "opencode" in agents:
-        checks.append(check_opencode(paths))
+        checks.append(check_opencode(paths, root))
     if "cursor" in agents:
-        checks.append(check_skill_tree("cursor", paths.cursor_skill))
+        checks.append(check_shared_scan_agent(paths, "cursor"))
     if "copilot" in agents:
-        checks.append(check_skill_tree("copilot", paths.copilot_skill))
+        checks.append(check_shared_scan_agent(paths, "copilot"))
     if "gemini" in agents:
-        checks.append(check_gemini(paths))
+        checks.append(check_gemini(paths, root))
     return checks
 
 
@@ -460,14 +738,8 @@ def check_claude(paths: InstallPaths) -> Check:
     if claude is None:
         return Check("WARN", "claude", f"installed at {paths.claude_plugin}; claude CLI not found for plugin validation")
 
-    result = subprocess.run(
+    result = run_text_command(
         [claude, "plugin", "validate", str(paths.claude_plugin)],
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         timeout=30,
     )
     if result.returncode != 0:
@@ -475,25 +747,29 @@ def check_claude(paths: InstallPaths) -> Check:
     return Check("OK", "claude", f"plugin installed at {paths.claude_plugin}")
 
 
-def check_opencode(paths: InstallPaths) -> Check:
+def check_opencode(paths: InstallPaths, skill: Path) -> Check:
     if not paths.opencode_agent.is_file():
         return Check("FAIL", "opencode", f"missing {paths.opencode_agent}")
     text = paths.opencode_agent.read_text(encoding="utf-8")
-    if str(paths.shared_skill / "SKILL.md") not in text:
-        return Check("FAIL", "opencode", f"{paths.opencode_agent} does not reference the shared skill")
+    if str(skill / "SKILL.md") not in text:
+        return Check("FAIL", "opencode", f"{paths.opencode_agent} does not reference {skill}")
 
     opencode = shutil.which("opencode")
     if opencode is None:
+        probes = discover_external_opencode()
+        if probes:
+            return Check(
+                "WARN",
+                "opencode",
+                (
+                    f"agent file installed at {paths.opencode_agent}; host opencode CLI not found; "
+                    f"found external runtime(s): {format_runtime_probes(probes)}"
+                ),
+            )
         return Check("WARN", "opencode", f"agent file installed at {paths.opencode_agent}; opencode CLI not found")
 
-    result = subprocess.run(
+    result = run_text_command(
         [opencode, "agent", "list"],
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         timeout=30,
     )
     if result.returncode != 0:
@@ -503,7 +779,7 @@ def check_opencode(paths: InstallPaths) -> Check:
     return Check("OK", "opencode", f"agent installed at {paths.opencode_agent}")
 
 
-def check_gemini(paths: InstallPaths) -> Check:
+def check_gemini(paths: InstallPaths, skill: Path) -> Check:
     manifest = paths.gemini_extension / "gemini-extension.json"
     context = paths.gemini_extension / "GEMINI.md"
     if not manifest.is_file():
@@ -520,8 +796,8 @@ def check_gemini(paths: InstallPaths) -> Check:
     if SKILL_NAME not in enablement:
         return Check("FAIL", "gemini", f"{paths.gemini_enablement} does not enable {SKILL_NAME}")
     text = context.read_text(encoding="utf-8")
-    if str(paths.shared_skill / "SKILL.md") not in text:
-        return Check("FAIL", "gemini", f"{context} does not reference the shared skill")
+    if str(skill / "SKILL.md") not in text:
+        return Check("FAIL", "gemini", f"{context} does not reference {skill}")
     return Check("OK", "gemini", f"extension installed at {paths.gemini_extension}")
 
 
@@ -564,10 +840,10 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--dry-run", action="store_true", help="print planned changes without writing files")
     install.set_defaults(func=install_command)
 
-    update = subparsers.add_parser("update", help="alias for install")
+    update = subparsers.add_parser("update", help="update Better Plan adapters and migrate duplicate installs")
     add_common_arguments(update)
     update.add_argument("--dry-run", action="store_true", help="print planned changes without writing files")
-    update.set_defaults(func=install_command)
+    update.set_defaults(func=update_command)
 
     doctor_parser = subparsers.add_parser("doctor", help="verify installed adapters")
     add_common_arguments(doctor_parser)
@@ -583,6 +859,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def install_command(args: argparse.Namespace) -> int:
+    paths = default_paths(args)
+    agents = parse_agents(args.agents)
+    if existing_install_paths(paths, agents):
+        print("existing Better Plan install found; switching installer to update")
+        return update_command(args)
+    for message in install_agents(paths, agents, dry_run=args.dry_run):
+        print(message)
+    return 0
+
+
+def update_command(args: argparse.Namespace) -> int:
     paths = default_paths(args)
     agents = parse_agents(args.agents)
     for message in install_agents(paths, agents, dry_run=args.dry_run):
