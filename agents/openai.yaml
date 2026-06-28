@@ -1,0 +1,4 @@
+interface:
+  display_name: "Better Plan"
+  short_description: "Guided fixed project workflow"
+  default_prompt: "Use $better-plan to inspect project progress from the workflow entry file."
