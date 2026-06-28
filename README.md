@@ -21,6 +21,8 @@ The installer is idempotent and installs:
 - Shared skill source for adapters: `~/.agents/skills/better-plan`
 - Claude Code skills-dir plugin: `~/.claude/skills/better-plan`
 - OpenCode primary agent: `~/.config/opencode/agents/better-plan.md`
+- Cursor skill: `~/.cursor/skills/better-plan`
+- VS Code Copilot skill: `~/.copilot/skills/better-plan`
 - Gemini/Antigravity extension: `~/.gemini/extensions/better-plan`
 
 Verify the local install:
@@ -33,7 +35,8 @@ Install a subset of agents:
 
 ```sh
 python3 scripts/install.py --agents codex,claude
-python3 scripts/install.py update --agents opencode gemini
+python3 scripts/install.py update --agents opencode cursor copilot gemini
+python3 scripts/install.py update --agents vscode-copilot
 ```
 
 Remove installed adapters:
@@ -42,7 +45,7 @@ Remove installed adapters:
 python3 scripts/install.py uninstall
 ```
 
-The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation. Claude, OpenCode, and Gemini/Antigravity receive small adapter entries that point back to that implementation. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
+The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation. Claude, OpenCode, and Gemini/Antigravity receive small adapter entries that point back to that implementation. Codex, Cursor, and VS Code Copilot receive complete skill-tree installs. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
 
 ## Commands
 

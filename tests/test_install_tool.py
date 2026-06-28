@@ -40,6 +40,8 @@ def make_paths(root: Path) -> object:
         shared_home=home / ".agents",
         claude_home=home / ".claude",
         opencode_config=home / ".config" / "opencode",
+        cursor_home=home / ".cursor",
+        copilot_home=home / ".copilot",
         gemini_home=home / ".gemini",
         gemini_scope=f"{home}/*",
     )
@@ -62,6 +64,8 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue((paths.claude_plugin / ".claude-plugin" / "plugin.json").is_file())
             self.assertTrue((paths.claude_skill / "SKILL.md").is_file())
             self.assertTrue((paths.opencode_agent).is_file())
+            self.assertTrue((paths.cursor_skill / "SKILL.md").is_file())
+            self.assertTrue((paths.copilot_skill / "SKILL.md").is_file())
             self.assertTrue((paths.gemini_extension / "gemini-extension.json").is_file())
 
             plugin = json.loads((paths.claude_plugin / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -93,6 +97,8 @@ class InstallToolTests(unittest.TestCase):
             self.assertFalse(paths.shared_skill.exists())
             self.assertFalse(paths.claude_plugin.exists())
             self.assertFalse(paths.opencode_agent.exists())
+            self.assertFalse(paths.cursor_skill.exists())
+            self.assertFalse(paths.copilot_skill.exists())
             self.assertFalse(paths.gemini_extension.exists())
             enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
             self.assertNotIn("better-plan", enablement)
@@ -103,17 +109,23 @@ class InstallToolTests(unittest.TestCase):
             home = root / "home"
             codex_home = home / ".codex"
             shared_home = home / ".agents"
+            cursor_home = home / ".cursor"
+            copilot_home = home / ".copilot"
             gemini_home = home / ".gemini"
 
             install_result = run_command(
                 sys.executable,
                 INSTALL_TOOL_PATH,
                 "--agents",
-                "codex,gemini",
+                "codex,cursor,vscode-copilot,gemini",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
                 shared_home,
+                "--cursor-home",
+                cursor_home,
+                "--copilot-home",
+                copilot_home,
                 "--gemini-home",
                 gemini_home,
                 "--gemini-scope",
@@ -121,22 +133,30 @@ class InstallToolTests(unittest.TestCase):
             )
             self.assertEqual(install_result.returncode, 0, install_result.stderr)
             self.assertIn("codex: updated", install_result.stdout)
+            self.assertIn("cursor: updated", install_result.stdout)
+            self.assertIn("copilot: updated", install_result.stdout)
 
             doctor_result = run_command(
                 sys.executable,
                 INSTALL_TOOL_PATH,
                 "doctor",
                 "--agents",
-                "codex,gemini",
+                "codex,cursor,copilot,gemini",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
                 shared_home,
+                "--cursor-home",
+                cursor_home,
+                "--copilot-home",
+                copilot_home,
                 "--gemini-home",
                 gemini_home,
             )
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
             self.assertIn("OK: codex:", doctor_result.stdout)
+            self.assertIn("OK: cursor:", doctor_result.stdout)
+            self.assertIn("OK: copilot:", doctor_result.stdout)
             self.assertIn("OK: gemini:", doctor_result.stdout)
 
 
