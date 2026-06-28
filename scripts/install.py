@@ -16,7 +16,12 @@ from typing import Iterable
 
 
 SKILL_NAME = "better-plan"
-AGENTS = ("codex", "claude", "opencode", "gemini")
+AGENTS = ("codex", "claude", "opencode", "cursor", "copilot", "gemini")
+AGENT_ALIASES = {
+    "vscode": "copilot",
+    "vscode-copilot": "copilot",
+    "github-copilot": "copilot",
+}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COPY_IGNORE = (".git", "__pycache__", ".pytest_cache", ".DS_Store")
 DESCRIPTION = "Better Plan workflow for project planning, checkpoints, execution, validation, and commits."
@@ -33,6 +38,8 @@ class InstallPaths:
     shared_home: Path
     claude_home: Path
     opencode_config: Path
+    cursor_home: Path
+    copilot_home: Path
     gemini_home: Path
     gemini_scope: str
 
@@ -55,6 +62,14 @@ class InstallPaths:
     @property
     def opencode_agent(self) -> Path:
         return self.opencode_config / "agents" / f"{SKILL_NAME}.md"
+
+    @property
+    def cursor_skill(self) -> Path:
+        return self.cursor_home / "skills" / SKILL_NAME
+
+    @property
+    def copilot_skill(self) -> Path:
+        return self.copilot_home / "skills" / SKILL_NAME
 
     @property
     def gemini_extension(self) -> Path:
@@ -83,6 +98,8 @@ def default_paths(args: argparse.Namespace) -> InstallPaths:
         opencode_config=Path(
             args.opencode_config or os.environ.get("OPENCODE_CONFIG_HOME") or home / ".config" / "opencode"
         ).expanduser(),
+        cursor_home=Path(args.cursor_home or os.environ.get("CURSOR_HOME") or home / ".cursor").expanduser(),
+        copilot_home=Path(args.copilot_home or os.environ.get("COPILOT_HOME") or home / ".copilot").expanduser(),
         gemini_home=Path(args.gemini_home or os.environ.get("GEMINI_HOME") or home / ".gemini").expanduser(),
         gemini_scope=args.gemini_scope or f"{home}/*",
     )
@@ -104,6 +121,7 @@ def parse_agents(values: list[str] | None) -> list[str]:
     for token in tokens:
         if not token:
             continue
+        token = AGENT_ALIASES.get(token, token)
         if token not in AGENTS:
             invalid.append(token)
             continue
@@ -315,6 +333,14 @@ def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> 
             write_text(paths.opencode_agent, opencode_agent_text(paths), backup=True)
         messages.append(f"opencode: {'would update' if dry_run else 'updated'} {paths.opencode_agent}")
 
+    if "cursor" in agents:
+        copy_skill_tree(paths.repo_root, paths.cursor_skill, dry_run=dry_run)
+        messages.append(f"cursor: {'would update' if dry_run else 'updated'} {paths.cursor_skill}")
+
+    if "copilot" in agents:
+        copy_skill_tree(paths.repo_root, paths.copilot_skill, dry_run=dry_run)
+        messages.append(f"copilot: {'would update' if dry_run else 'updated'} {paths.copilot_skill}")
+
     if "gemini" in agents:
         install_gemini_extension(paths, dry_run=dry_run)
         messages.append(f"gemini: {'would update' if dry_run else 'updated'} {paths.gemini_extension}")
@@ -332,6 +358,10 @@ def uninstall_agents(paths: InstallPaths, agents: list[str], *, remove_shared: b
         removals.append(("claude", paths.claude_plugin))
     if "opencode" in agents:
         removals.append(("opencode", paths.opencode_agent))
+    if "cursor" in agents:
+        removals.append(("cursor", paths.cursor_skill))
+    if "copilot" in agents:
+        removals.append(("copilot", paths.copilot_skill))
     if "gemini" in agents:
         removals.append(("gemini", paths.gemini_extension))
     if remove_shared:
@@ -368,6 +398,8 @@ def run_manifest_tool(skill_root: Path) -> bool:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=10,
     )
     return result.returncode == 0 and bool(result.stdout.strip())
@@ -407,6 +439,10 @@ def doctor(paths: InstallPaths, agents: list[str]) -> list[Check]:
         checks.append(check_claude(paths))
     if "opencode" in agents:
         checks.append(check_opencode(paths))
+    if "cursor" in agents:
+        checks.append(check_skill_tree("cursor", paths.cursor_skill))
+    if "copilot" in agents:
+        checks.append(check_skill_tree("copilot", paths.copilot_skill))
     if "gemini" in agents:
         checks.append(check_gemini(paths))
     return checks
@@ -430,6 +466,8 @@ def check_claude(paths: InstallPaths) -> Check:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
     )
     if result.returncode != 0:
@@ -454,6 +492,8 @@ def check_opencode(paths: InstallPaths) -> Check:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
     )
     if result.returncode != 0:
@@ -498,13 +538,19 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets to install; comma-separated or repeated values: all, codex, claude, opencode, gemini",
+        help=(
+            "agent targets to install; comma-separated or repeated values: "
+            "all, codex, claude, opencode, cursor, copilot, gemini "
+            "(aliases: vscode, vscode-copilot, github-copilot)"
+        ),
     )
     parser.add_argument("--source", help="Better Plan source tree; defaults to this repository")
     parser.add_argument("--codex-home", help="Codex home directory; defaults to $CODEX_HOME or ~/.codex")
     parser.add_argument("--shared-home", help="shared agent home; defaults to $BETTER_PLAN_SHARED_HOME or ~/.agents")
     parser.add_argument("--claude-home", help="Claude home directory; defaults to $CLAUDE_HOME or ~/.claude")
     parser.add_argument("--opencode-config", help="OpenCode config directory; defaults to $OPENCODE_CONFIG_HOME or ~/.config/opencode")
+    parser.add_argument("--cursor-home", help="Cursor home directory; defaults to $CURSOR_HOME or ~/.cursor")
+    parser.add_argument("--copilot-home", help="GitHub Copilot home directory; defaults to $COPILOT_HOME or ~/.copilot")
     parser.add_argument("--gemini-home", help="Gemini home directory; defaults to $GEMINI_HOME or ~/.gemini")
     parser.add_argument("--gemini-scope", help="Gemini extension enablement scope; defaults to <home>/*")
 
