@@ -265,9 +265,9 @@ class InstallToolTests(unittest.TestCase):
             home = root / "home"
             shared_home = home / ".agents"
             codex_home = home / ".codex"
-            legacy = codex_home / "skills" / "better-plan"
-            legacy.mkdir(parents=True)
-            (legacy / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
+            native_install = codex_home / "skills" / "better-plan"
+            native_install.mkdir(parents=True)
+            (native_install / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
 
             update_result = run_command(
                 sys.executable,
@@ -284,20 +284,20 @@ class InstallToolTests(unittest.TestCase):
             self.assertIn("native: updated", update_result.stdout)
             self.assertIn("codex: using native skill", update_result.stdout)
             self.assertFalse((shared_home / "skills" / "better-plan").exists())
-            self.assertTrue((legacy / "SKILL.md").is_file())
+            self.assertTrue((native_install / "SKILL.md").is_file())
 
-    def test_update_script_moves_native_duplicate_when_shared_install_exists(self) -> None:
+    def test_update_script_removes_native_duplicate_when_shared_install_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             home = root / "home"
             shared_home = home / ".agents"
             codex_home = home / ".codex"
             shared = shared_home / "skills" / "better-plan"
-            legacy = codex_home / "skills" / "better-plan"
+            native_duplicate = codex_home / "skills" / "better-plan"
             shared.mkdir(parents=True)
-            legacy.mkdir(parents=True)
+            native_duplicate.mkdir(parents=True)
             (shared / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
-            (legacy / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
+            (native_duplicate / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
 
             update_result = run_command(
                 sys.executable,
@@ -312,9 +312,25 @@ class InstallToolTests(unittest.TestCase):
 
             self.assertEqual(update_result.returncode, 0, update_result.stderr)
             self.assertIn("shared: updated", update_result.stdout)
-            self.assertIn("codex: moved duplicate native skill", update_result.stdout)
+            self.assertIn("codex: removed duplicate native skill", update_result.stdout)
             self.assertTrue((shared / "SKILL.md").is_file())
-            self.assertFalse(legacy.exists())
+            self.assertFalse(native_duplicate.exists())
+            self.assertFalse((codex_home / "skill-backups").exists())
+
+    def test_installer_updates_managed_config_without_backup_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            paths.opencode_agent.parent.mkdir(parents=True)
+            paths.opencode_agent.write_text("old\n", encoding="utf-8")
+            paths.gemini_extension.mkdir(parents=True)
+            (paths.gemini_extension / "GEMINI.md").write_text("old\n", encoding="utf-8")
+            (paths.gemini_extension / "gemini-extension.json").write_text("{}\n", encoding="utf-8")
+            paths.gemini_enablement.parent.mkdir(parents=True, exist_ok=True)
+            paths.gemini_enablement.write_text("{}\n", encoding="utf-8")
+
+            install_tool.install_agents(paths, ["opencode", "gemini"], dry_run=False)
+
+            self.assertEqual([], list(Path(tmpdir).rglob("*bak-better-plan-*")))
 
 
 if __name__ == "__main__":

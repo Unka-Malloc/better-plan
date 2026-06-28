@@ -23,7 +23,7 @@ The installer is idempotent and installs:
 - OpenCode primary agent: `~/.config/opencode/agents/better-plan.md`
 - Gemini/Antigravity extension: `~/.gemini/extensions/better-plan`
 
-Codex, Cursor, and VS Code Copilot can scan `~/.agents/skills`, but each client resolves its install target independently. A clean install defaults to `~/.agents/skills/better-plan`. If only a client's native path already has Better Plan, such as `~/.codex/skills/better-plan`, update keeps that native path as the source of truth instead of creating a duplicate in `~/.agents`. If both shared and native copies exist for the same client, shared wins and the native duplicate is moved to `skill-backups` outside the client's skill scan directory. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
+Codex, Cursor, and VS Code Copilot can scan `~/.agents/skills`, but each client resolves its install target independently. A clean install defaults to `~/.agents/skills/better-plan`. If only a client's native path already has Better Plan, such as `~/.codex/skills/better-plan`, update keeps that native path as the source of truth instead of creating a duplicate in `~/.agents`. If both shared and native copies exist for the same client, shared wins and the native duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
 
 Verify the local install:
 
@@ -47,7 +47,7 @@ Remove installed adapters:
 python3 scripts/install.py uninstall
 ```
 
-The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation for each resolved target. OpenCode and Gemini/Antigravity point to whichever skill tree the resolver selected. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer edits are backed up with a `.bak-better-plan-<timestamp>` suffix before changes.
+The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation for each resolved target. OpenCode and Gemini/Antigravity point to whichever skill tree the resolver selected. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer manages are updated in place without creating Better Plan backup copies.
 
 ## Commands
 

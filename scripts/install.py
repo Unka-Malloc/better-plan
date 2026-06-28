@@ -9,7 +9,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -266,8 +265,8 @@ def install_gemini_extension(paths: InstallPaths, skill: Path, *, dry_run: bool)
     if dry_run:
         return
     paths.gemini_extension.mkdir(parents=True, exist_ok=True)
-    write_json(paths.gemini_extension / "gemini-extension.json", gemini_manifest(), backup=True)
-    write_text(paths.gemini_extension / "GEMINI.md", gemini_context_text(skill), backup=True)
+    write_json(paths.gemini_extension / "gemini-extension.json", gemini_manifest())
+    write_text(paths.gemini_extension / "GEMINI.md", gemini_context_text(skill))
     update_gemini_enablement(paths, enabled=True, dry_run=False)
 
 
@@ -284,7 +283,7 @@ def update_gemini_enablement(paths: InstallPaths, *, enabled: bool, dry_run: boo
         next_data.pop(SKILL_NAME, None)
 
     if next_data != data:
-        write_json(path, next_data, backup=path.exists())
+        write_json(path, next_data)
 
 
 def read_json_object(path: Path) -> dict[str, object]:
@@ -299,24 +298,15 @@ def read_json_object(path: Path) -> dict[str, object]:
     return data
 
 
-def write_json(path: Path, data: object, *, backup: bool = False) -> None:
-    write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n", backup=backup)
+def write_json(path: Path, data: object) -> None:
+    write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
-def write_text(path: Path, content: str, *, backup: bool = False) -> None:
+def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    if backup and path.exists():
-        backup_file(path)
     path.write_text(content, encoding="utf-8")
-
-
-def backup_file(path: Path) -> Path:
-    stamp = time.strftime("%Y%m%d%H%M%S")
-    backup = path.with_name(f"{path.name}.bak-better-plan-{stamp}")
-    shutil.copy2(path, backup)
-    return backup
 
 
 def native_skill_path(paths: InstallPaths, agent: str) -> Path:
@@ -368,33 +358,16 @@ def implementation_root(paths: InstallPaths, targets: dict[str, tuple[str, Path]
     return paths.shared_skill
 
 
-def backup_root_for_skill_tree(path: Path) -> Path:
-    return path.parent.parent / "skill-backups"
-
-
-def unique_backup_path(backup_root: Path, name: str) -> Path:
-    stamp = time.strftime("%Y%m%d%H%M%S")
-    candidate = backup_root / f"{name}.bak-better-plan-{stamp}"
-    index = 1
-    while candidate.exists():
-        candidate = backup_root / f"{name}.bak-better-plan-{stamp}-{index}"
-        index += 1
-    return candidate
-
-
-def move_skill_tree_to_backup(path: Path, *, dry_run: bool) -> Path | None:
+def remove_duplicate_skill_tree(path: Path, *, dry_run: bool) -> bool:
     if not path.exists():
-        return None
-    backup_root = backup_root_for_skill_tree(path)
-    backup = unique_backup_path(backup_root, path.name)
+        return False
     if dry_run:
-        return backup
-    backup_root.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(path), str(backup))
-    return backup
+        return True
+    remove_path(path)
+    return True
 
 
-def migrate_shared_scan_duplicates(
+def remove_shared_scan_duplicates(
     paths: InstallPaths,
     targets: dict[str, tuple[str, Path]],
     *,
@@ -405,12 +378,12 @@ def migrate_shared_scan_duplicates(
         if kind != "shared":
             continue
         path = native_skill_path(paths, name)
-        backup = move_skill_tree_to_backup(path, dry_run=dry_run)
-        if backup is None:
+        removed = remove_duplicate_skill_tree(path, dry_run=dry_run)
+        if not removed:
             messages.append(f"{name}: no duplicate native skill at {path}")
         else:
-            verb = "would move duplicate native skill" if dry_run else "moved duplicate native skill"
-            messages.append(f"{name}: {verb} {path} -> {backup}")
+            verb = "would remove duplicate native skill" if dry_run else "removed duplicate native skill"
+            messages.append(f"{name}: {verb} {path}")
     return messages
 
 
@@ -464,7 +437,7 @@ def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> 
 
     if "opencode" in agents:
         if not dry_run:
-            write_text(paths.opencode_agent, opencode_agent_text(root), backup=True)
+            write_text(paths.opencode_agent, opencode_agent_text(root))
         messages.append(f"opencode: {'would update' if dry_run else 'updated'} {paths.opencode_agent}")
 
     if "cursor" in agents:
@@ -479,7 +452,7 @@ def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> 
         install_gemini_extension(paths, root, dry_run=dry_run)
         messages.append(f"gemini: {'would update' if dry_run else 'updated'} {paths.gemini_extension}")
 
-    messages.extend(migrate_shared_scan_duplicates(paths, targets, dry_run=dry_run))
+    messages.extend(remove_shared_scan_duplicates(paths, targets, dry_run=dry_run))
     return messages
 
 
@@ -694,12 +667,12 @@ def check_shared_scan_agent(paths: InstallPaths, target: str) -> Check:
     check = check_skill_tree(target, root)
     if check.status != "OK":
         return check
-    legacy_root = native_skill_path(paths, target)
-    if kind == "shared" and legacy_root.exists():
+    native_root = native_skill_path(paths, target)
+    if kind == "shared" and native_root.exists():
         return Check(
             "WARN",
             target,
-            f"installed via shared skill at {root}; duplicate native skill still exists at {legacy_root}",
+            f"installed via shared skill at {root}; duplicate native skill still exists at {native_root}",
         )
     return Check("OK", target, f"installed via {kind} skill at {root}")
 
@@ -840,7 +813,7 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--dry-run", action="store_true", help="print planned changes without writing files")
     install.set_defaults(func=install_command)
 
-    update = subparsers.add_parser("update", help="update Better Plan adapters and migrate duplicate installs")
+    update = subparsers.add_parser("update", help="update Better Plan adapters and remove duplicate installs")
     add_common_arguments(update)
     update.add_argument("--dry-run", action="store_true", help="print planned changes without writing files")
     update.set_defaults(func=update_command)
