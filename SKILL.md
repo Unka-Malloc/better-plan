@@ -147,11 +147,19 @@ Goal: create or reuse a dedicated directory for each plan inside the Better Plan
 
 2. Create one plan directory per plan.
    - Use Step 1's plan reading to decide whether the project has one plan or multiple distinct plans.
+   - Split work into separate Plans only when the outcomes can be delivered, validated, and reviewed independently after any shared prerequisites are complete. Independent business lines, product areas, integrations, adapters, or document sets may become separate Plans when they share no direct implementation dependency beyond a stable common foundation.
+   - Keep tightly coupled work in one Plan when tasks need one checkpoint graph to express hard prerequisites. Do not rely on the root `Manifest.json` order to imply a dependency that must be enforced by `prerequisites`.
+   - Use a directory-tree dependency model when deciding Plan order. The root represents the most general shared prerequisite, directories closest to the root represent common foundations and contracts, deeper branches represent consumers such as product areas, business lines, integrations, adapters, or document sets, and sibling branches represent work that can proceed independently after their shared parent is ready.
+   - Record each conceptual directory level by its parent, current responsibility, and children. The parent entry should state the upstream foundation or contract this level needs; the current entry should state the capability, boundary, artifact set, or business area this level owns; the children entry should state which downstream Plans or work branches consume it or fan out from it.
+   - Treat this dependency tree as a planning model, not as required filesystem structure. Do not create directories named after dependency levels, phases, or priority bands solely to mirror the tree.
+   - When multiple Plans are valid, order the root `Manifest.json` by dependency and unlock value: shared foundations and common contracts first; cross-cutting infrastructure, schemas, protocols, toolchains, or reusable modules next; then independent business-line or feature Plans that can proceed in parallel once the shared base is ready; finally documentation, cleanup, release, or operator follow-up Plans unless those artifacts define a required upfront contract.
    - Every plan must have its own directory under the Better Plan workspace, even when there is only one plan.
    - Reuse an existing plan directory when the plan index or directory contents clearly identify the same plan.
    - For a new plan, create a stable lowercase hyphenated directory name based on the plan title, source filename, or dominant goal. Avoid renaming existing plan directories unless required to fix a collision.
    - Ensure every plan directory contains its own `Checkpoints.json`. Create it as an empty JSON array when it does not exist.
    - Keep all later artifacts for that plan inside its plan directory.
+   - Keep top-level planning artifacts thin. The root `Manifest.json` and any plan-level summary should act as navigation and status only, not as the main design document, architecture narrative, task breakdown, or execution guide.
+   - Do not create or expand top-level design documents as a substitute for checkpoint Nodes. If source material contains a high-level design, architecture proposal, roadmap, feature list, or business plan, distill it into Plan index fields only at summary level and put the actionable design, dependency, scope, risk, and execution detail into the relevant `Checkpoints.json` Nodes.
 
 3. Apply hierarchical plan directories when plans have parent-child relationships.
    - A parent plan's directory must be the root of its child plan directories. Use the parent plan slug as the directory path for the parent plan, and put each child plan under that path.
@@ -218,7 +226,7 @@ Hierarchical example:
    - `directory`: relative path from the Better Plan workspace root to this plan's dedicated directory. It may contain nested path segments when the plan is a child of another plan.
    - `source_files`: list of source plan files from Step 1. Use an empty list only when the plan came directly from the user request and has no source file yet.
    - `goal`: brief plan goal.
-   - `description`: concrete scope of the plan, its parent or child relationship when relevant, and any important constraints.
+   - `description`: lightweight plan summary only. Keep it short enough to identify the plan's scope, boundary, parent or child relationship when relevant, and important constraints. Do not put detailed design, architecture, dependency trees, task sequencing, implementation notes, risks, or acceptance logic here; move those details into the selected plan's `Checkpoints.json` Nodes.
    - `checkpoints`: relative path to this plan directory's checkpoint file. It must point to `<directory>/Checkpoints.json`.
 
 6. Validate before continuing.
@@ -261,7 +269,20 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
    - Link the chain through `prerequisites` and `next`: architecture and implementation depend on requirements, evidence, and validation matrix; final validation depends on implementation and the validation matrix.
    - Keep all artifact names flexible when the project already has equivalents, but keep the roles mandatory: requirements, evidence, validation matrix, architecture or scaffold, implementation, and final validation.
 
-4. Use this Node shape:
+4. Order Nodes by dependency and unlock value.
+   - Build the Node list as a topological execution graph. A Node must appear after every Node it depends on, and those dependencies must be listed in `prerequisites`; `next` should point to the natural downstream work that becomes available afterward.
+   - Use a directory-tree dependency model before flattening Nodes into the ordered array. The conceptual root is the most common prerequisite in the selected Plan; Nodes closest to the root are foundational contracts, schemas, data structures, shared modules, tools, validators, or fixtures; child branches are the modules, features, business lines, integrations, or documents that consume those foundations; leaves are specialized behavior, polish, cleanup, or operator-facing follow-up.
+   - For each conceptual directory level, record the parent, current responsibility, and children before flattening. `Parent` means the direct upstream Node or capability this level relies on and what it provides. `Current` means the concrete task responsibility, artifact set, module boundary, or design contract owned at this level. `Children` means the downstream Nodes, branches, business lines, features, documents, or integrations that are unblocked by this level.
+   - Interpret sibling branches as independent work unless the code or plan proves a hard dependency. Shared prerequisites should appear once near the root and fan out through `next`; do not duplicate the same foundation under each branch.
+   - Flatten the dependency tree root-to-leaf into `Checkpoints.json`, preserving topological validity. The tree guides ordering and branch independence, but the persisted checkpoint file must remain the required top-level JSON array of Node objects.
+   - Reorder existing Nodes when there is a concrete reason, such as fixing topological invalidity, moving shared prerequisites closer to the conceptual root, separating independent sibling branches, improving unlock value, or aligning the array with newly discovered code or plan dependencies. Preserve existing Node IDs, statuses, acceptance checks, and user-authored content while reordering. Update `prerequisites` and `next` so the graph still matches the new order, and record the reason in the affected Node `description` sections such as `Scope` or `Constraints & Risks`. Do not reorder Nodes for cosmetic neatness, phase-style storytelling, or historical chronology.
+   - Put shared foundations before specialized work when they are real prerequisites. Common domain models, data schemas, storage formats, protocol contracts, core services, shared UI components, configuration systems, build/test tooling, validators, fixtures, and reusable libraries should come before business-line, integration-specific, or feature-specific Nodes that consume them.
+   - Prefer Nodes that unblock the most downstream work when two tasks are otherwise independent. Use this to prioritize common contracts, APIs, data structures, and cross-cutting correctness or test infrastructure before leaf features.
+   - Keep independent business lines, product areas, adapters, or feature slices independent. Do not add fake prerequisites just to force a narrative sequence; represent them as separate Plans or sibling Nodes that depend only on the shared foundation they actually need.
+   - Place documentation and operator artifacts after the implementation they describe, unless the document is the source contract, design spec, API definition, schema, or migration plan that later Nodes must follow.
+   - Avoid phase-shaped ordering such as "foundation phase", "feature phase", or "cleanup phase" as deliverable labels. The ordering may be foundational-to-specialized, but every Node must still be a concrete commit-sized task converging on the single final state.
+
+5. Use this Node shape:
 
 ```json
 {
@@ -272,7 +293,7 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
   "platform": "macos",
   "difficulty": "medium",
   "goal": "One-sentence task goal.",
-  "description": "Detailed description of the work included in this task.",
+  "description": "Structured task design brief.",
   "acceptance_criteria": [
     {
       "checked": false,
@@ -290,7 +311,7 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
 }
 ```
 
-5. Interpret Node fields strictly.
+6. Interpret Node fields strictly.
    - `id`: globally unique task ID generated only by this skill's manifest tool `uuid` command. Validators require the tool's canonical UUID format.
    - `status`: task state. Must be exactly one of `pending`, `in_progress`, `completed`, `blocked`, or `skipped`.
    - `role`: delivery role. Must be exactly one of `product_requirements`, `evidence`, `validation_matrix`, `architecture_scaffold`, `implementation`, or `final_validation`.
@@ -298,14 +319,24 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
    - `platform`: exactly one required operating system platform, such as `macos`, `linux`, or `windows`; verify the current agent's operating system matches before running the task.
    - `difficulty`: required reasoning effort and agent capability, such as `low`, `medium`, `high`, or `deep`; only run the task when the agent can use that level or higher. New product or feature requirements, evidence and gap analysis, and validation-matrix Nodes must be `deep` unless Step 1 verified the corresponding artifact is already complete. Architecture, algorithm, data-structure, concurrency, and security tasks should be `high` or `deep`.
    - `goal`: brief task goal tied to product delivery, not only file edits.
-   - `description`: concrete task scope, including files, behavior, constraints, implementation notes, referenced requirement labels, and evidence links when known.
+   - `description`: structured task design brief. Do not target a fixed sentence count and do not write free-form filler. Populate the following sections in order inside the string, using clear labels or compact labeled clauses when that keeps JSON readable:
+     - `Scope`: name the concrete artifacts touched or inspected, such as code files, tests, scripts, configs, generated artifacts, documentation pages, or plan files. Also name the conceptual surface, such as modules, packages, components, commands, APIs, protocols, data models, feature areas, user-visible behaviors, or project capabilities. Include the Node's dependency-tree position when useful: its parent foundation or contract, its current level responsibility, and the child branches or consumers it unlocks. When exact files are not yet known, provide search targets such as symbols, routes, CLI flags, doc headings, config keys, schemas, or error strings.
+     - `Context`: summarize the current behavior, project state, prior decision, or source-plan requirement that makes this task necessary. Ground this in Step 1 evidence instead of generic intent.
+     - `Target`: describe the intended final behavior or design state for this Node only, including referenced requirement labels and evidence links when known. Keep ordering out of this section because `prerequisites` and `next` own execution order, and keep concrete completion checks out because `acceptance_criteria` owns verification.
+     - `Design Considerations`: when relevant, identify existing architectural or design patterns to follow, abstractions to reuse or avoid, data structures, state shapes, schemas, storage formats, algorithms, control flow, ordering semantics, complexity, concurrency, caching, parsing, error handling, or ownership and API boundary concerns.
+     - `Design Value`: explain why any material design choice is worth doing. A pattern, abstraction, data structure, algorithm, or architecture change is justified only when it reduces real complexity or duplication, preserves a domain invariant, clarifies ownership or API boundaries, improves correctness, testability, performance, scalability, observability, or failure handling, or aligns with an established project pattern. Prefer the project's existing patterns and the simplest local change unless this value test justifies a stronger design.
+     - `Constraints & Risks`: capture invariants, non-goals, compatibility/removal expectations, dependencies, assumptions, unresolved questions, and implementation risks that the executor must keep in mind.
+     - Omit a section only when it truly does not apply to the Node. If the source plan or inspected code does not justify a detail, state the uncertainty explicitly instead of inventing requirements.
    - `acceptance_criteria`: non-empty checkbox list. Each item must be an object with `checked` as a boolean and `text` as a non-empty string. Criteria should reference requirement labels, evidence artifacts, tests, verifiers, or generated-artifact checks.
    - `commit`: expected commit or delivery information, including the target Git repository's `.git` entry, message, and delivery target.
    - `next`: list of Node UUIDs that become natural follow-up candidates after this task. Use an empty list only when no follow-up Node exists.
 
-6. Build or update Nodes from the selected plan.
+7. Build or update Nodes from the selected plan.
    - Convert the plan items discovered in Step 1 into commit-sized Nodes.
    - Assign every Node the correct `role` so validators can enforce delivery order and role-specific difficulty.
+   - Decompose high-level plans aggressively into Nodes. Every meaningful design decision, dependency layer, module boundary, data shape, algorithm, feature slice, integration branch, documentation contract, migration step, risk mitigation, or validation target from the top-level plan should become a Node or part of a Node description and acceptance criteria.
+   - Prefer enriching `Checkpoints.json` over writing standalone top-level design prose. Create or expand a separate design document only when it is itself a required project artifact, external contract, source specification, or user-requested deliverable; even then, represent the work to create or update that document as a Node.
+   - Keep Plan and Manifest text thin after decomposition. If a Plan `description` starts carrying implementation details, architecture rationale, dependency ordering, or long narrative context, move that information into the relevant Node `description` sections instead.
    - Write Nodes toward a single final state, not a phased delivery model. A Node may be small for execution, but its goal and acceptance criteria must not allow multiple versions, old paths, fallback shims, or compatibility wrappers to remain.
    - Add missing requirements, evidence, validation-matrix, architecture or scaffold, and final-validation Nodes when the current plan lacks those roles. Requirements, evidence, and validation-matrix Nodes must appear before implementation Nodes.
    - Every implementation Node must reference at least one requirement label or explain why it is enabling work for a later requirement.
@@ -314,4 +345,5 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
    - Link Nodes through `prerequisites` and `next` instead of relying only on prose.
    - Mark already completed work as `completed` only when Step 1 found code or test evidence.
    - Preserve uncertainty in `description` or `acceptance_criteria`; do not silently invent requirements.
+   - Review every Node description before writing `Checkpoints.json`. Reject descriptions that are only a title, only a restatement of `goal`, generic filler, or missing applicable `Scope`, `Context`, `Target`, `Design Considerations`, `Design Value`, or `Constraints & Risks` content. For implementation tasks, also reject descriptions that ignore relevant design patterns, abstractions, data structures, schemas, algorithms, control flow, or error-handling considerations found in the source plan or inspected code. Reject descriptions that propose a new pattern, abstraction, data structure, algorithm, or architecture change without explaining its practical advantage over a simpler local change. A later agent should be able to understand which code or documents to inspect, which modules or feature areas are affected, what to change, why the design is worthwhile, and what to preserve without rereading the whole source plan; ordering belongs in `prerequisites` and `next`, and completion checks belong in `acceptance_criteria`.
    - Run the manifest validator after every manifest edit and fix reported issues before continuing.
