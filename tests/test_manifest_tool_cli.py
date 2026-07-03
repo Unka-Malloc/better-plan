@@ -15,7 +15,9 @@ UUID4_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f
 
 
 PLAN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+CHILD_PLAN_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 NODE_ID = "11111111-1111-4111-8111-111111111111"
+CHILD_NODE_ID = "33333333-3333-4333-8333-333333333333"
 MISSING_NODE_ID = "22222222-2222-4222-8222-222222222222"
 
 
@@ -40,6 +42,7 @@ def write_workspace(root: Path, *, include_bad_next: bool = False) -> None:
                 {
                     "id": NODE_ID,
                     "status": "completed",
+                    "role": "implementation",
                     "prerequisites": [],
                     "platform": "linux",
                     "difficulty": "medium",
@@ -81,6 +84,72 @@ def write_workspace(root: Path, *, include_bad_next: bool = False) -> None:
     )
 
 
+def checkpoint_node(node_id: str, *, goal: str, target: str, role: str = "implementation") -> dict[str, object]:
+    return {
+        "id": node_id,
+        "status": "completed",
+        "role": role,
+        "prerequisites": [],
+        "platform": "linux",
+        "difficulty": "medium",
+        "goal": goal,
+        "description": "Minimal checkpoint node for CLI integration tests.",
+        "acceptance_criteria": [
+            {
+                "checked": True,
+                "text": "The validator accepts the workspace.",
+            }
+        ],
+        "commit": {
+            "repository": ".git",
+            "message": "test cli validation",
+            "target": target,
+        },
+        "next": [],
+    }
+
+
+def write_hierarchical_workspace(root: Path) -> None:
+    common_dir = root / "common"
+    child_dir = common_dir / "a"
+    child_dir.mkdir(parents=True)
+    (common_dir / "Checkpoints.json").write_text(
+        json.dumps([checkpoint_node(NODE_ID, goal="Validate a shared foundation plan.", target="common")]),
+        encoding="utf-8",
+    )
+    (child_dir / "Checkpoints.json").write_text(
+        json.dumps([checkpoint_node(CHILD_NODE_ID, goal="Validate a child business-line plan.", target="common/a")]),
+        encoding="utf-8",
+    )
+    (root / "Manifest.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": PLAN_ID,
+                    "status": "completed",
+                    "title": "Common",
+                    "directory": "common",
+                    "source_files": ["docs/common-plan.md"],
+                    "goal": "Validate a shared foundation plan.",
+                    "description": "Parent plan for business-line child plans.",
+                    "checkpoints": "common/Checkpoints.json",
+                },
+                {
+                    "id": CHILD_PLAN_ID,
+                    "status": "completed",
+                    "title": "A",
+                    "directory": "common/a",
+                    "source_files": ["docs/a-plan.md"],
+                    "goal": "Validate a child business-line plan.",
+                    "description": "Child plan under the Common foundation.",
+                    "checkpoints": "common/a/Checkpoints.json",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 class ManifestToolCliTests(unittest.TestCase):
     def test_python_validate_accepts_minimal_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -90,6 +159,55 @@ class ManifestToolCliTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OK: validated 2 state file(s), 2 item(s).", result.stdout)
+
+    def test_python_validate_accepts_hierarchical_plan_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            write_hierarchical_workspace(Path(tmpdir))
+
+            result = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK: validated 3 state file(s), 4 item(s).", result.stdout)
+
+    def test_python_discover_finds_structural_workspace_with_arbitrary_directory_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir)
+            workspace = project / "delivery-roadmap"
+            workspace.mkdir()
+            write_workspace(workspace)
+
+            result = run_command(sys.executable, PYTHON_TOOL, "discover", project)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(str(workspace.resolve()), result.stdout.strip().splitlines())
+
+    def test_python_discover_rejects_manifest_without_plan_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir)
+            workspace = project / "planning"
+            workspace.mkdir()
+            (workspace / "Manifest.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": PLAN_ID,
+                            "status": "pending",
+                            "title": "Incomplete",
+                            "directory": "incomplete",
+                            "source_files": [],
+                            "goal": "Exercise structural discovery.",
+                            "description": "Manifest without its plan-local checkpoint file.",
+                            "checkpoints": "incomplete/Checkpoints.json",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_command(sys.executable, PYTHON_TOOL, "discover", project)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("No structurally valid Better Plan workspaces found", result.stderr)
 
     def test_python_validate_rejects_unknown_next_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

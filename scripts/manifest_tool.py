@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import uuid
@@ -19,6 +20,18 @@ STATE_FILE_NAMES = {MANIFEST_NAME, CHECKPOINTS_NAME}
 VALID_STATUSES = {"pending", "in_progress", "completed", "blocked", "skipped"}
 VALID_DIFFICULTIES = {"low", "medium", "high", "deep"}
 VALID_PLATFORMS = {"linux", "macos", "windows"}
+VALID_NODE_ROLES = {
+    "product_requirements",
+    "evidence",
+    "validation_matrix",
+    "architecture_scaffold",
+    "implementation",
+    "final_validation",
+}
+DEEP_REQUIRED_ROLES = {"product_requirements", "evidence", "validation_matrix"}
+HIGH_OR_DEEP_REQUIRED_ROLES = {"architecture_scaffold", "final_validation"}
+FOUNDATION_ROLE_ORDER = ["product_requirements", "evidence", "validation_matrix", "architecture_scaffold"]
+DISCOVERY_SKIP_DIRS = {".git", ".hg", ".svn", ".tox", ".venv", "__pycache__", "node_modules"}
 UUID4_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 PLAN_REQUIRED_FIELDS = {
     "id",
@@ -33,6 +46,7 @@ PLAN_REQUIRED_FIELDS = {
 TASK_REQUIRED_FIELDS = {
     "id",
     "status",
+    "role",
     "prerequisites",
     "platform",
     "difficulty",
@@ -219,6 +233,64 @@ def referenced_checkpoints_files(manifest: Path) -> list[Path]:
     return checkpoints
 
 
+def discover_workspace_manifests(root: Path) -> list[Path]:
+    if root.is_file():
+        if root.name == MANIFEST_NAME and is_structural_workspace_manifest(root):
+            return [root]
+        return []
+
+    candidates: list[Path] = []
+    for current_root, dirs, files in os.walk(root):
+        dirs[:] = [dirname for dirname in dirs if dirname not in DISCOVERY_SKIP_DIRS]
+        if MANIFEST_NAME not in files:
+            continue
+        manifest = Path(current_root) / MANIFEST_NAME
+        if is_structural_workspace_manifest(manifest):
+            candidates.append(manifest)
+
+    return sorted(candidates)
+
+
+def is_structural_workspace_manifest(manifest: Path) -> bool:
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+    if not isinstance(data, list) or not data:
+        return False
+
+    for plan in data:
+        if not isinstance(plan, dict):
+            return False
+        if not PLAN_REQUIRED_FIELDS.issubset(plan):
+            return False
+
+        directory = plan.get("directory")
+        checkpoints = plan.get("checkpoints")
+        if not is_relative_workspace_path(directory) or not is_relative_workspace_path(checkpoints):
+            return False
+
+        normalized_directory = normalize_workspace_path(str(directory))
+        normalized_checkpoints = normalize_workspace_path(str(checkpoints))
+        if normalized_checkpoints != expected_checkpoints_path(normalized_directory):
+            return False
+
+        plan_dir = manifest.parent / normalized_directory
+        checkpoint_path = manifest.parent / normalized_checkpoints
+        if not plan_dir.is_dir() or checkpoint_path.name != CHECKPOINTS_NAME or not checkpoint_path.is_file():
+            return False
+
+        try:
+            checkpoint_data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return False
+        if not isinstance(checkpoint_data, list):
+            return False
+
+    return True
+
+
 def is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
@@ -389,6 +461,11 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
             values = ", ".join(sorted(VALID_DIFFICULTIES))
             issues.append(Issue(path, f"{prefix}.difficulty: must be one of {values}"))
 
+        role = node.get("role")
+        if role not in VALID_NODE_ROLES:
+            values = ", ".join(sorted(VALID_NODE_ROLES))
+            issues.append(Issue(path, f"{prefix}.role: must be one of {values}"))
+
         for field in ("prerequisites", "next"):
             if not is_string_list(node.get(field)):
                 issues.append(Issue(path, f"{prefix}.{field}: must be an array of strings"))
@@ -469,6 +546,7 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
                     issues.append(Issue(path, f"node[{index}].next: unknown node id {ref!r}"))
 
     issues.extend(validate_prerequisite_cycles(path, data))
+    issues.extend(validate_delivery_roles(path, data))
     issues.extend(WORKFLOW_STATE_MACHINE.checkpoint_snapshot_issues(path, data))
     return len(data), issues
 
@@ -507,6 +585,46 @@ def validate_prerequisite_cycles(path: Path, data: Any) -> list[Issue]:
 
     for node_id in graph:
         visit(node_id, [])
+
+    return issues
+
+
+def validate_delivery_roles(path: Path, data: Any) -> list[Issue]:
+    if not isinstance(data, list):
+        return []
+
+    issues: list[Issue] = []
+    role_indexes: dict[str, list[int]] = {}
+
+    for index, node in enumerate(data):
+        if not isinstance(node, dict):
+            continue
+        role = node.get("role")
+        if isinstance(role, str) and role in VALID_NODE_ROLES:
+            role_indexes.setdefault(role, []).append(index)
+            difficulty = node.get("difficulty")
+            if role in DEEP_REQUIRED_ROLES and difficulty != "deep":
+                issues.append(Issue(path, f"node[{index}].difficulty: role {role!r} must use 'deep'"))
+            elif role in HIGH_OR_DEEP_REQUIRED_ROLES and difficulty not in {"high", "deep"}:
+                issues.append(Issue(path, f"node[{index}].difficulty: role {role!r} must use 'high' or 'deep'"))
+
+    first_indexes = {role: indexes[0] for role, indexes in role_indexes.items()}
+    for before, after in zip(FOUNDATION_ROLE_ORDER, FOUNDATION_ROLE_ORDER[1:]):
+        if before in first_indexes and after in first_indexes and first_indexes[before] > first_indexes[after]:
+            issues.append(Issue(path, f"delivery roles: {before!r} must appear before {after!r}"))
+
+    validation_index = first_indexes.get("validation_matrix")
+    for role in ("architecture_scaffold", "implementation"):
+        if validation_index is not None and role in first_indexes and first_indexes[role] < validation_index:
+            issues.append(Issue(path, f"delivery roles: {role!r} must not appear before 'validation_matrix'"))
+
+    implementation_indexes = role_indexes.get("implementation", [])
+    final_validation_indexes = role_indexes.get("final_validation", [])
+    if implementation_indexes and final_validation_indexes:
+        last_implementation = max(implementation_indexes)
+        first_final_validation = min(final_validation_indexes)
+        if first_final_validation < last_implementation:
+            issues.append(Issue(path, "delivery roles: 'final_validation' must appear after implementation nodes"))
 
     return issues
 
@@ -564,6 +682,19 @@ def validate_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def discover_command(args: argparse.Namespace) -> int:
+    root = Path(args.root).resolve()
+    manifests = discover_workspace_manifests(root)
+
+    if not manifests:
+        print(f"No structurally valid Better Plan workspaces found under {root}", file=sys.stderr)
+        return 1
+
+    for manifest in manifests:
+        print(manifest.parent)
+    return 0
+
+
 def uuid_command(args: argparse.Namespace) -> int:
     for _ in range(args.count):
         print(generate_id())
@@ -589,6 +720,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root, manifest file, or checkpoints file")
     validate.add_argument("--quiet", action="store_true", help="only print validation errors")
     validate.set_defaults(func=validate_command)
+
+    discover = subparsers.add_parser("discover", help=f"discover existing Better Plan workspaces by {MANIFEST_NAME}/{CHECKPOINTS_NAME} structure")
+    discover.add_argument("root", nargs="?", default=".", help="project root or manifest file to search")
+    discover.set_defaults(func=discover_command)
 
     uuid_parser = subparsers.add_parser("uuid", help="generate task IDs")
     uuid_parser.add_argument("--count", type=int, default=1, help="number of IDs to print")

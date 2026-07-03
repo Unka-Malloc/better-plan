@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
-  short_description: "Guided fixed project workflow"
-  default_prompt: "Use $better-plan to inspect project progress from the workflow entry file."
+  short_description: "End-to-end delivery planning"
+  default_prompt: "Use $better-plan to turn this product goal into requirements, evidence-backed checkpoints, implementation tasks, and validation."

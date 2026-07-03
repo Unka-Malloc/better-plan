@@ -2,10 +2,14 @@
 
 Better Plan is a Codex skill that turns project plans into a small validated workflow state machine.
 
+Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements.
+
 The workflow state is stored in two JSON files:
 
 - `Manifest.json` indexes Plans.
-- `Checkpoints.json` stores each Plan's executable Node graph.
+- `Checkpoints.json` stores each Plan's executable Node graph, including each Node's delivery `role`.
+
+Plans can be nested when one plan is the common foundation for other plans. For example, a shared `common` plan can own `common/Checkpoints.json`, while dependent business-line plans live under `common/a/Checkpoints.json`, `common/b/Checkpoints.json`, and `common/c/Checkpoints.json`. The root `Manifest.json` stays a flat array; hierarchy is expressed through each Plan's relative `directory` and `checkpoints` paths.
 
 ## Install
 
@@ -51,6 +55,12 @@ The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single imple
 
 ## Commands
 
+Discover existing Better Plan workspaces by structure, regardless of directory name:
+
+```sh
+python3 scripts/manifest_tool.py discover <project-root>
+```
+
 Validate a Better Plan workspace that already contains `Manifest.json` and plan-local `Checkpoints.json` files:
 
 ```sh
@@ -69,7 +79,7 @@ Check one status transition:
 python3 scripts/manifest_tool.py transition pending in_progress
 ```
 
-The validator checks JSON shape, UUIDs, graph references, prerequisite cycles, and lightweight state-machine guards such as prerequisite completion, checked acceptance criteria, and Plan status consistency with referenced checkpoints.
+The validator checks JSON shape, UUIDs, delivery roles, role-specific difficulty, graph references, prerequisite cycles, and lightweight state-machine guards such as prerequisite completion, checked acceptance criteria, and Plan status consistency with referenced checkpoints.
 
 ## Test
 
@@ -83,6 +93,7 @@ The test suite covers the validator state machine and CLI behavior.
 
 - `python3 -m unittest discover -s tests -v` passes.
 - `python3 scripts/install.py doctor` passes after local install.
+- `python3 scripts/manifest_tool.py discover <project-root>` finds structurally valid Better Plan workspaces.
 - `python3 scripts/manifest_tool.py uuid --count 1` prints one UUID4 value.
 - `python3 scripts/manifest_tool.py transition pending in_progress` succeeds.
 - `git status --short` contains only intended release files.
