@@ -28,15 +28,18 @@ def make_node(
     node_id: str,
     status: str,
     *,
+    role: str = "implementation",
     prerequisites: list[str] | None = None,
+    difficulty: str = "medium",
     checked: bool = True,
 ) -> dict[str, object]:
     return {
         "id": node_id,
         "status": status,
+        "role": role,
         "prerequisites": prerequisites or [],
         "platform": "macos",
-        "difficulty": "medium",
+        "difficulty": difficulty,
         "goal": "Exercise state machine validation.",
         "description": "Test node for Better Plan state machine rules.",
         "acceptance_criteria": [
@@ -128,6 +131,29 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
         self.assertTrue(
             any("cannot be 'completed' while checkpoints contain non-terminal nodes" in issue.message for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_product_requirements_role_requires_deep_difficulty(self) -> None:
+        data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="high")]
+
+        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+
+        self.assertTrue(
+            any("role 'product_requirements' must use 'deep'" in issue.message for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_architecture_role_requires_prior_validation_matrix(self) -> None:
+        data = [
+            make_node(NODE_A_ID, "pending", role="architecture_scaffold", difficulty="high"),
+            make_node(NODE_B_ID, "pending", role="validation_matrix", difficulty="deep"),
+        ]
+
+        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+
+        self.assertTrue(
+            any("'architecture_scaffold' must not appear before 'validation_matrix'" in issue.message for issue in issues),
             [issue.message for issue in issues],
         )
 

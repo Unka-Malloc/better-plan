@@ -1,6 +1,6 @@
 ---
 name: better-plan
-description: Project workflow skill for guiding an agent through a fixed execution process. Use when the user asks the agent to follow this project workflow, continue the workflow, inspect project progress, or begin from the workflow entry file.
+description: Project workflow skill for turning product delivery goals into an end-to-end plan with requirements, evidence, implementation checkpoints, and validation. Use when the user asks the agent to follow this project workflow, continue the workflow, inspect project progress, or begin from the workflow entry file.
 ---
 
 # Better Plan
@@ -25,6 +25,17 @@ Follow this workflow in order. Treat this file as the workflow entry point.
 - Plan writing rule, no staged delivery: do not define intermediate phases as acceptable deliverables. Commit-sized Nodes may sequence execution, but they must all converge on the same final implementation.
 - Plan writing rule, unique implementation: do not preserve old implementation paths, legacy fallbacks, long-lived compatibility logic, or parallel versions. All changes and optimizations must converge into the only current implementation.
 - Validation rule: every fix must include real verification, such as tests, verifier runs, registry validation, generated-artifact consistency checks, or static evidence tied to the changed files and behavior.
+
+## End-To-End Delivery Rules
+
+- Treat each Plan as a product delivery contract, not only an execution task list.
+- Define product requirements before implementation. The plan must state the user problem, target users or workflows, functional requirements, non-functional constraints, scope, non-goals, and final acceptance targets.
+- Ground delivery decisions in evidence. Requirements, architecture, data structures, algorithms, and product gaps must cite source files, existing behavior, user-provided facts, external product references, or open-source framework practice when relevant. Do not invent product claims or acceptance targets without evidence.
+- Establish plan-local delivery artifacts before implementation when they do not already exist. Prefer `Requirements.md`, `Evidence.md`, `Architecture.md`, and `Validation.md`, or reuse equivalent project-standard documents inside the plan directory.
+- Keep traceability from start to finish. Use stable requirement labels such as `REQ-001` in requirements, implementation Nodes, and validation criteria. Final validation must prove the same requirements defined at the beginning, not a different target discovered later.
+- Match task difficulty to the work. Product requirements, market or product-gap analysis, architecture decisions, complex algorithms, data structures, concurrency, and security-sensitive work require `high` or `deep`; simple mechanical edits such as configuration changes may use `low` or `medium`.
+- For a new product or feature plan, product requirements and evidence work must use `deep`. Use `high` only when Step 1 verified that the corresponding artifact already exists and only needs narrow maintenance.
+- Do not let implementation silently redefine the product target. If evidence changes the target, update the requirements and validation mapping first, then update dependent Nodes.
 
 ## Status Machine Rules
 
@@ -68,26 +79,38 @@ Goal: understand the current project progress before taking action.
 
 2. Read every relevant plan file closely.
    - Identify the stated goal of the project.
+   - Identify explicit product requirements, target users, workflows, constraints, non-goals, and acceptance targets.
    - Extract completed work, current work, blocked work, deferred work, and explicit next steps.
    - Capture any decisions, constraints, invariants, acceptance criteria, or warnings that later workflow steps must respect.
+   - Capture requirement labels and validation mappings when they exist. If they do not exist, mark that gap for Step 4 instead of inventing completion.
    - Note contradictions between plan files instead of resolving them silently.
 
-3. Trace each plan item into the codebase.
+3. Identify plan hierarchy and dependency relationships.
+   - Classify plans before creating directories. A plan is a parent plan when it provides a shared foundation, common module, base capability, protocol, data model, runtime, or validation layer that other plans depend on.
+   - Treat names such as `common`, `shared`, `base`, `core`, `foundation`, or equivalent project terms as strong hierarchy signals when their scope supports multiple child plans.
+   - Treat a business-line, feature-line, product-line, integration, adapter, or customer-specific plan as a child plan when it depends on that parent foundation.
+   - Preserve multi-level hierarchy when discovered. If a parent plan has child plans, and a child plan has more specific sub-plans, keep the same parent-to-child nesting instead of flattening the plan list.
+   - Record uncertain relationships explicitly in the progress snapshot instead of silently flattening or inventing dependencies.
+
+4. Trace each plan item into the codebase.
    - For every referenced feature, module, command, API, component, test, data model, configuration file, or script, open and read the involved files.
    - Use symbol and text search to find implementation paths that the plan implies but does not name directly.
    - Read tests, fixtures, migrations, generated configs, and build scripts when they determine whether a plan item is complete.
    - Follow imports and call sites far enough to understand behavior, ownership boundaries, and integration points.
 
-4. Determine the current project state.
+5. Determine the current project state.
    - Compare the plan against the actual code.
    - Mark each important item as complete, partial, missing, unclear, blocked, or contradicted by code.
    - Distinguish evidence from inference. Cite the files or symbols that support each conclusion.
+   - Identify whether product requirements, evidence, architecture or scaffold, implementation tasks, and validation targets align end to end.
    - Identify the highest-risk gaps that could affect the next workflow step.
 
-5. Report a concise progress snapshot before continuing.
+6. Report a concise progress snapshot before continuing.
    - Summarize the project goal.
    - List the plan files read.
    - List the code areas inspected.
+   - State any parent plans, child plans, and unresolved hierarchy questions found in Step 1.
+   - State whether requirements, evidence, implementation scope, and validation targets are aligned or missing.
    - State what appears complete, what remains, and what is uncertain.
    - Ask only for clarification that is necessary to avoid a risky assumption; otherwise continue with the workflow.
 
@@ -96,8 +119,10 @@ Goal: understand the current project progress before taking action.
 Goal: create or reuse a dedicated workspace for all later Better Plan artifacts.
 
 1. Identify whether the project already has a Better Plan workspace.
-   - Use the plan files, directories, and project conventions discovered in Step 1. Do not depend on a fixed list of path variants.
-   - Treat a directory as a Better Plan workspace only when it is clearly dedicated to this workflow, such as by explicit `better-plan` naming or existing `Manifest.json` and `Checkpoints.json` files that follow this workflow.
+   - Use `scripts/manifest_tool.py discover <project-root>` to find existing Better Plan workspaces by structure before relying on directory names or creating anything new.
+   - Treat structure as authoritative. A directory is an existing Better Plan workspace when it contains a root `Manifest.json` that indexes Plan objects whose `directory` fields point to plan-local directories and whose `checkpoints` fields point to `<directory>/Checkpoints.json` files.
+   - Reuse any structurally valid Better Plan workspace regardless of its directory name. The directory does not need to be named `better-plan`, `plan`, `plans`, or any other expected variant.
+   - Treat explicit `better-plan` naming as only a weak fallback when the structure is not established yet, such as an empty workspace being initialized.
    - Do not assume a project-owned planning directory belongs to Better Plan just because it contains plans.
 
 2. Choose the workspace location.
@@ -128,7 +153,17 @@ Goal: create or reuse a dedicated directory for each plan inside the Better Plan
    - Ensure every plan directory contains its own `Checkpoints.json`. Create it as an empty JSON array when it does not exist.
    - Keep all later artifacts for that plan inside its plan directory.
 
-3. Use this Plan shape in the workspace root `Manifest.json`:
+3. Apply hierarchical plan directories when plans have parent-child relationships.
+   - A parent plan's directory must be the root of its child plan directories. Use the parent plan slug as the directory path for the parent plan, and put each child plan under that path.
+   - The parent plan keeps its own checkpoint file at `<parent-directory>/Checkpoints.json`.
+   - A child plan uses `<parent-directory>/<child-directory>` as its `directory` and `<parent-directory>/<child-directory>/Checkpoints.json` as its `checkpoints` value.
+   - If `common` is the shared parent plan for child plans `A`, `B`, and `C`, create plan directories `common`, `common/a`, `common/b`, and `common/c`.
+   - When a shared foundation has multiple child plans, make the foundation the parent directory even if the user described the child plans first.
+   - When a plan depends on multiple parent candidates, choose the most direct shared foundation as the directory parent and describe the other dependency in the Plan `description`.
+   - Do not create an extra grouping directory unless that grouping is itself a real parent plan with its own goal, description, and `Checkpoints.json`.
+   - Keep the root `Manifest.json` flat as an array of Plan objects. Express hierarchy through each Plan object's `directory` and `checkpoints` relative paths.
+
+4. Use this Plan shape in the workspace root `Manifest.json`:
 
 ```json
 {
@@ -145,17 +180,48 @@ Goal: create or reuse a dedicated directory for each plan inside the Better Plan
 }
 ```
 
-4. Interpret Plan fields strictly.
+Hierarchical example:
+
+```json
+[
+  {
+    "id": "01234567-89ab-4def-8123-456789abcdef",
+    "status": "pending",
+    "title": "Common",
+    "directory": "common",
+    "source_files": [
+      "docs/common-plan.md"
+    ],
+    "goal": "Build the shared foundation required by the business-line plans.",
+    "description": "Common base capability that child plans depend on.",
+    "checkpoints": "common/Checkpoints.json"
+  },
+  {
+    "id": "89abcdef-0123-4567-89ab-cdef01234567",
+    "status": "pending",
+    "title": "A",
+    "directory": "common/a",
+    "source_files": [
+      "docs/a-plan.md"
+    ],
+    "goal": "Deliver business-line A on top of the common foundation.",
+    "description": "Child plan under Common because it depends on the shared foundation.",
+    "checkpoints": "common/a/Checkpoints.json"
+  }
+]
+```
+
+5. Interpret Plan fields strictly.
    - `id`: globally unique plan ID generated only by this skill's manifest tool `uuid` command.
    - `status`: plan state. Must be exactly one of `pending`, `in_progress`, `completed`, `blocked`, or `skipped`.
    - `title`: concise human-readable plan name.
-   - `directory`: relative path from the Better Plan workspace root to this plan's dedicated directory.
+   - `directory`: relative path from the Better Plan workspace root to this plan's dedicated directory. It may contain nested path segments when the plan is a child of another plan.
    - `source_files`: list of source plan files from Step 1. Use an empty list only when the plan came directly from the user request and has no source file yet.
    - `goal`: brief plan goal.
-   - `description`: concrete scope of the plan and any important constraints.
+   - `description`: concrete scope of the plan, its parent or child relationship when relevant, and any important constraints.
    - `checkpoints`: relative path to this plan directory's checkpoint file. It must point to `<directory>/Checkpoints.json`.
 
-5. Validate before continuing.
+6. Validate before continuing.
    - Use `scripts/manifest_tool.py validate <better-plan-workspace-root-or-state-file>` to validate the workspace root `Manifest.json` and the `Checkpoints.json` files referenced by that root index.
    - Use `scripts/manifest_tool.py uuid` to generate Plan IDs. Do not hand-write IDs or use external generators.
    - Treat invalid JSON, duplicate IDs, missing required fields, broken plan directories, or broken `checkpoints` paths as workflow issues to fix before selecting a plan for execution.
@@ -179,12 +245,29 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
    - Each Node must represent one commit-sized task: small enough to implement, validate, and commit independently.
    - Use the array order as the default execution order, while using node references to model dependencies and follow-up tasks.
 
-3. Use this Node shape:
+3. Build an end-to-end delivery graph.
+   - For a new product or feature plan, use this required foundation order before implementation:
+     1. Product requirements, `deep`, creates or updates `Requirements.md`.
+     2. Evidence and gap analysis, `deep`, creates or updates `Evidence.md`.
+     3. Validation matrix, `deep`, creates or updates `Validation.md` before code changes begin.
+     4. Architecture and scaffold, `high` or `deep`, creates or updates `Architecture.md` and any initial framework.
+   - Implementation Nodes must not appear before these foundation roles unless Step 1 verified the corresponding artifact is already complete. Final validation must not appear before the implementation Nodes that deliver the requirements it validates.
+   - For a new product or feature plan, the first Node must be product requirements unless Step 1 confirmed complete requirements already exist. Its goal should be to clarify the product delivery contract, not to design implementation internals. This Node should create or update `Requirements.md` or the project-standard equivalent, define requirement labels such as `REQ-001`, and record users, workflows, scope, non-goals, constraints, and final acceptance targets. Use `deep` difficulty unless the user already supplied complete requirements.
+   - The next foundation Node should be evidence and gap analysis unless Step 1 confirmed complete evidence already exists. This Node should create or update `Evidence.md`, cite source files and external references when used, compare relevant existing products or open-source practice when applicable, and explain why each major product, algorithm, data-structure, or architecture decision is grounded. Use `deep` difficulty unless the evidence is already complete and only needs narrow maintenance.
+   - Add a validation-matrix Node before architecture, scaffold, or implementation. This Node should create or update `Validation.md`, map every requirement label to one or more tests, verifiers, generated-artifact checks, or manual acceptance checks, and define the final end-to-end acceptance target before code changes begin. Use `deep` difficulty for new product or feature plans.
+   - Add an architecture and scaffold Node before feature implementation when the plan needs documents, interfaces, directories, data models, test harnesses, or framework setup. This Node should create or update `Architecture.md` and establish the initial implementation framework without pretending unfinished behavior is complete. Data models, schemas, APIs, and framework choices belong here or in later implementation Nodes, after product requirements and evidence are established.
+   - Add implementation Nodes after requirements, evidence, validation matrix, and scaffold prerequisites. Split by product capability, domain boundary, algorithm, data structure, runtime responsibility, or validation target. Assign `low` or `medium` only to simple mechanical work; assign `high` or `deep` to complex logic, algorithmic work, concurrent behavior, product judgment, or security-sensitive changes.
+   - Add final validation Nodes near the end with acceptance targets defined from the beginning. A final validation Node should run the mapped checks from `Validation.md` and prove the delivered product matches the initial requirements. Final validation is separate from the earlier validation-matrix Node and must not replace it.
+   - Link the chain through `prerequisites` and `next`: architecture and implementation depend on requirements, evidence, and validation matrix; final validation depends on implementation and the validation matrix.
+   - Keep all artifact names flexible when the project already has equivalents, but keep the roles mandatory: requirements, evidence, validation matrix, architecture or scaffold, implementation, and final validation.
+
+4. Use this Node shape:
 
 ```json
 {
   "id": "01234567-89ab-4def-8123-456789abcdef",
   "status": "pending",
+  "role": "implementation",
   "prerequisites": [],
   "platform": "macos",
   "difficulty": "medium",
@@ -207,21 +290,27 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
 }
 ```
 
-4. Interpret Node fields strictly.
+5. Interpret Node fields strictly.
    - `id`: globally unique task ID generated only by this skill's manifest tool `uuid` command. Validators require the tool's canonical UUID format.
    - `status`: task state. Must be exactly one of `pending`, `in_progress`, `completed`, `blocked`, or `skipped`.
+   - `role`: delivery role. Must be exactly one of `product_requirements`, `evidence`, `validation_matrix`, `architecture_scaffold`, `implementation`, or `final_validation`.
    - `prerequisites`: list of earlier Node IDs that must be checked and confirmed completed before this task can run. Each ID must already appear before the current Node in `Checkpoints.json`.
    - `platform`: exactly one required operating system platform, such as `macos`, `linux`, or `windows`; verify the current agent's operating system matches before running the task.
-   - `difficulty`: required reasoning effort, such as `low`, `medium`, `high`, or `deep`; only run the task when the agent can use that level or higher.
-   - `goal`: brief task goal.
-   - `description`: concrete task scope, including files, behavior, constraints, and implementation notes when known.
-   - `acceptance_criteria`: non-empty checkbox list. Each item must be an object with `checked` as a boolean and `text` as a non-empty string.
+   - `difficulty`: required reasoning effort and agent capability, such as `low`, `medium`, `high`, or `deep`; only run the task when the agent can use that level or higher. New product or feature requirements, evidence and gap analysis, and validation-matrix Nodes must be `deep` unless Step 1 verified the corresponding artifact is already complete. Architecture, algorithm, data-structure, concurrency, and security tasks should be `high` or `deep`.
+   - `goal`: brief task goal tied to product delivery, not only file edits.
+   - `description`: concrete task scope, including files, behavior, constraints, implementation notes, referenced requirement labels, and evidence links when known.
+   - `acceptance_criteria`: non-empty checkbox list. Each item must be an object with `checked` as a boolean and `text` as a non-empty string. Criteria should reference requirement labels, evidence artifacts, tests, verifiers, or generated-artifact checks.
    - `commit`: expected commit or delivery information, including the target Git repository's `.git` entry, message, and delivery target.
    - `next`: list of Node UUIDs that become natural follow-up candidates after this task. Use an empty list only when no follow-up Node exists.
 
-5. Build or update Nodes from the selected plan.
+6. Build or update Nodes from the selected plan.
    - Convert the plan items discovered in Step 1 into commit-sized Nodes.
+   - Assign every Node the correct `role` so validators can enforce delivery order and role-specific difficulty.
    - Write Nodes toward a single final state, not a phased delivery model. A Node may be small for execution, but its goal and acceptance criteria must not allow multiple versions, old paths, fallback shims, or compatibility wrappers to remain.
+   - Add missing requirements, evidence, validation-matrix, architecture or scaffold, and final-validation Nodes when the current plan lacks those roles. Requirements, evidence, and validation-matrix Nodes must appear before implementation Nodes.
+   - Every implementation Node must reference at least one requirement label or explain why it is enabling work for a later requirement.
+   - Every `validation_matrix` and `final_validation` Node must reference the requirement labels it maps or proves. The final validation Node must cover all non-skipped requirements or state which requirement is intentionally deferred by a skipped Node.
+   - If implementation work reveals a requirement mismatch, update the requirements, evidence, and validation mapping Nodes before continuing implementation.
    - Link Nodes through `prerequisites` and `next` instead of relying only on prose.
    - Mark already completed work as `completed` only when Step 1 found code or test evidence.
    - Preserve uncertainty in `description` or `acceptance_criteria`; do not silently invent requirements.
