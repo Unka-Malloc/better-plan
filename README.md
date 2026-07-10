@@ -2,14 +2,20 @@
 
 Better Plan is a Codex skill that turns project plans into a small validated workflow state machine.
 
-Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements.
+Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements through `REQ-...` labels recorded on each Node.
+
+The architecture role fixes module boundaries, layering, dependency direction, and deliberate design-pattern choices in `Architecture.md` before implementation starts. Implementation Nodes are split along those module boundaries and declare the files they own, so independent Nodes stay decoupled and can be developed in parallel instead of piling code into one file.
 
 The workflow state is stored in two JSON files:
 
 - `Manifest.json` indexes Plans.
-- `Checkpoints.json` stores each Plan's executable Node graph, including each Node's delivery `role`.
+- `Checkpoints.json` stores each Plan's executable Node graph, including each Node's delivery `role` and `requirements` labels.
 
-Plans can be nested when one plan is the common foundation for other plans. For example, a shared `common` plan can own `common/Checkpoints.json`, while dependent business-line plans live under `common/a/Checkpoints.json`, `common/b/Checkpoints.json`, and `common/c/Checkpoints.json`. The root `Manifest.json` stays a flat array; hierarchy is expressed through each Plan's relative `directory` and `checkpoints` paths.
+Status changes go through the manifest tool's mutation commands, which enforce the transition table and every snapshot invariant before writing. `validate` additionally compares each Plan and Node status against the file's git HEAD version and rejects changes that no transition path allows, such as `completed` back to `in_progress`.
+
+Plans can be nested when one plan is the common foundation for other plans. For example, a shared `common` plan can own `common/Checkpoints.json`, while dependent business-line plans live under `common/a/Checkpoints.json`, `common/b/Checkpoints.json`, and `common/c/Checkpoints.json`. The root `Manifest.json` stays a flat array; hierarchy is expressed through each Plan's relative `directory` and `checkpoints` paths. The tree grows top-down: upper directories are foundations, leaves are concrete delivery branches. Platform adaptation follows the same shape — a platform-neutral parent plan with one child plan per operating system or runtime target, so each platform's development direction is planned and executed independently.
+
+Field semantics and examples live in `references/state-files.md`; the canonical object shapes are printed by `scripts/manifest_tool.py schema plan|node`.
 
 ## Install
 
@@ -61,25 +67,45 @@ Discover existing Better Plan workspaces by structure, regardless of directory n
 python3 scripts/manifest_tool.py discover <project-root>
 ```
 
-Validate a Better Plan workspace that already contains `Manifest.json` and plan-local `Checkpoints.json` files:
+Validate a Better Plan workspace that already contains `Manifest.json` and plan-local `Checkpoints.json` files. `--json` prints machine-readable results; `--no-git` skips the git HEAD transition comparison:
 
 ```sh
-python3 scripts/manifest_tool.py validate <better-plan-workspace>
+python3 scripts/manifest_tool.py validate <better-plan-workspace> [--json] [--no-git]
 ```
 
-Generate IDs:
+Generate IDs and check one status transition edge:
 
 ```sh
 python3 scripts/manifest_tool.py uuid --count 3
-```
-
-Check one status transition:
-
-```sh
 python3 scripts/manifest_tool.py transition pending in_progress
 ```
 
-The validator checks JSON shape, UUIDs, delivery roles, role-specific difficulty, graph references, prerequisite cycles, and lightweight state-machine guards such as prerequisite completion, checked acceptance criteria, and Plan status consistency with referenced checkpoints.
+Change Node status through enforced transitions. Each command validates the whole state file before writing, writes atomically, and re-derives the owning Plan's status:
+
+```sh
+python3 scripts/manifest_tool.py start <node-id> <workspace>
+python3 scripts/manifest_tool.py check <node-id> <workspace> --criterion 0 --evidence "unit tests passed"
+python3 scripts/manifest_tool.py complete <node-id> <workspace> --delivered <sha>
+python3 scripts/manifest_tool.py block <node-id> <workspace> --reason "waiting on credentials"
+python3 scripts/manifest_tool.py skip <node-id> <workspace> --reason "deferred to a follow-up plan"
+```
+
+Re-derive Plan statuses, inspect progress, and pick the next task:
+
+```sh
+python3 scripts/manifest_tool.py sync-plan <workspace>
+python3 scripts/manifest_tool.py status <workspace> [--json]
+python3 scripts/manifest_tool.py next <workspace> [--json]
+```
+
+Print the canonical Plan or Node schema and template:
+
+```sh
+python3 scripts/manifest_tool.py schema plan
+python3 scripts/manifest_tool.py schema node
+```
+
+The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
 
 ## Test
 
@@ -87,7 +113,7 @@ The validator checks JSON shape, UUIDs, delivery roles, role-specific difficulty
 python3 -m unittest discover -s tests -v
 ```
 
-The test suite covers the validator state machine and CLI behavior.
+The test suite covers the validator state machine, the mutation commands, and CLI behavior.
 
 ## Minimal Release Checklist
 
@@ -96,4 +122,6 @@ The test suite covers the validator state machine and CLI behavior.
 - `python3 scripts/manifest_tool.py discover <project-root>` finds structurally valid Better Plan workspaces.
 - `python3 scripts/manifest_tool.py uuid --count 1` prints one UUID4 value.
 - `python3 scripts/manifest_tool.py transition pending in_progress` succeeds.
+- `python3 scripts/manifest_tool.py schema node` prints the canonical Node shape.
+- `start`, `check`, `complete`, and `sync-plan` drive a sample workspace from `pending` to `completed` and `validate` stays clean.
 - `git status --short` contains only intended release files.
