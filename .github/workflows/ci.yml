@@ -21,3 +21,5 @@ jobs:
         run: |
           python3 scripts/manifest_tool.py uuid --count 1
           python3 scripts/manifest_tool.py transition pending in_progress
+          python3 scripts/manifest_tool.py schema plan > /dev/null
+          python3 scripts/manifest_tool.py schema node > /dev/null
