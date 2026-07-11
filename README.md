@@ -69,10 +69,16 @@ Discover existing Better Plan workspaces by structure, regardless of directory n
 python3 scripts/manifest_tool.py discover <project-root>
 ```
 
-Validate a Better Plan workspace that already contains `Manifest.json` and plan-local `Checkpoints.json` files. `--json` prints machine-readable results; `--no-git` skips the git HEAD transition comparison:
+Validate a Better Plan workspace that already contains `Manifest.json` and plan-local `Checkpoints.json` files. `--plan` scopes validation to one plan (by id, directory, or title) plus the shared index so sibling-plan debt does not block the current change; `--check-sources` verifies that `source_files` entries still resolve; `--json` prints machine-readable results; `--no-git` skips the git HEAD transition comparison:
 
 ```sh
-python3 scripts/manifest_tool.py validate <better-plan-workspace> [--json] [--no-git]
+python3 scripts/manifest_tool.py validate <better-plan-workspace> [--plan <selector>] [--check-sources] [--json] [--no-git]
+```
+
+Cross-check requirement labels between plan markdown documents and Node `requirements` fields. Node labels missing from the documents are errors; documented labels carried by no non-skipped Node are warnings:
+
+```sh
+python3 scripts/manifest_tool.py check-labels <workspace> [--plan <selector>] [--json]
 ```
 
 Generate IDs and check one status transition edge:
@@ -82,14 +88,26 @@ python3 scripts/manifest_tool.py uuid --count 3
 python3 scripts/manifest_tool.py transition pending in_progress
 ```
 
-Change Node status through enforced transitions. Each command validates the whole state file before writing, writes atomically, and re-derives the owning Plan's status:
+Change Node status through enforced transitions. Each command validates the whole state file before writing, writes atomically, and re-derives the owning Plan's status. `pause` returns the running Node to `pending` so another Node can start, keeping `blocked` reserved for real dependencies. `check` records verifiable evidence: `--evidence-cmd` runs the verification command and requires exit 0, `--evidence-file` records the artifact with a sha256:
 
 ```sh
 python3 scripts/manifest_tool.py start <node-id> <workspace>
-python3 scripts/manifest_tool.py check <node-id> <workspace> --criterion 0 --evidence "unit tests passed"
+python3 scripts/manifest_tool.py pause <node-id> <workspace> --reason "yielding to an inserted task"
+python3 scripts/manifest_tool.py check <node-id> <workspace> --criterion 0 --evidence "unit tests passed" \
+  --evidence-cmd "python3 -m unittest discover -s tests" --evidence-file reports/coverage.txt
 python3 scripts/manifest_tool.py complete <node-id> <workspace> --delivered <sha>
 python3 scripts/manifest_tool.py block <node-id> <workspace> --reason "waiting on credentials"
 python3 scripts/manifest_tool.py skip <node-id> <workspace> --reason "deferred to a follow-up plan"
+```
+
+Change Node structure without hand-editing JSON. `add-node` inserts a new pending Node at a validated position (`--after X --splice` inserts it into X's outgoing chain and rewires downstream prerequisites), `rewire` edits `prerequisites`/`next`, and `edit-node` updates Node fields — terminal Nodes accept only requirements-label corrections because completed history stays immutable:
+
+```sh
+python3 scripts/manifest_tool.py add-node <workspace> --plan <selector> --after <node-id> --splice \
+  --goal "..." --description "Scope: ... Context: ... Target: ..." --requirements REQ-001 \
+  --criterion "..." --commit-message "..." --commit-target "..."
+python3 scripts/manifest_tool.py rewire <node-id> <workspace> --add-prerequisite <id> --remove-next <id>
+python3 scripts/manifest_tool.py edit-node <node-id> <workspace> --add-requirement REQ-002
 ```
 
 Re-derive Plan statuses, inspect progress, and pick the next task:
@@ -107,7 +125,7 @@ python3 scripts/manifest_tool.py schema plan
 python3 scripts/manifest_tool.py schema node
 ```
 
-The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
+The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, structured evidence references, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
 
 ## Test
 

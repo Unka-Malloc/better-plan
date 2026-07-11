@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,10 @@ DISCOVERY_SKIP_DIRS = {
 }
 UUID4_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 GIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 REQUIREMENT_LABEL_PATTERN = re.compile(r"^\S+$")
+REQUIREMENT_XREF_PATTERN = re.compile(r"\bREQ(?:-[A-Za-z0-9]+)+\b")
+EXTERNAL_SOURCE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:")
 PLAN_REQUIRED_FIELDS = {
     "id",
     "status",
@@ -83,7 +88,13 @@ TASK_OPTIONAL_FIELDS = {"requirements", "status_reason"}
 COMMIT_REQUIRED_FIELDS = {"repository", "message", "target"}
 COMMIT_OPTIONAL_FIELDS = {"delivered"}
 CRITERION_REQUIRED_FIELDS = {"checked", "text"}
-CRITERION_OPTIONAL_FIELDS = {"evidence"}
+CRITERION_OPTIONAL_FIELDS = {"evidence", "evidence_refs"}
+EVIDENCE_REF_TYPES = {"file", "command"}
+EVIDENCE_REF_FIELDS = {
+    "file": {"type", "path", "sha256", "recorded_at"},
+    "command": {"type", "command", "exit_code", "recorded_at"},
+}
+EVIDENCE_COMMAND_TIMEOUT_SECONDS = 1800
 PLAN_TEMPLATE: dict[str, Any] = {
     "id": "01234567-89ab-4def-8123-456789abcdef",
     "status": "pending",
@@ -253,11 +264,13 @@ class WorkflowStateMachine:
 
         return issues
 
-    def plan_snapshot_issues(self, path: Path, data: list[Any]) -> list[Issue]:
+    def plan_snapshot_issues(self, path: Path, data: list[Any], include_indexes: set[int] | None = None) -> list[Issue]:
         issues: list[Issue] = []
 
         for index, plan in enumerate(data):
             if not isinstance(plan, dict):
+                continue
+            if include_indexes is not None and index not in include_indexes:
                 continue
             status = plan.get("status")
             checkpoints = plan.get("checkpoints")
@@ -305,7 +318,7 @@ WORKFLOW_STATE_MACHINE = WorkflowStateMachine(
     statuses=frozenset(VALID_STATUSES),
     transitions={
         "pending": frozenset({"pending", "in_progress", "blocked", "skipped"}),
-        "in_progress": frozenset({"in_progress", "completed", "blocked", "skipped"}),
+        "in_progress": frozenset({"in_progress", "pending", "completed", "blocked", "skipped"}),
         "blocked": frozenset({"blocked", "in_progress", "skipped"}),
         "completed": frozenset({"completed"}),
         "skipped": frozenset({"skipped"}),
@@ -447,7 +460,7 @@ def is_workspace_root_manifest(path: Path) -> bool:
     return path.name == MANIFEST_NAME
 
 
-def validate_manifest(path: Path) -> tuple[int, list[Issue]]:
+def validate_manifest(path: Path, snapshot_indexes: set[int] | None = None) -> tuple[int, list[Issue]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -459,13 +472,13 @@ def validate_manifest(path: Path) -> tuple[int, list[Issue]]:
         return 0, [Issue(path, "top-level value must be an array")]
 
     if path.name == MANIFEST_NAME:
-        return validate_plan_manifest_data(path, data)
+        return validate_plan_manifest_data(path, data, snapshot_indexes=snapshot_indexes)
     if path.name == CHECKPOINTS_NAME:
         return validate_checkpoints_data(path, data)
     return len(data), [Issue(path, f"state file must be named {MANIFEST_NAME} or {CHECKPOINTS_NAME}")]
 
 
-def validate_plan_manifest_data(path: Path, data: list[Any]) -> tuple[int, list[Issue]]:
+def validate_plan_manifest_data(path: Path, data: list[Any], snapshot_indexes: set[int] | None = None) -> tuple[int, list[Issue]]:
     issues: list[Issue] = []
     seen: set[str] = set()
     directories: set[str] = set()
@@ -537,7 +550,7 @@ def validate_plan_manifest_data(path: Path, data: list[Any]) -> tuple[int, list[
             if not (path.parent / normalized_checkpoints).is_file():
                 issues.append(Issue(path, f"{prefix}.checkpoints: file does not exist: {normalized_checkpoints}"))
 
-    issues.extend(WORKFLOW_STATE_MACHINE.plan_snapshot_issues(path, data))
+    issues.extend(WORKFLOW_STATE_MACHINE.plan_snapshot_issues(path, data, include_indexes=snapshot_indexes))
     return len(data), issues
 
 
@@ -632,6 +645,8 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
                     evidence = criterion.get("evidence")
                     if not isinstance(evidence, str) or not evidence.strip():
                         issues.append(Issue(path, f"{criterion_prefix}.evidence: must be a non-empty string when present"))
+                if "evidence_refs" in criterion:
+                    issues.extend(validate_evidence_refs(path, criterion_prefix, criterion.get("evidence_refs")))
 
         platform = node.get("platform")
         if platform not in VALID_PLATFORMS:
@@ -695,6 +710,46 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
     issues.extend(validate_requirement_traceability(path, data))
     issues.extend(WORKFLOW_STATE_MACHINE.checkpoint_snapshot_issues(path, data))
     return len(data), issues
+
+
+def validate_evidence_refs(path: Path, prefix: str, refs: Any) -> list[Issue]:
+    issues: list[Issue] = []
+    if not isinstance(refs, list) or not refs:
+        issues.append(Issue(path, f"{prefix}.evidence_refs: must be a non-empty array of evidence reference objects"))
+        return issues
+
+    for ref_index, ref in enumerate(refs):
+        ref_prefix = f"{prefix}.evidence_refs[{ref_index}]"
+        if not isinstance(ref, dict):
+            issues.append(Issue(path, f"{ref_prefix}: must be an object"))
+            continue
+        ref_type = ref.get("type")
+        if ref_type not in EVIDENCE_REF_TYPES:
+            values = ", ".join(sorted(EVIDENCE_REF_TYPES))
+            issues.append(Issue(path, f"{ref_prefix}.type: must be one of {values}"))
+            continue
+        expected_fields = EVIDENCE_REF_FIELDS[str(ref_type)]
+        for field in sorted(expected_fields - set(ref)):
+            issues.append(Issue(path, f"{ref_prefix}.{field}: missing required field"))
+        for field in sorted(set(ref) - expected_fields):
+            issues.append(Issue(path, f"{ref_prefix}.{field}: unknown field"))
+        recorded_at = ref.get("recorded_at")
+        if "recorded_at" in ref and (not isinstance(recorded_at, str) or not recorded_at.strip()):
+            issues.append(Issue(path, f"{ref_prefix}.recorded_at: must be a non-empty timestamp string"))
+        if ref_type == "file":
+            if "path" in ref and (not isinstance(ref.get("path"), str) or not str(ref.get("path")).strip()):
+                issues.append(Issue(path, f"{ref_prefix}.path: must be a non-empty string"))
+            sha256 = ref.get("sha256")
+            if "sha256" in ref and (not isinstance(sha256, str) or not SHA256_PATTERN.fullmatch(sha256)):
+                issues.append(Issue(path, f"{ref_prefix}.sha256: must be a 64-character lowercase hex digest"))
+        else:
+            if "command" in ref and (not isinstance(ref.get("command"), str) or not str(ref.get("command")).strip()):
+                issues.append(Issue(path, f"{ref_prefix}.command: must be a non-empty string"))
+            exit_code = ref.get("exit_code")
+            if "exit_code" in ref and (type(exit_code) is not int or exit_code != 0):
+                issues.append(Issue(path, f"{ref_prefix}.exit_code: must be the integer 0; command evidence must record a passing run"))
+
+    return issues
 
 
 def validate_prerequisite_cycles(path: Path, data: Any) -> list[Issue]:
@@ -893,6 +948,11 @@ def write_state_entries(path: Path, data: list[Any]) -> None:
 
 
 def workspace_manifest_path(root: Path) -> Path:
+    if UUID4_PATTERN.fullmatch(str(root).strip().lower()):
+        raise ToolError(
+            f"{root} looks like a node UUID, not a workspace root; "
+            "the argument order is `<command> <node-id> [root]`, where [root] is the Better Plan workspace directory"
+        )
     root = root.expanduser().resolve()
     if root.is_file():
         if root.name == MANIFEST_NAME:
@@ -900,8 +960,83 @@ def workspace_manifest_path(root: Path) -> Path:
         raise ToolError(f"{root}: workspace root must be a directory containing {MANIFEST_NAME}")
     manifest = root / MANIFEST_NAME
     if not manifest.is_file():
-        raise ToolError(f"No {MANIFEST_NAME} found under {root}; run from the Better Plan workspace root")
+        raise ToolError(f"No {MANIFEST_NAME} found under {root}; pass the Better Plan workspace root (the directory holding {MANIFEST_NAME}), not a plan directory or state file")
     return manifest
+
+
+def resolve_plan_entry(manifest: Path, manifest_data: list[Any], selector: str) -> tuple[int, dict[str, Any]]:
+    """Resolve a plan by id, directory, or title. Raises when unknown or ambiguous."""
+    wanted = selector.strip()
+    wanted_directory = normalize_workspace_path(wanted) if is_relative_workspace_path(wanted) else None
+    matches: list[tuple[int, dict[str, Any]]] = []
+    for index, plan in enumerate(manifest_data):
+        if not isinstance(plan, dict):
+            continue
+        directory = plan.get("directory")
+        normalized = normalize_workspace_path(str(directory)) if is_relative_workspace_path(directory) else None
+        if wanted in {plan.get("id"), plan.get("title")} or (wanted_directory is not None and wanted_directory == normalized):
+            matches.append((index, plan))
+
+    if not matches:
+        known = ", ".join(
+            str(plan.get("directory"))
+            for plan in manifest_data
+            if isinstance(plan, dict) and is_relative_workspace_path(plan.get("directory"))
+        )
+        raise ToolError(f"no plan matches {selector!r} by id, directory, or title in {manifest}; known plan directories: {known}")
+    if len(matches) > 1:
+        values = ", ".join(f"plan[{index}]" for index, _ in matches)
+        raise ToolError(f"plan selector {selector!r} is ambiguous in {manifest}: {values}; use the plan id")
+    return matches[0]
+
+
+def project_root_for(workspace_root: Path) -> Path:
+    for candidate in (workspace_root, *workspace_root.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return workspace_root
+
+
+def source_file_issues(manifest: Path, data: list[Any], include_indexes: set[int] | None = None) -> list[Issue]:
+    """Check that plan source_files entries resolve to real files or directories.
+
+    Entries are resolved against the project root (nearest ancestor with .git),
+    the workspace root, and the current directory. URL entries and external
+    repository references such as `owner/repo:path` are skipped.
+    """
+    workspace_root = manifest.parent
+    bases: list[Path] = []
+    for base in (project_root_for(workspace_root), workspace_root, Path.cwd()):
+        if base not in bases:
+            bases.append(base)
+
+    issues: list[Issue] = []
+    for index, plan in enumerate(data):
+        if not isinstance(plan, dict):
+            continue
+        if include_indexes is not None and index not in include_indexes:
+            continue
+        source_files = plan.get("source_files")
+        if not is_string_list(source_files):
+            continue
+        for position, entry in enumerate(source_files):
+            value = entry.strip()
+            if not value or "://" in value or EXTERNAL_SOURCE_PATTERN.match(value):
+                continue
+            normalized = value.replace("\\", "/")
+            candidate = Path(normalized)
+            if candidate.is_absolute():
+                exists = candidate.exists()
+            else:
+                exists = any((base / normalized).exists() for base in bases)
+            if not exists:
+                issues.append(
+                    Issue(
+                        manifest,
+                        f"plan[{index}].source_files[{position}]: not found from the project root, workspace root, or current directory: {value}",
+                    )
+                )
+    return issues
 
 
 @dataclass
@@ -943,15 +1078,39 @@ def locate_node(manifest: Path, node_id: str) -> NodeLocation:
     return matches[0]
 
 
-def derive_plan_status(current: str, node_statuses: list[str]) -> str:
+def has_startable_pending_node(nodes: list[Any]) -> bool:
+    status_by_id: dict[str, str] = {}
+    for node in nodes:
+        if isinstance(node, dict) and isinstance(node.get("id"), str) and WORKFLOW_STATE_MACHINE.is_status(node.get("status")):
+            status_by_id[node["id"]] = str(node["status"])
+
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("status") != "pending":
+            continue
+        prerequisites = node.get("prerequisites")
+        if not is_string_list(prerequisites):
+            continue
+        if all(status_by_id.get(ref) == "completed" for ref in prerequisites):
+            return True
+    return False
+
+
+def derive_plan_status(current: str, nodes: list[Any]) -> str:
+    node_statuses = [
+        str(node.get("status"))
+        for node in nodes
+        if isinstance(node, dict) and WORKFLOW_STATE_MACHINE.is_status(node.get("status"))
+    ]
     if not node_statuses:
         return current
     if "in_progress" in node_statuses:
         return "in_progress"
-    if "blocked" in node_statuses:
-        return "blocked"
     if all(status in WORKFLOW_STATE_MACHINE.terminal_statuses for status in node_statuses):
         return "skipped" if all(status == "skipped" for status in node_statuses) else "completed"
+    if "blocked" in node_statuses:
+        # The plan stalls only when the blocked node leaves nothing startable;
+        # otherwise sibling nodes can keep the plan moving.
+        return "blocked" if not has_startable_pending_node(nodes) else "in_progress"
     if "completed" in node_statuses:
         return "in_progress"
     return "pending"
@@ -964,6 +1123,32 @@ def plan_label(plan: dict[str, Any], index: int) -> str:
     return f"plan[{index}]"
 
 
+def write_location_and_sync_plan(location: NodeLocation) -> list[str]:
+    """Validate the mutated checkpoints file, write it, and re-derive the owning plan status."""
+    _, issues = validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
+    if issues:
+        details = "\n".join(f"  {issue.path}: {issue.message}" for issue in issues)
+        raise ToolError(f"refusing to write an invalid state file; fix these issues first:\n{details}")
+
+    plan = location.manifest_data[location.plan_index]
+    plan_status = plan.get("status") if isinstance(plan, dict) else None
+    if not isinstance(plan, dict) or not WORKFLOW_STATE_MACHINE.is_status(plan_status):
+        raise ToolError(f"{location.manifest}: plan[{location.plan_index}].status is invalid; fix the manifest before mutating nodes")
+
+    label = plan_label(plan, location.plan_index)
+    derived = derive_plan_status(str(plan_status), location.checkpoints_data)
+    if derived != plan_status and not WORKFLOW_STATE_MACHINE.can_reach(str(plan_status), derived):
+        raise ToolError(f"plan {label!r}: this change derives plan status {derived!r}, but {plan_status!r} cannot reach it; fix {location.manifest} first")
+
+    write_state_entries(location.checkpoints_path, location.checkpoints_data)
+    messages: list[str] = []
+    if derived != plan_status:
+        plan["status"] = derived
+        write_state_entries(location.manifest, location.manifest_data)
+        messages.append(f"OK: plan {label!r} {plan_status} -> {derived}")
+    return messages
+
+
 def run_node_mutation(
     root: str,
     node_id: str,
@@ -971,6 +1156,7 @@ def run_node_mutation(
     *,
     reason: str | None = None,
     delivered: str | None = None,
+    require_current: str | None = None,
 ) -> list[str]:
     manifest = workspace_manifest_path(Path(root))
     location = locate_node(manifest, node_id)
@@ -980,14 +1166,26 @@ def run_node_mutation(
     if not WORKFLOW_STATE_MACHINE.is_status(current):
         raise ToolError(f"{location.checkpoints_path}: node[{location.node_index}].status is invalid; fix the state file before transitioning")
     current_status = str(current)
+    if require_current is not None and current_status != require_current:
+        raise ToolError(f"node {node_id}: this command requires an {require_current!r} node; current status is {current_status!r}")
     if not WORKFLOW_STATE_MACHINE.can_transition(current_status, target):
         allowed = ", ".join(sorted(WORKFLOW_STATE_MACHINE.transitions[current_status]))
         raise ToolError(f"node {node_id}: cannot transition from {current_status!r} to {target!r}; allowed targets: {allowed}")
+
+    if target == "in_progress":
+        for entry in location.checkpoints_data:
+            if isinstance(entry, dict) and entry.get("status") == "in_progress" and entry.get("id") != node_id:
+                raise ToolError(
+                    f"node {entry.get('id')} is already in_progress in {location.checkpoints_path}; "
+                    f"pause it with `pause {entry.get('id')}` to yield, or complete/block it, before starting {node_id}"
+                )
 
     node["status"] = target
     if target in {"blocked", "skipped"}:
         if reason is None or not reason.strip():
             raise ToolError(f"a non-empty --reason is required to mark a node {target}")
+        node["status_reason"] = reason.strip()
+    elif target == "pending" and reason is not None and reason.strip():
         node["status_reason"] = reason.strip()
     else:
         node.pop("status_reason", None)
@@ -997,32 +1195,8 @@ def run_node_mutation(
             raise ToolError(f"node {node_id}: commit must be an object before recording --delivered")
         commit["delivered"] = delivered
 
-    _, issues = validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
-    if issues:
-        details = "\n".join(f"  {issue.path}: {issue.message}" for issue in issues)
-        raise ToolError(f"refusing to write an invalid state file; fix these issues first:\n{details}")
-
-    plan = location.manifest_data[location.plan_index]
-    plan_status = plan.get("status") if isinstance(plan, dict) else None
-    if not isinstance(plan, dict) or not WORKFLOW_STATE_MACHINE.is_status(plan_status):
-        raise ToolError(f"{location.manifest}: plan[{location.plan_index}].status is invalid; fix the manifest before transitioning nodes")
-
-    node_statuses = [
-        str(entry.get("status"))
-        for entry in location.checkpoints_data
-        if isinstance(entry, dict) and WORKFLOW_STATE_MACHINE.is_status(entry.get("status"))
-    ]
-    label = plan_label(plan, location.plan_index)
-    derived = derive_plan_status(str(plan_status), node_statuses)
-    if derived != plan_status and not WORKFLOW_STATE_MACHINE.can_reach(str(plan_status), derived):
-        raise ToolError(f"plan {label!r}: this change derives plan status {derived!r}, but {plan_status!r} cannot reach it; fix {location.manifest} first")
-
-    write_state_entries(location.checkpoints_path, location.checkpoints_data)
     messages = [f"OK: node {node_id} {current_status} -> {target}"]
-    if derived != plan_status:
-        plan["status"] = derived
-        write_state_entries(location.manifest, location.manifest_data)
-        messages.append(f"OK: plan {label!r} {plan_status} -> {derived}")
+    messages.extend(write_location_and_sync_plan(location))
     return messages
 
 
@@ -1062,7 +1236,19 @@ def validate_command(args: argparse.Namespace) -> int:
             print(message, file=sys.stderr)
         return 1
 
-    if len(manifests) == 1 and manifests[0].name == MANIFEST_NAME:
+    snapshot_indexes: set[int] | None = None
+    if args.plan is not None:
+        if manifests[0].name != MANIFEST_NAME:
+            raise ToolError(f"--plan requires the Better Plan workspace root or its {MANIFEST_NAME}, not a single {CHECKPOINTS_NAME}")
+        manifest_data = load_state_entries(manifests[0])
+        plan_index, plan = resolve_plan_entry(manifests[0], manifest_data, args.plan)
+        snapshot_indexes = {plan_index}
+        checkpoints = plan.get("checkpoints")
+        if is_relative_workspace_path(checkpoints):
+            checkpoint_path = manifests[0].parent / normalize_workspace_path(str(checkpoints))
+            if checkpoint_path.name == CHECKPOINTS_NAME and checkpoint_path.is_file():
+                manifests.append(checkpoint_path)
+    elif len(manifests) == 1 and manifests[0].name == MANIFEST_NAME:
         manifests.extend(referenced_checkpoints_files(manifests[0]))
 
     all_issues: list[Issue] = []
@@ -1070,7 +1256,10 @@ def validate_command(args: argparse.Namespace) -> int:
     global_ids: dict[str, Path] = {}
 
     for manifest in manifests:
-        entry_count, issues = validate_manifest(manifest)
+        entry_count, issues = validate_manifest(
+            manifest,
+            snapshot_indexes=snapshot_indexes if manifest.name == MANIFEST_NAME else None,
+        )
         total_entries += entry_count
         all_issues.extend(issues)
 
@@ -1084,6 +1273,9 @@ def validate_command(args: argparse.Namespace) -> int:
 
         if not args.no_git:
             all_issues.extend(git_transition_issues(manifest, data))
+
+        if args.check_sources and manifest.name == MANIFEST_NAME:
+            all_issues.extend(source_file_issues(manifest, data, include_indexes=snapshot_indexes))
 
         for index, node in enumerate(data):
             if not isinstance(node, dict) or not isinstance(node.get("id"), str):
@@ -1176,6 +1368,63 @@ def skip_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def pause_command(args: argparse.Namespace) -> int:
+    for message in run_node_mutation(args.root, args.node_id, "pending", reason=args.reason, require_current="in_progress"):
+        print(message)
+    return 0
+
+
+def evidence_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def file_evidence_ref(value: str) -> dict[str, Any]:
+    path = Path(value).expanduser()
+    if not path.is_file():
+        raise ToolError(f"--evidence-file: not a readable file: {value}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return {
+        "type": "file",
+        "path": value.strip().replace("\\", "/"),
+        "sha256": digest.hexdigest(),
+        "recorded_at": evidence_timestamp(),
+    }
+
+
+def command_evidence_ref(command: str) -> dict[str, Any]:
+    if not command.strip():
+        raise ToolError("--evidence-cmd must be a non-empty command")
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=EVIDENCE_COMMAND_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ToolError(f"--evidence-cmd failed to run: {exc}") from exc
+    if result.returncode != 0:
+        tail = "\n".join(result.stdout.splitlines()[-5:])
+        raise ToolError(
+            f"--evidence-cmd exited with {result.returncode}; refusing to record failing evidence for the criterion.\n"
+            f"command: {command}\noutput tail:\n{tail}"
+        )
+    return {
+        "type": "command",
+        "command": command.strip(),
+        "exit_code": 0,
+        "recorded_at": evidence_timestamp(),
+    }
+
+
 def check_command(args: argparse.Namespace) -> int:
     manifest = workspace_manifest_path(Path(args.root))
     location = locate_node(manifest, args.node_id)
@@ -1190,11 +1439,19 @@ def check_command(args: argparse.Namespace) -> int:
     if not isinstance(criterion, dict):
         raise ToolError(f"node {args.node_id}: acceptance_criteria[{args.criterion}] must be an object")
 
+    refs: list[dict[str, Any]] = []
+    for value in args.evidence_cmd or []:
+        refs.append(command_evidence_ref(value))
+    for value in args.evidence_file or []:
+        refs.append(file_evidence_ref(value))
+
     criterion["checked"] = True
     if args.evidence is not None:
         if not args.evidence.strip():
             raise ToolError("--evidence must be a non-empty string")
         criterion["evidence"] = args.evidence.strip()
+    if refs:
+        criterion["evidence_refs"] = refs
 
     _, issues = validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
     if issues:
@@ -1202,7 +1459,365 @@ def check_command(args: argparse.Namespace) -> int:
         raise ToolError(f"refusing to write an invalid state file; fix these issues first:\n{details}")
 
     write_state_entries(location.checkpoints_path, location.checkpoints_data)
-    print(f"OK: node {args.node_id} acceptance_criteria[{args.criterion}] checked")
+    suffix = f" with {len(refs)} evidence reference(s)" if refs else ""
+    print(f"OK: node {args.node_id} acceptance_criteria[{args.criterion}] checked{suffix}")
+    return 0
+
+
+def parse_id_list(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def find_node_index(checkpoints_data: list[Any], node_id: str, checkpoints_path: Path) -> int:
+    for index, node in enumerate(checkpoints_data):
+        if isinstance(node, dict) and node.get("id") == node_id:
+            return index
+    raise ToolError(f"node {node_id} not found in {checkpoints_path}")
+
+
+def plan_checkpoints_location(manifest: Path, manifest_data: list[Any], selector: str) -> tuple[int, dict[str, Any], Path, list[Any]]:
+    plan_index, plan = resolve_plan_entry(manifest, manifest_data, selector)
+    checkpoints_value = plan.get("checkpoints")
+    if not is_relative_workspace_path(checkpoints_value):
+        raise ToolError(f"plan {plan_label(plan, plan_index)!r}: checkpoints must be a relative path to {CHECKPOINTS_NAME}")
+    checkpoints_path = manifest.parent / normalize_workspace_path(str(checkpoints_value))
+    if checkpoints_path.name != CHECKPOINTS_NAME or not checkpoints_path.is_file():
+        raise ToolError(f"plan {plan_label(plan, plan_index)!r}: missing checkpoints file {checkpoints_path}")
+    return plan_index, plan, checkpoints_path, load_state_entries(checkpoints_path)
+
+
+def add_node_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+    plan_index, plan, checkpoints_path, checkpoints_data = plan_checkpoints_location(manifest, manifest_data, args.plan)
+
+    node_id = args.id or generate_id()
+    if not is_manifest_id(node_id):
+        raise ToolError("--id must be a UUID4 value; generate ids with the uuid command")
+
+    if args.after and args.before:
+        raise ToolError("use only one of --after or --before")
+    if args.splice and not args.after:
+        raise ToolError("--splice requires --after <node-id>; splice inserts the new node into that node's outgoing chain")
+
+    prerequisites = parse_id_list(args.prerequisites) or []
+    next_refs = parse_id_list(args.next) or []
+    requirements = parse_id_list(args.requirements)
+
+    anchor_index: int | None = None
+    if args.after or args.before:
+        anchor_index = find_node_index(checkpoints_data, args.after or args.before, checkpoints_path)
+
+    spliced_downstream: list[str] = []
+    if args.splice and anchor_index is not None:
+        anchor = checkpoints_data[anchor_index]
+        anchor_id = str(anchor.get("id"))
+        anchor_next = anchor.get("next")
+        inherited_next = [ref for ref in anchor_next if isinstance(ref, str)] if isinstance(anchor_next, list) else []
+        merged_next = list(inherited_next)
+        for ref in next_refs:
+            if ref not in merged_next:
+                merged_next.append(ref)
+        next_refs = merged_next
+        if anchor_id not in prerequisites:
+            prerequisites.insert(0, anchor_id)
+        anchor["next"] = [node_id]
+        for entry in checkpoints_data:
+            if not isinstance(entry, dict) or entry.get("id") not in inherited_next:
+                continue
+            entry_prerequisites = entry.get("prerequisites")
+            if is_string_list(entry_prerequisites) and anchor_id in entry_prerequisites:
+                entry["prerequisites"] = [node_id if ref == anchor_id else ref for ref in entry_prerequisites]
+                spliced_downstream.append(str(entry.get("id")))
+
+    node: dict[str, Any] = {
+        "id": node_id,
+        "status": "pending",
+        "role": args.role,
+        "prerequisites": prerequisites,
+        "platform": args.platform,
+        "difficulty": args.difficulty,
+        "goal": args.goal,
+        "description": args.description,
+    }
+    if requirements is not None:
+        node["requirements"] = requirements
+    node["acceptance_criteria"] = [{"checked": False, "text": text} for text in args.criterion]
+    node["commit"] = {
+        "repository": args.commit_repository,
+        "message": args.commit_message,
+        "target": args.commit_target,
+    }
+    node["next"] = next_refs
+
+    if args.before is not None and anchor_index is not None:
+        insert_index = anchor_index
+    elif args.after is not None and anchor_index is not None:
+        insert_index = anchor_index + 1
+    else:
+        insert_index = len(checkpoints_data)
+    checkpoints_data.insert(insert_index, node)
+
+    location = NodeLocation(manifest, manifest_data, plan_index, checkpoints_path, checkpoints_data, insert_index)
+    messages = [f"OK: node {node_id} added to plan {plan_label(plan, plan_index)!r} at index {insert_index}"]
+    if spliced_downstream:
+        messages.append(f"OK: spliced into the chain; downstream prerequisites rewired: {', '.join(spliced_downstream)}")
+    messages.extend(write_location_and_sync_plan(location))
+    for message in messages:
+        print(message)
+    return 0
+
+
+def rewire_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    node = location.checkpoints_data[location.node_index]
+
+    changed = False
+    replacements = {"prerequisites": parse_id_list(args.prerequisites), "next": parse_id_list(args.next)}
+    for field, value in replacements.items():
+        if value is not None:
+            node[field] = value
+            changed = True
+
+    additions = {"prerequisites": args.add_prerequisite or [], "next": args.add_next or []}
+    removals = {"prerequisites": args.remove_prerequisite or [], "next": args.remove_next or []}
+    for field in ("prerequisites", "next"):
+        if not additions[field] and not removals[field]:
+            continue
+        refs = node.get(field)
+        if not is_string_list(refs):
+            raise ToolError(f"node {args.node_id}: {field} must be an array of node ids before incremental rewiring")
+        for ref in additions[field]:
+            if ref not in refs:
+                refs.append(ref)
+                changed = True
+        for ref in removals[field]:
+            if ref not in refs:
+                raise ToolError(f"node {args.node_id}: cannot remove {ref!r} from {field}; it is not present")
+            refs.remove(ref)
+            changed = True
+
+    if not changed:
+        raise ToolError("provide at least one of --prerequisites, --next, --add-prerequisite, --remove-prerequisite, --add-next, --remove-next")
+
+    messages = [
+        f"OK: node {args.node_id} rewired; prerequisites={json.dumps(node.get('prerequisites'))} next={json.dumps(node.get('next'))}"
+    ]
+    messages.extend(write_location_and_sync_plan(location))
+    for message in messages:
+        print(message)
+    return 0
+
+
+def edit_node_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    node = location.checkpoints_data[location.node_index]
+
+    text_updates: dict[str, str | None] = {
+        "goal": args.goal,
+        "description": args.description,
+        "difficulty": args.difficulty,
+        "platform": args.platform,
+    }
+    commit_updates: dict[str, str | None] = {
+        "repository": args.commit_repository,
+        "message": args.commit_message,
+        "target": args.commit_target,
+    }
+    requirements_replacement = parse_id_list(args.requirements)
+    wants_content_edit = (
+        any(value is not None for value in text_updates.values())
+        or any(value is not None for value in commit_updates.values())
+        or bool(args.add_criterion)
+    )
+    wants_requirements_edit = (
+        requirements_replacement is not None or bool(args.add_requirement) or bool(args.remove_requirement)
+    )
+    if not wants_content_edit and not wants_requirements_edit:
+        raise ToolError("provide at least one field to edit")
+
+    status = node.get("status")
+    if status in WORKFLOW_STATE_MACHINE.terminal_statuses and wants_content_edit:
+        raise ToolError(
+            f"node {args.node_id} is {status}; terminal nodes are historical snapshots and only accept requirements-label "
+            "corrections. Record current truth in the plan documents or add a new node instead"
+        )
+
+    changed: list[str] = []
+    for field, value in text_updates.items():
+        if value is None:
+            continue
+        node[field] = value
+        changed.append(field)
+    if any(value is not None for value in commit_updates.values()):
+        commit = node.get("commit")
+        if not isinstance(commit, dict):
+            raise ToolError(f"node {args.node_id}: commit must be an object before editing commit fields")
+        for field, value in commit_updates.items():
+            if value is None:
+                continue
+            commit[field] = value
+            changed.append(f"commit.{field}")
+    for text in args.add_criterion or []:
+        criteria = node.get("acceptance_criteria")
+        if not isinstance(criteria, list):
+            raise ToolError(f"node {args.node_id}: acceptance_criteria must be an array before adding criteria")
+        criteria.append({"checked": False, "text": text})
+        changed.append("acceptance_criteria")
+
+    if requirements_replacement is not None:
+        node["requirements"] = requirements_replacement
+        changed.append("requirements")
+    if args.add_requirement or args.remove_requirement:
+        requirements = node.get("requirements")
+        if not is_string_list(requirements):
+            requirements = []
+            node["requirements"] = requirements
+        for label in args.add_requirement or []:
+            if label not in requirements:
+                requirements.append(label)
+                changed.append("requirements")
+        for label in args.remove_requirement or []:
+            if label not in requirements:
+                raise ToolError(f"node {args.node_id}: cannot remove requirement {label!r}; it is not present")
+            requirements.remove(label)
+            changed.append("requirements")
+
+    messages = [f"OK: node {args.node_id} updated fields: {', '.join(sorted(set(changed)))}"]
+    messages.extend(write_location_and_sync_plan(location))
+    for message in messages:
+        print(message)
+    return 0
+
+
+def plan_document_labels(plan_dir: Path, exclude_dirs: set[Path]) -> tuple[set[str], int]:
+    labels: set[str] = set()
+    scanned = 0
+    for current_root, dirs, files in os.walk(plan_dir):
+        current = Path(current_root)
+        dirs[:] = [
+            name
+            for name in dirs
+            if name not in DISCOVERY_SKIP_DIRS and (current / name).resolve() not in exclude_dirs
+        ]
+        for name in files:
+            if not name.endswith(".md"):
+                continue
+            try:
+                text = (current / name).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            scanned += 1
+            labels.update(REQUIREMENT_XREF_PATTERN.findall(text))
+    return labels, scanned
+
+
+def check_labels_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+
+    selected_index: int | None = None
+    if args.plan is not None:
+        selected_index, _ = resolve_plan_entry(manifest, manifest_data, args.plan)
+
+    plan_dirs: dict[int, Path] = {}
+    for index, plan in enumerate(manifest_data):
+        if isinstance(plan, dict) and is_relative_workspace_path(plan.get("directory")):
+            plan_dirs[index] = (manifest.parent / normalize_workspace_path(str(plan.get("directory")))).resolve()
+
+    plans_payload: list[dict[str, Any]] = []
+    errors = 0
+    warnings = 0
+    for index, plan in enumerate(manifest_data):
+        if not isinstance(plan, dict):
+            continue
+        if selected_index is not None and index != selected_index:
+            continue
+        label = plan_label(plan, index)
+        payload: dict[str, Any] = {"plan": label, "directory": plan.get("directory")}
+
+        plan_dir = plan_dirs.get(index)
+        if plan_dir is None or not plan_dir.is_dir():
+            payload["error"] = "plan directory missing"
+            plans_payload.append(payload)
+            errors += 1
+            continue
+        nodes, error = load_plan_checkpoints(manifest, plan)
+        if nodes is None:
+            payload["error"] = error
+            plans_payload.append(payload)
+            errors += 1
+            continue
+
+        exclude_dirs = {path for other_index, path in plan_dirs.items() if other_index != index}
+        doc_labels, scanned = plan_document_labels(plan_dir, exclude_dirs)
+
+        carried: dict[str, list[str]] = {}
+        carried_non_skipped: set[str] = set()
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            requirements = node.get("requirements")
+            if not is_string_list(requirements):
+                continue
+            for value in requirements:
+                if not REQUIREMENT_XREF_PATTERN.fullmatch(value):
+                    continue
+                carried.setdefault(value, []).append(str(node.get("id")))
+                if node.get("status") != "skipped":
+                    carried_non_skipped.add(value)
+
+        payload["documents_scanned"] = scanned
+        payload["doc_labels"] = len(doc_labels)
+        payload["node_labels"] = len(carried)
+        if not doc_labels:
+            payload["warning"] = "no requirement labels found in plan documents; document labels before relying on traceability"
+            warnings += 1
+            plans_payload.append(payload)
+            continue
+
+        undefined = {value: carried[value] for value in sorted(set(carried) - doc_labels)}
+        # A doc label that prefixes other doc labels (REQ-X next to REQ-X-001) is a family
+        # reference in prose, not a requirement definition; keep it out of coverage warnings.
+        family_prefixes = {
+            value
+            for value in doc_labels
+            if any(other != value and other.startswith(f"{value}-") for other in doc_labels)
+        }
+        uncovered = sorted(doc_labels - family_prefixes - carried_non_skipped)
+        payload["undefined"] = undefined
+        payload["uncovered"] = uncovered
+        errors += len(undefined)
+        warnings += len(uncovered)
+        plans_payload.append(payload)
+
+    if args.json:
+        print(json.dumps({"workspace": str(manifest.parent), "errors": errors, "warnings": warnings, "plans": plans_payload}, indent=2, ensure_ascii=False))
+        return 1 if errors else 0
+
+    for payload in plans_payload:
+        print(f"Plan: {payload['plan']} ({payload.get('directory')})")
+        if "error" in payload:
+            print(f"  error: {payload['error']}", file=sys.stderr)
+            continue
+        print(f"  documents scanned: {payload['documents_scanned']}, doc labels: {payload['doc_labels']}, node labels: {payload['node_labels']}")
+        if "warning" in payload:
+            print(f"  warning: {payload['warning']}")
+            continue
+        for value, node_ids in payload.get("undefined", {}).items():
+            print(f"  error: label {value} is carried by node(s) {', '.join(node_ids)} but defined in no plan document", file=sys.stderr)
+        for value in payload.get("uncovered", []):
+            print(f"  warning: label {value} appears in plan documents but no non-skipped node carries it")
+        if not payload.get("undefined") and not payload.get("uncovered"):
+            print("  OK: document labels and node labels are consistent")
+    if errors:
+        print(f"{errors} label error(s), {warnings} warning(s).", file=sys.stderr)
+        return 1
+    print(f"OK: label cross-check passed with {warnings} warning(s).")
     return 0
 
 
@@ -1226,12 +1841,7 @@ def sync_plan_command(args: argparse.Namespace) -> int:
         if nodes is None:
             errors.append(f"plan {label!r}: {error}")
             continue
-        node_statuses = [
-            str(node.get("status"))
-            for node in nodes
-            if isinstance(node, dict) and WORKFLOW_STATE_MACHINE.is_status(node.get("status"))
-        ]
-        derived = derive_plan_status(str(status), node_statuses)
+        derived = derive_plan_status(str(status), nodes)
         if derived == status:
             continue
         if not WORKFLOW_STATE_MACHINE.can_reach(str(status), derived):
@@ -1430,6 +2040,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help=f"validate a workspace {MANIFEST_NAME} and its referenced {CHECKPOINTS_NAME} files")
     validate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root, manifest file, or checkpoints file")
+    validate.add_argument("--plan", help="scope validation to one plan by id, directory, or title (plus the shared manifest index)")
+    validate.add_argument("--check-sources", action="store_true", help="verify that plan source_files entries resolve to existing files or directories")
     validate.add_argument("--quiet", action="store_true", help="only print validation errors")
     validate.add_argument("--json", action="store_true", help="print machine-readable validation results")
     validate.add_argument("--no-git", action="store_true", help="skip comparing state files against their git HEAD versions")
@@ -1472,12 +2084,74 @@ def build_parser() -> argparse.ArgumentParser:
     skip.add_argument("--reason", required=True, help="why the node is intentionally deferred")
     skip.set_defaults(func=skip_command)
 
+    pause = subparsers.add_parser("pause", help="return an in_progress node to pending so another node can start; progress notes stay in status_reason")
+    pause.add_argument("node_id", help="node UUID")
+    pause.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    pause.add_argument("--reason", help="why the node yields and what remains when it resumes")
+    pause.set_defaults(func=pause_command)
+
     check = subparsers.add_parser("check", help="mark one acceptance criterion checked, optionally recording evidence")
     check.add_argument("node_id", help="node UUID")
     check.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     check.add_argument("--criterion", type=int, required=True, help="zero-based acceptance criterion index")
     check.add_argument("--evidence", help="what verification proved this criterion")
+    check.add_argument("--evidence-file", action="append", help="record a file evidence reference (path plus sha256); repeatable")
+    check.add_argument("--evidence-cmd", action="append", help="run a verification command and record it as evidence; the command must exit 0; repeatable")
     check.set_defaults(func=check_command)
+
+    add_node = subparsers.add_parser("add-node", help="insert a new pending node into a plan's checkpoints with validated wiring")
+    add_node.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    add_node.add_argument("--plan", required=True, help="target plan id, directory, or title")
+    add_node.add_argument("--goal", required=True, help="one-sentence node goal")
+    add_node.add_argument("--description", required=True, help="structured task design brief (Scope/Context/Target/Design Considerations/Design Value/Constraints & Risks)")
+    add_node.add_argument("--role", default="implementation", choices=sorted(VALID_NODE_ROLES), help="delivery role; defaults to implementation")
+    add_node.add_argument("--difficulty", default="medium", choices=sorted(VALID_DIFFICULTIES), help="difficulty; defaults to medium")
+    add_node.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS), help="platform; defaults to any")
+    add_node.add_argument("--requirements", help="comma-separated requirement labels, such as REQ-001,REQ-002")
+    add_node.add_argument("--criterion", action="append", required=True, help="acceptance criterion text; repeatable, at least one")
+    add_node.add_argument("--commit-message", required=True, help="suggested commit message")
+    add_node.add_argument("--commit-target", required=True, help="where the work should be committed or delivered")
+    add_node.add_argument("--commit-repository", default=".git", help="target repository .git entry; defaults to .git")
+    add_node.add_argument("--after", help="insert the new node directly after this node id")
+    add_node.add_argument("--before", help="insert the new node directly before this node id")
+    add_node.add_argument("--prerequisites", help="comma-separated prerequisite node ids")
+    add_node.add_argument("--next", help="comma-separated follow-up node ids")
+    add_node.add_argument("--splice", action="store_true", help="with --after: inherit the anchor's next edges, make the anchor point to the new node, and rewire those downstream prerequisites")
+    add_node.add_argument("--id", help="explicit UUID4 node id; generated when omitted")
+    add_node.set_defaults(func=add_node_command)
+
+    rewire = subparsers.add_parser("rewire", help="replace or incrementally edit a node's prerequisites and next edges with validation")
+    rewire.add_argument("node_id", help="node UUID")
+    rewire.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    rewire.add_argument("--prerequisites", help="replace prerequisites with this comma-separated id list; pass '' to clear")
+    rewire.add_argument("--next", help="replace next with this comma-separated id list; pass '' to clear")
+    rewire.add_argument("--add-prerequisite", action="append", help="append one prerequisite id; repeatable")
+    rewire.add_argument("--remove-prerequisite", action="append", help="remove one prerequisite id; repeatable")
+    rewire.add_argument("--add-next", action="append", help="append one next id; repeatable")
+    rewire.add_argument("--remove-next", action="append", help="remove one next id; repeatable")
+    rewire.set_defaults(func=rewire_command)
+
+    edit_node = subparsers.add_parser("edit-node", help="edit node fields through validation; terminal nodes only accept requirements-label corrections")
+    edit_node.add_argument("node_id", help="node UUID")
+    edit_node.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    edit_node.add_argument("--goal", help="replace the node goal")
+    edit_node.add_argument("--description", help="replace the node description")
+    edit_node.add_argument("--difficulty", choices=sorted(VALID_DIFFICULTIES), help="replace the node difficulty")
+    edit_node.add_argument("--platform", choices=sorted(VALID_PLATFORMS), help="replace the node platform")
+    edit_node.add_argument("--requirements", help="replace requirement labels with this comma-separated list; pass '' to clear")
+    edit_node.add_argument("--add-requirement", action="append", help="append one requirement label; repeatable")
+    edit_node.add_argument("--remove-requirement", action="append", help="remove one requirement label; repeatable")
+    edit_node.add_argument("--add-criterion", action="append", help="append one unchecked acceptance criterion; repeatable")
+    edit_node.add_argument("--commit-message", help="replace commit.message")
+    edit_node.add_argument("--commit-target", help="replace commit.target")
+    edit_node.add_argument("--commit-repository", help="replace commit.repository")
+    edit_node.set_defaults(func=edit_node_command)
+
+    check_labels = subparsers.add_parser("check-labels", help="cross-check requirement labels between plan documents and checkpoint nodes")
+    check_labels.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    check_labels.add_argument("--plan", help="scope the cross-check to one plan by id, directory, or title")
+    check_labels.add_argument("--json", action="store_true", help="print machine-readable results")
+    check_labels.set_defaults(func=check_labels_command)
 
     sync_plan = subparsers.add_parser("sync-plan", help="re-derive every plan status from its checkpoint nodes")
     sync_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")

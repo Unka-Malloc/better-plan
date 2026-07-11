@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -272,7 +273,8 @@ class ManifestToolCliTests(unittest.TestCase):
 
             blocked_start = run_command(sys.executable, PYTHON_TOOL, "start", SECOND_NODE_ID, tmpdir)
             self.assertNotEqual(blocked_start.returncode, 0, blocked_start.stdout)
-            self.assertIn("refusing to write an invalid state file", blocked_start.stderr)
+            self.assertIn(f"node {NODE_ID} is already in_progress", blocked_start.stderr)
+            self.assertIn("pause", blocked_start.stderr)
 
             early_complete = run_command(sys.executable, PYTHON_TOOL, "complete", NODE_ID, tmpdir)
             self.assertNotEqual(early_complete.returncode, 0, early_complete.stdout)
@@ -434,6 +436,399 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
         plan_schema = json.loads(plan_result.stdout)
         self.assertIn("checkpoints", plan_schema["required_fields"])
+
+    def test_pause_yields_the_in_progress_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(
+                root,
+                plan_status="pending",
+                nodes=[
+                    checkpoint_node(NODE_ID, status="pending", checked=False),
+                    checkpoint_node(SECOND_NODE_ID, status="pending"),
+                ],
+            )
+
+            start = run_command(sys.executable, PYTHON_TOOL, "start", NODE_ID, tmpdir)
+            self.assertEqual(start.returncode, 0, start.stderr)
+
+            pause = run_command(
+                sys.executable, PYTHON_TOOL, "pause", NODE_ID, tmpdir, "--reason", "yielding to an urgent insert"
+            )
+            self.assertEqual(pause.returncode, 0, pause.stderr)
+            self.assertIn(f"OK: node {NODE_ID} in_progress -> pending", pause.stdout)
+
+            nodes = read_nodes(root)
+            self.assertEqual(nodes[0]["status"], "pending")
+            self.assertEqual(nodes[0]["status_reason"], "yielding to an urgent insert")
+
+            start_second = run_command(sys.executable, PYTHON_TOOL, "start", SECOND_NODE_ID, tmpdir)
+            self.assertEqual(start_second.returncode, 0, start_second.stderr)
+
+            resume_paused = run_command(sys.executable, PYTHON_TOOL, "start", NODE_ID, tmpdir)
+            self.assertNotEqual(resume_paused.returncode, 0, resume_paused.stdout)
+            self.assertIn(f"node {SECOND_NODE_ID} is already in_progress", resume_paused.stderr)
+
+    def test_pause_requires_an_in_progress_node(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            write_workspace(Path(tmpdir), plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
+
+            result = run_command(sys.executable, PYTHON_TOOL, "pause", NODE_ID, tmpdir)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("requires an 'in_progress' node", result.stderr)
+
+    def test_swapped_node_and_root_arguments_get_a_usage_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            write_workspace(Path(tmpdir), plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
+
+            result = run_command(sys.executable, PYTHON_TOOL, "start", tmpdir, NODE_ID)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("looks like a node UUID", result.stderr)
+        self.assertIn("<command> <node-id> [root]", result.stderr)
+
+    def test_add_node_splices_into_the_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(
+                root,
+                plan_status="in_progress",
+                nodes=[
+                    checkpoint_node(NODE_ID, status="completed", next_refs=[SECOND_NODE_ID]),
+                    checkpoint_node(SECOND_NODE_ID, status="pending", prerequisites=[NODE_ID]),
+                ],
+            )
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "add-node",
+                tmpdir,
+                "--plan",
+                "main-plan",
+                "--after",
+                NODE_ID,
+                "--splice",
+                "--goal",
+                "Insert a follow-up task between the chain nodes.",
+                "--description",
+                "Scope: main-plan checkpoints. Context: inserted by the add-node CLI test. Target: sit between both nodes.",
+                "--requirements",
+                "REQ-001",
+                "--criterion",
+                "The spliced node validates.",
+                "--commit-message",
+                "test add-node",
+                "--commit-target",
+                "tests",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            nodes = read_nodes(root)
+
+        self.assertEqual(len(nodes), 3)
+        inserted = nodes[1]
+        self.assertEqual(inserted["status"], "pending")
+        self.assertEqual(inserted["prerequisites"], [NODE_ID])
+        self.assertEqual(inserted["next"], [SECOND_NODE_ID])
+        self.assertEqual(nodes[0]["next"], [inserted["id"]])
+        self.assertEqual(nodes[2]["prerequisites"], [inserted["id"]])
+        self.assertIn("downstream prerequisites rewired", result.stdout)
+
+    def test_add_node_rejects_forward_prerequisites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(
+                root,
+                plan_status="pending",
+                nodes=[checkpoint_node(NODE_ID, status="pending")],
+            )
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "add-node",
+                tmpdir,
+                "--plan",
+                "main-plan",
+                "--before",
+                NODE_ID,
+                "--prerequisites",
+                NODE_ID,
+                "--goal",
+                "Break the topology on purpose.",
+                "--description",
+                "Scope: enabling test fixture for validated insertion.",
+                "--criterion",
+                "Never written.",
+                "--commit-message",
+                "test add-node",
+                "--commit-target",
+                "tests",
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("must reference an earlier node id", result.stderr)
+            self.assertEqual(len(read_nodes(root)), 1)
+
+    def test_rewire_replaces_and_edits_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(
+                root,
+                plan_status="in_progress",
+                nodes=[
+                    checkpoint_node(NODE_ID, status="completed"),
+                    checkpoint_node(SECOND_NODE_ID, status="completed"),
+                    checkpoint_node(THIRD_NODE_ID, status="pending", prerequisites=[NODE_ID]),
+                ],
+            )
+
+            replace = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "rewire",
+                THIRD_NODE_ID,
+                tmpdir,
+                "--prerequisites",
+                f"{NODE_ID},{SECOND_NODE_ID}",
+            )
+            self.assertEqual(replace.returncode, 0, replace.stderr)
+            self.assertEqual(read_nodes(root)[2]["prerequisites"], [NODE_ID, SECOND_NODE_ID])
+
+            incremental = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "rewire",
+                NODE_ID,
+                tmpdir,
+                "--add-next",
+                THIRD_NODE_ID,
+            )
+            self.assertEqual(incremental.returncode, 0, incremental.stderr)
+            self.assertEqual(read_nodes(root)[0]["next"], [THIRD_NODE_ID])
+
+            missing_removal = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "rewire",
+                NODE_ID,
+                tmpdir,
+                "--remove-prerequisite",
+                SECOND_NODE_ID,
+            )
+            self.assertNotEqual(missing_removal.returncode, 0, missing_removal.stdout)
+            self.assertIn("it is not present", missing_removal.stderr)
+
+    def test_edit_node_guards_terminal_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="completed", nodes=[checkpoint_node(NODE_ID, status="completed")])
+
+            rejected = run_command(
+                sys.executable, PYTHON_TOOL, "edit-node", NODE_ID, tmpdir, "--goal", "Rewrite history."
+            )
+            self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
+            self.assertIn("historical snapshots", rejected.stderr)
+
+            backfill = run_command(
+                sys.executable, PYTHON_TOOL, "edit-node", NODE_ID, tmpdir, "--add-requirement", "REQ-002"
+            )
+            self.assertEqual(backfill.returncode, 0, backfill.stderr)
+            self.assertEqual(read_nodes(root)[0]["requirements"], ["REQ-001", "REQ-002"])
+
+    def test_edit_node_updates_pending_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "edit-node",
+                NODE_ID,
+                tmpdir,
+                "--goal",
+                "Refined goal.",
+                "--difficulty",
+                "high",
+                "--add-criterion",
+                "A second concrete check.",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            node = read_nodes(root)[0]
+
+        self.assertEqual(node["goal"], "Refined goal.")
+        self.assertEqual(node["difficulty"], "high")
+        self.assertEqual(node["acceptance_criteria"][1], {"checked": False, "text": "A second concrete check."})
+
+    def test_check_records_structured_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending", checked=False)])
+            evidence_file = root / "report.txt"
+            evidence_file.write_text("verification report\n", encoding="utf-8")
+            expected_sha = hashlib.sha256(evidence_file.read_bytes()).hexdigest()
+
+            start = run_command(sys.executable, PYTHON_TOOL, "start", NODE_ID, tmpdir)
+            self.assertEqual(start.returncode, 0, start.stderr)
+
+            passing = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "check",
+                NODE_ID,
+                tmpdir,
+                "--criterion",
+                "0",
+                "--evidence",
+                "structured evidence recorded",
+                "--evidence-file",
+                str(evidence_file),
+                "--evidence-cmd",
+                f'"{sys.executable}" -c "import sys; sys.exit(0)"',
+            )
+            self.assertEqual(passing.returncode, 0, passing.stderr)
+            self.assertIn("2 evidence reference(s)", passing.stdout)
+
+            criterion = read_nodes(root)[0]["acceptance_criteria"][0]
+            self.assertTrue(criterion["checked"])
+            refs = criterion["evidence_refs"]
+            self.assertEqual(len(refs), 2)
+            self.assertEqual(refs[0]["type"], "command")
+            self.assertEqual(refs[0]["exit_code"], 0)
+            self.assertEqual(refs[1]["type"], "file")
+            self.assertEqual(refs[1]["sha256"], expected_sha)
+
+            validate = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git")
+            self.assertEqual(validate.returncode, 0, validate.stderr)
+
+    def test_check_refuses_failing_evidence_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending", checked=False)])
+
+            start = run_command(sys.executable, PYTHON_TOOL, "start", NODE_ID, tmpdir)
+            self.assertEqual(start.returncode, 0, start.stderr)
+
+            failing = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "check",
+                NODE_ID,
+                tmpdir,
+                "--criterion",
+                "0",
+                "--evidence-cmd",
+                f'"{sys.executable}" -c "import sys; sys.exit(3)"',
+            )
+
+            self.assertNotEqual(failing.returncode, 0, failing.stdout)
+            self.assertIn("exited with 3", failing.stderr)
+            self.assertFalse(read_nodes(root)[0]["acceptance_criteria"][0]["checked"])
+
+    def test_validate_plan_scopes_to_one_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            main_dir = root / "main-plan"
+            broken_dir = root / "broken-plan"
+            main_dir.mkdir(parents=True)
+            broken_dir.mkdir(parents=True)
+            (main_dir / "Checkpoints.json").write_text(json.dumps([checkpoint_node(NODE_ID)]), encoding="utf-8")
+            broken_node = checkpoint_node(SECOND_NODE_ID, status="pending")
+            broken_node["requirements"] = []
+            (broken_dir / "Checkpoints.json").write_text(json.dumps([broken_node]), encoding="utf-8")
+            (root / "Manifest.json").write_text(
+                json.dumps(
+                    [
+                        plan_object("completed"),
+                        {
+                            "id": CHILD_PLAN_ID,
+                            "status": "pending",
+                            "title": "Broken Plan",
+                            "directory": "broken-plan",
+                            "source_files": [],
+                            "goal": "Contain a deliberately invalid node.",
+                            "description": "Sibling plan used to prove validation scoping.",
+                            "checkpoints": "broken-plan/Checkpoints.json",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            full = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git")
+            scoped = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git", "--plan", "main-plan")
+            scoped_by_title = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git", "--plan", "Broken Plan")
+
+        self.assertNotEqual(full.returncode, 0, full.stdout)
+        self.assertIn("must list at least one requirement label", full.stderr)
+        self.assertEqual(scoped.returncode, 0, scoped.stderr)
+        self.assertIn("OK: validated 2 state file(s)", scoped.stdout)
+        self.assertNotEqual(scoped_by_title.returncode, 0, scoped_by_title.stdout)
+
+    def test_validate_check_sources_flags_missing_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            plans = read_plans(root)
+            plans[0]["source_files"] = [
+                "docs/plan.md",
+                "missing/never-written.md",
+                "owner/repo:path/inside/external.md",
+                "https://example.com/spec",
+            ]
+            (root / "Manifest.json").write_text(json.dumps(plans), encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs" / "plan.md").write_text("# source\n", encoding="utf-8")
+
+            without_flag = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git")
+            with_flag = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git", "--check-sources")
+
+        self.assertEqual(without_flag.returncode, 0, without_flag.stderr)
+        self.assertNotEqual(with_flag.returncode, 0, with_flag.stdout)
+        self.assertIn("source_files[1]: not found", with_flag.stderr)
+        self.assertNotIn("source_files[0]", with_flag.stderr)
+        self.assertNotIn("source_files[2]", with_flag.stderr)
+        self.assertNotIn("source_files[3]", with_flag.stderr)
+
+    def test_check_labels_cross_checks_documents_and_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(
+                root,
+                plan_status="in_progress",
+                nodes=[
+                    checkpoint_node(NODE_ID, status="completed"),
+                    checkpoint_node(SECOND_NODE_ID, status="pending", prerequisites=[NODE_ID]),
+                ],
+            )
+            nodes = read_nodes(root)
+            nodes[1]["requirements"] = ["REQ-003"]
+            (root / "main-plan" / "Checkpoints.json").write_text(json.dumps(nodes), encoding="utf-8")
+            (root / "main-plan" / "Requirements.md").write_text(
+                "# Requirements\n\n- REQ-001 delivered behavior\n- REQ-002 documented but not yet scheduled\n",
+                encoding="utf-8",
+            )
+
+            failing = run_command(sys.executable, PYTHON_TOOL, "check-labels", tmpdir, "--json")
+            payload = json.loads(failing.stdout)
+
+            (root / "main-plan" / "Requirements.md").write_text(
+                "# Requirements\n\n- REQ-001 delivered behavior\n- REQ-002 documented but not yet scheduled\n- REQ-003 follow-up behavior\n",
+                encoding="utf-8",
+            )
+            passing = run_command(sys.executable, PYTHON_TOOL, "check-labels", tmpdir)
+
+        self.assertNotEqual(failing.returncode, 0, failing.stdout)
+        plan_payload = payload["plans"][0]
+        self.assertEqual(list(plan_payload["undefined"].keys()), ["REQ-003"])
+        self.assertEqual(plan_payload["uncovered"], ["REQ-002"])
+        self.assertEqual(passing.returncode, 0, passing.stderr)
+        self.assertIn("warning: label REQ-002", passing.stdout)
+        self.assertIn("1 warning(s)", passing.stdout)
 
     @unittest.skipUnless(shutil.which("git"), "git is required for transition history validation")
     def test_validate_rejects_illegal_transitions_against_git_head(self) -> None:

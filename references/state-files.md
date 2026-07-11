@@ -20,7 +20,7 @@ python3 scripts/manifest_tool.py schema node
 - `status`: one of `pending`, `in_progress`, `blocked`, `completed`, `skipped`.
 - `title`: concise human-readable plan name.
 - `directory`: relative path from the workspace root to the plan's dedicated directory. May contain nested segments when the plan is a child of another plan.
-- `source_files`: list of source plan files from Step 1. Use an empty list only when the plan came directly from the user request and has no source file yet.
+- `source_files`: list of source plan files from Step 1. Use an empty list only when the plan came directly from the user request and has no source file yet. Write local entries relative to the project root (the nearest ancestor of the workspace with `.git`); external references use `owner/repo:path` or a URL. `validate --check-sources` verifies that local entries still resolve, so stale paths surface instead of rotting.
 - `goal`: brief plan goal.
 - `description`: lightweight plan summary only. Keep it short enough to identify the plan's scope, boundary, parent or child relationship when relevant, and important constraints. Do not put detailed design, architecture, dependency trees, task sequencing, implementation notes, risks, or acceptance logic here; move those details into the selected plan's `Checkpoints.json` Nodes.
 - `checkpoints`: relative path to the plan's checkpoint file. Must be exactly `<directory>/Checkpoints.json`.
@@ -77,14 +77,15 @@ Required fields:
 
 Optional fields:
 
-- `requirements`: list of requirement labels such as `REQ-001` that this Node delivers or proves. Labels must be non-empty and contain no whitespace. Implementation Nodes must list at least one label or describe enabling work in `description`. Final-validation Nodes must list the labels they prove; the validator requires them to cover every label carried by non-skipped implementation Nodes.
-- `status_reason`: why the Node is `blocked` or `skipped` and what would unblock or revive it. The `block` and `skip` commands require it; other transitions clear it.
+- `requirements`: list of requirement labels such as `REQ-001` that this Node delivers or proves. Labels must be non-empty and contain no whitespace. Implementation Nodes must list at least one label or describe enabling work in `description`. Final-validation Nodes must list the labels they prove; the validator requires them to cover every label carried by non-skipped implementation Nodes. `check-labels` cross-checks these labels against the labels written in the plan directory's markdown documents.
+- `status_reason`: why the Node is `blocked`, `skipped`, or paused back to `pending`, and what would unblock, revive, or resume it. The `block` and `skip` commands require it; `pause` records it when given; other transitions clear it.
 
 Acceptance criterion object:
 
 - `checked`: boolean. `complete` refuses to run while any criterion is unchecked.
 - `text`: non-empty description of a concrete check that proves the task is complete. Reference requirement labels, evidence artifacts, tests, verifiers, or generated-artifact checks.
 - `evidence` (optional): what verification proved this criterion, recorded by `check --evidence`.
+- `evidence_refs` (optional): machine-verifiable evidence records written by `check --evidence-file` and `check --evidence-cmd`. A file reference records `{type, path, sha256, recorded_at}`; a command reference records `{type, command, exit_code, recorded_at}` and may only exist for a passing run (`exit_code` 0). Prefer these over prose evidence: they name the artifact or command that anyone can re-run or re-hash.
 
 Commit object:
 
@@ -102,43 +103,51 @@ Single-step transitions:
 | from | allowed targets |
 | --- | --- |
 | `pending` | `pending`, `in_progress`, `blocked`, `skipped` |
-| `in_progress` | `in_progress`, `completed`, `blocked`, `skipped` |
+| `in_progress` | `in_progress`, `pending`, `completed`, `blocked`, `skipped` |
 | `blocked` | `blocked`, `in_progress`, `skipped` |
 | `completed` | `completed` |
 | `skipped` | `skipped` |
+
+`in_progress` to `pending` is the pause edge: the Node yields so another Node can run, stays eligible, and is not fake-blocked. Use the `pause` command for it; `blocked` remains reserved for real external dependencies.
 
 Mutation commands apply exactly one single-step transition. `validate` compares each Plan and Node status against the file's git HEAD version using path reachability: a change is legal when some sequence of single-step transitions connects the old status to the new one (for example `pending` to `completed` through `in_progress`), and illegal when no path exists (for example `completed` back to `in_progress`, or anything out of `skipped`).
 
 Checkpoint snapshot invariants:
 
-- At most one Node is `in_progress` per `Checkpoints.json`.
+- At most one Node is `in_progress` per `Checkpoints.json`. To switch tasks, `pause` the running Node first.
 - A Node is `in_progress` or `completed` only when every prerequisite is `completed`.
 - A Node is `completed` only when every acceptance criterion is checked.
 - A non-terminal Node with a `skipped` (or transitively unstartable) prerequisite fails validation. Rewire its prerequisites or skip it; skip dependents before their prerequisite.
+- Terminal Nodes are historical snapshots. Do not rewrite a completed Node's goal, description, or criteria to match later reality; record current truth in the plan documents and new Nodes. `edit-node` enforces this and only allows requirements-label corrections on terminal Nodes.
 
 Plan consistency rules:
 
 - `completed` requires every referenced Node to be terminal.
 - `blocked` requires at least one blocked Node.
 - `skipped` requires no `in_progress` Node.
-- `pending` is invalid once Node work has started; `in_progress` is invalid once every Node is terminal. `sync-plan` re-derives Plan statuses: `in_progress` while work is running or partially done, `blocked` when blocked Nodes stall progress, `completed` or `skipped` when every Node is terminal.
+- `pending` is invalid once Node work has started; `in_progress` is invalid once every Node is terminal. `sync-plan` re-derives Plan statuses: `in_progress` while work is running or partially done, `blocked` only when blocked Nodes leave nothing startable (a blocked Node with startable siblings keeps the Plan `in_progress`), `completed` or `skipped` when every Node is terminal.
 
 ## Manifest Tool Commands
 
 | command | purpose |
 | --- | --- |
-| `validate [root] [--quiet] [--json] [--no-git]` | validate structure, schema, snapshot invariants, and git HEAD transition reachability |
+| `validate [root] [--plan <selector>] [--check-sources] [--quiet] [--json] [--no-git]` | validate structure, schema, snapshot invariants, and git HEAD transition reachability; `--plan` scopes to one plan plus the shared index, `--check-sources` verifies `source_files` references |
 | `discover [root]` | find structurally valid Better Plan workspaces |
 | `uuid [--count N]` | generate UUID4 IDs |
 | `transition <current> <target>` | check one single-step status transition |
 | `start <node-id> [root]` | mark a Node `in_progress` |
+| `pause <node-id> [root] [--reason "..."]` | return the `in_progress` Node to `pending` so another Node can start |
 | `complete <node-id> [root] [--delivered <sha>]` | mark a Node `completed`, optionally recording the delivering commit |
 | `block <node-id> [root] --reason "..."` | mark a Node `blocked` with a reason |
 | `skip <node-id> [root] --reason "..."` | mark a Node `skipped` with a reason |
-| `check <node-id> [root] --criterion <n> [--evidence "..."]` | check one acceptance criterion |
+| `check <node-id> [root] --criterion <n> [--evidence "..."] [--evidence-file <path>] [--evidence-cmd "..."]` | check one acceptance criterion; file refs record a sha256, command refs must exit 0 |
+| `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--requirements] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated placement and wiring; `--splice` inserts it into the anchor's outgoing chain and rewires downstream prerequisites |
+| `rewire <node-id> [root] [--prerequisites ...] [--next ...] [--add-prerequisite <id>] [--remove-prerequisite <id>] [--add-next <id>] [--remove-next <id>]` | replace or incrementally edit a Node's edges with validation |
+| `edit-node <node-id> [root] [--goal] [--description] [--difficulty] [--platform] [--requirements] [--add-requirement] [--remove-requirement] [--add-criterion] [--commit-message] [--commit-target] [--commit-repository]` | edit Node fields through validation; terminal Nodes accept only requirements-label corrections |
+| `check-labels [root] [--plan <selector>] [--json]` | cross-check `REQ-...` labels between plan markdown documents and Node `requirements`; undefined Node labels are errors, uncovered document labels are warnings |
 | `sync-plan [root]` | re-derive every Plan status from its Nodes |
 | `status [root] [--json]` | report per-plan progress, the in-progress Node, and blocked Nodes |
 | `next [root] [--json]` | list the resumable or eligible Nodes per plan for the current platform |
 | `schema plan\|node` | print the canonical object shape and template |
 
-Mutation commands validate the whole state file before writing, write atomically, and re-derive the owning Plan's status. When a command refuses, fix the underlying state instead of hand-editing `status`.
+Plan selectors accept a plan id, `directory`, or `title`. Mutation commands validate the whole state file before writing, write atomically, and re-derive the owning Plan's status. When a command refuses, fix the underlying state instead of hand-editing `status`. Prefer `add-node`, `rewire`, and `edit-node` over hand-editing `Checkpoints.json`: they keep ids, placement, wiring, and snapshot invariants correct in one step.
