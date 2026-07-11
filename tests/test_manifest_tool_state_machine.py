@@ -317,12 +317,86 @@ class WorkflowStateMachineTests(unittest.TestCase):
         derive = manifest_tool.derive_plan_status
 
         self.assertEqual(derive("pending", []), "pending")
-        self.assertEqual(derive("pending", ["pending", "pending"]), "pending")
-        self.assertEqual(derive("pending", ["in_progress", "pending"]), "in_progress")
-        self.assertEqual(derive("in_progress", ["blocked", "pending"]), "blocked")
-        self.assertEqual(derive("pending", ["completed", "pending"]), "in_progress")
-        self.assertEqual(derive("in_progress", ["completed", "skipped"]), "completed")
-        self.assertEqual(derive("pending", ["skipped", "skipped"]), "skipped")
+        self.assertEqual(
+            derive("pending", [make_node(NODE_A_ID, "pending"), make_node(NODE_B_ID, "pending")]),
+            "pending",
+        )
+        self.assertEqual(
+            derive("pending", [make_node(NODE_A_ID, "in_progress"), make_node(NODE_B_ID, "pending")]),
+            "in_progress",
+        )
+        self.assertEqual(
+            derive("pending", [make_node(NODE_A_ID, "completed"), make_node(NODE_B_ID, "pending")]),
+            "in_progress",
+        )
+        self.assertEqual(
+            derive("in_progress", [make_node(NODE_A_ID, "completed"), make_node(NODE_B_ID, "skipped", status_reason="Deferred.")]),
+            "completed",
+        )
+        self.assertEqual(
+            derive(
+                "pending",
+                [
+                    make_node(NODE_A_ID, "skipped", status_reason="Deferred."),
+                    make_node(NODE_B_ID, "skipped", status_reason="Deferred."),
+                ],
+            ),
+            "skipped",
+        )
+
+    def test_derive_plan_status_blocks_only_when_nothing_is_startable(self) -> None:
+        derive = manifest_tool.derive_plan_status
+
+        stalled = [
+            make_node(NODE_A_ID, "blocked", status_reason="Waiting on a decision."),
+            make_node(NODE_B_ID, "pending", prerequisites=[NODE_A_ID]),
+        ]
+        self.assertEqual(derive("in_progress", stalled), "blocked")
+
+        still_moving = [
+            make_node(NODE_A_ID, "blocked", status_reason="Waiting on a decision."),
+            make_node(NODE_B_ID, "pending"),
+        ]
+        self.assertEqual(derive("in_progress", still_moving), "in_progress")
+
+        only_blocked = [make_node(NODE_A_ID, "blocked", status_reason="Waiting on a decision.")]
+        self.assertEqual(derive("in_progress", only_blocked), "blocked")
+
+    def test_pause_transition_edge_is_reversible(self) -> None:
+        machine = manifest_tool.WORKFLOW_STATE_MACHINE
+
+        self.assertTrue(machine.can_transition("in_progress", "pending"))
+        self.assertTrue(machine.can_reach("in_progress", "pending"))
+        self.assertFalse(machine.can_transition("completed", "pending"))
+        self.assertFalse(machine.can_transition("blocked", "pending"))
+
+    def test_evidence_refs_are_validated(self) -> None:
+        node = make_node(NODE_A_ID, "pending")
+        node["acceptance_criteria"][0]["evidence_refs"] = [  # type: ignore[index]
+            {"type": "file", "path": "report.txt", "sha256": "zz", "recorded_at": "2026-07-11T00:00:00Z"},
+            {"type": "command", "command": "pytest", "exit_code": 1, "recorded_at": "2026-07-11T00:00:00Z"},
+            {"type": "unknown"},
+            {"type": "file", "path": "ok.txt", "sha256": "a" * 64, "recorded_at": "2026-07-11T00:00:00Z", "extra": True},
+        ]
+
+        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), [node])
+
+        messages = [issue.message for issue in issues]
+        self.assertTrue(any("sha256: must be a 64-character lowercase hex digest" in message for message in messages), messages)
+        self.assertTrue(any("exit_code: must be the integer 0" in message for message in messages), messages)
+        self.assertTrue(any(".type: must be one of command, file" in message for message in messages), messages)
+        self.assertTrue(any(".extra: unknown field" in message for message in messages), messages)
+
+    def test_valid_evidence_refs_pass_validation(self) -> None:
+        node = make_node(NODE_A_ID, "pending")
+        node["acceptance_criteria"][0]["evidence_refs"] = [  # type: ignore[index]
+            {"type": "file", "path": "report.txt", "sha256": "a" * 64, "recorded_at": "2026-07-11T00:00:00Z"},
+            {"type": "command", "command": "pytest -q", "exit_code": 0, "recorded_at": "2026-07-11T00:00:00Z"},
+        ]
+
+        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), [node])
+
+        self.assertFalse([issue.message for issue in issues if "evidence_refs" in issue.message])
 
 
 if __name__ == "__main__":
