@@ -37,7 +37,8 @@ Follow this workflow in order. Treat this file as the workflow entry point.
 - Ground delivery decisions in evidence. Requirements, architecture, data structures, algorithms, and product gaps must cite source files, existing behavior, user-provided facts, external product references, or open-source framework practice when relevant. Do not invent product claims or acceptance targets without evidence.
 - Design the architecture before implementation. Decide the module and file decomposition, the layer boundaries, the dependency direction, the interface contracts between modules, and the deliberately chosen design patterns with their rationale, before any implementation Node starts. This is what keeps implementation Nodes decoupled and lets independent Nodes proceed in parallel.
 - Establish plan-local delivery artifacts before implementation when they do not already exist. Prefer `Requirements.md`, `Evidence.md`, `Architecture.md`, and `Validation.md`, or reuse equivalent project-standard documents inside the plan directory.
-- Keep traceability from start to finish. Use stable requirement labels such as `REQ-001` in requirements, implementation Nodes, and validation criteria, and record them in each Node's `requirements` field. Final validation must prove the same requirements defined at the beginning, not a different target discovered later.
+- Keep traceability from start to finish. Use stable requirement labels such as `REQ-001` in requirements, implementation Nodes, and validation criteria, and record them in each Node's `requirements` field. Final validation must prove the same requirements defined at the beginning, not a different target discovered later. Use `scripts/manifest_tool.py check-labels` to keep document labels and Node labels consistent whenever either side changes.
+- Treat the foundation artifacts as living documents. `Requirements.md`, `Evidence.md`, `Validation.md`, and `Architecture.md` are established by the foundation Nodes but do not freeze afterward: when mid-plan work changes requirements, evidence, validation mapping, or architecture, update the artifact inside the Node that causes the change (or a new maintenance Node with the matching foundation role) rather than letting documents drift from delivery. Later foundation-role maintenance Nodes are valid as long as the first occurrence of each role keeps the required order.
 - Match task difficulty to the work. Product requirements, market or product-gap analysis, architecture decisions, complex algorithms, data structures, concurrency, and security-sensitive work require `high` or `deep`; simple mechanical edits such as configuration changes may use `low` or `medium`.
 - For a new product or feature plan, product requirements and evidence work must use `deep`. Use `high` only when Step 1 verified that the corresponding artifact already exists and only needs narrow maintenance. The validator enforces the `high`-or-`deep` floor for foundation and validation roles; the `deep` requirement for new-product foundation work is a workflow obligation on top of that floor.
 - Do not let implementation silently redefine the product target. If evidence changes the target, update the requirements and validation mapping first, then update dependent Nodes.
@@ -55,31 +56,41 @@ Better Plan state files are validated as a lightweight workflow state machine. `
 
 2. Use these status transitions:
    - `pending` may transition to `pending`, `in_progress`, `blocked`, or `skipped`.
-   - `in_progress` may transition to `in_progress`, `completed`, `blocked`, or `skipped`.
+   - `in_progress` may transition to `in_progress`, `pending`, `completed`, `blocked`, or `skipped`.
    - `blocked` may transition to `blocked`, `in_progress`, or `skipped`.
    - `completed` may only remain `completed`.
    - `skipped` may only remain `skipped`.
+   - `in_progress` to `pending` is the pause edge: the Node yields honestly so another Node can start. Do not misuse `blocked` for task switching; `blocked` is only for real external dependencies or user decisions.
 
 3. Change Node status only through the manifest tool mutation commands. Do not hand-edit `status` values.
    - `scripts/manifest_tool.py start <node-id> [workspace]` marks a Node `in_progress`.
+   - `scripts/manifest_tool.py pause <node-id> [workspace] [--reason "..."]` returns the `in_progress` Node to `pending` so a different Node can start, recording resume notes in `status_reason`.
    - `scripts/manifest_tool.py complete <node-id> [workspace] [--delivered <sha>]` marks a Node `completed` and can record the delivering commit in `commit.delivered`.
    - `scripts/manifest_tool.py block <node-id> [workspace] --reason "..."` and `scripts/manifest_tool.py skip <node-id> [workspace] --reason "..."` record the reason in `status_reason`.
-   - `scripts/manifest_tool.py check <node-id> [workspace] --criterion <n> [--evidence "..."]` checks one acceptance criterion and records what verified it.
+   - `scripts/manifest_tool.py check <node-id> [workspace] --criterion <n> [--evidence "..."] [--evidence-file <path>] [--evidence-cmd "..."]` checks one acceptance criterion and records what verified it. Prefer `--evidence-cmd` (the verification command must exit 0 and is recorded with its exit code) and `--evidence-file` (recorded with a sha256) over prose-only evidence.
    - Mutation commands enforce the transition table and every snapshot rule before writing, and they re-derive the owning Plan's status automatically.
 
-4. Validate Checkpoints as a current state snapshot.
-   - At most one Node may be `in_progress` in one `Checkpoints.json`.
+4. Change Node structure through the manifest tool graph commands instead of hand-editing `Checkpoints.json`.
+   - `scripts/manifest_tool.py add-node [workspace] --plan <selector> ...` inserts a new pending Node with a generated UUID at a validated position; `--after <id> --splice` inserts it into that Node's outgoing chain and rewires the downstream prerequisites in one step.
+   - `scripts/manifest_tool.py rewire <node-id> [workspace] ...` replaces or incrementally edits `prerequisites` and `next` with full validation.
+   - `scripts/manifest_tool.py edit-node <node-id> [workspace] ...` updates Node fields through validation. Terminal Nodes are historical snapshots: `edit-node` allows only requirements-label corrections on them, and current truth belongs in the plan documents or new Nodes, never in rewritten history.
+
+5. Validate Checkpoints as a current state snapshot.
+   - At most one Node may be `in_progress` in one `Checkpoints.json`. Use `pause` to switch work honestly.
    - A Node may be `in_progress` or `completed` only when every prerequisite Node is `completed`.
    - A Node may be `completed` only when every acceptance criterion is checked.
    - A non-terminal Node whose prerequisite is `skipped` is unstartable and fails validation. Rewire its prerequisites or skip it; skip dependent Nodes before skipping their prerequisite.
 
-5. Validate Plans against their referenced Checkpoints.
+6. Validate Plans against their referenced Checkpoints.
    - A Plan may be `completed` only when all referenced Nodes are terminal: `completed` or `skipped`.
-   - A Plan may be `blocked` only when at least one referenced Node is `blocked`.
+   - A Plan may be `blocked` only when at least one referenced Node is `blocked`. Status derivation marks the Plan `blocked` only when the blocked Nodes leave nothing startable; a blocked Node with startable siblings keeps the Plan `in_progress`.
    - A Plan may be `skipped` only when no referenced Node is `in_progress`.
    - A Plan may not stay `pending` after Node work has started, and may not stay `in_progress` when every Node is terminal. Use `scripts/manifest_tool.py sync-plan [workspace]` to re-derive Plan statuses from their Nodes.
 
-6. `scripts/manifest_tool.py validate` also compares every Plan and Node status against the file's git HEAD version and rejects changes that no transition path allows, such as `completed` back to `in_progress`. Run it after every state file edit; use `transition <current> <target>` to check a single edge.
+7. `scripts/manifest_tool.py validate` also compares every Plan and Node status against the file's git HEAD version and rejects changes that no transition path allows, such as `completed` back to `in_progress`. Run it after every state file edit; use `transition <current> <target>` to check a single edge.
+   - While working inside one plan, `validate [workspace] --plan <selector>` scopes checking to that plan plus the shared index, so pre-existing issues in sibling plans do not block the current change. The full-workspace `validate` remains the close-out gate, and sibling debt must be scheduled, not ignored.
+   - `validate --check-sources` verifies that `source_files` entries still resolve; run it when creating or revising a Plan index.
+   - `check-labels [workspace] [--plan <selector>]` cross-checks requirement labels between plan documents and Node `requirements`; run it after editing either side.
 
 ## Step 1: Read The Plan
 
@@ -210,6 +221,7 @@ Goal: maintain the selected plan directory's `Checkpoints.json`, the ordered nod
    - If it does not exist, create it as an empty JSON array before adding nodes.
    - Treat invalid JSON, duplicate node IDs, missing required fields, or broken node references as workflow issues to fix before choosing an execution task.
    - Generate Node IDs with `scripts/manifest_tool.py uuid`. IDs must be UUID4 values.
+   - Prefer the manifest tool's graph commands for incremental maintenance of an existing checkpoint file: `add-node` (with `--after`/`--before`/`--splice`) to insert Nodes, `rewire` to change `prerequisites`/`next`, and `edit-node` to update Node fields. They generate IDs, keep placement topologically valid, and validate before writing. Hand-write JSON only when building a new checkpoint file from scratch, and validate immediately afterward.
 
 2. Treat the plan directory checkpoints file as the execution graph.
    - The top-level JSON value must be an ordered array.
@@ -278,6 +290,7 @@ Goal: deliver the selected plan node by node with enforced status transitions.
 
 2. Start the Node with `scripts/manifest_tool.py start <node-id> [workspace]`.
    - The tool refuses to start a Node whose prerequisites are not completed or when another Node in the same plan is already `in_progress`.
+   - When a different Node must run first — for example an urgent insert discovered mid-task — `pause` the running Node with a resume note instead of blocking it with a fake reason: `scripts/manifest_tool.py pause <node-id> --reason "..."`. Resume it later with `start`.
    - Never edit `status` by hand to force progress. If the tool refuses, fix the underlying state instead.
 
 3. Implement the Node scope.
@@ -289,7 +302,7 @@ Goal: deliver the selected plan node by node with enforced status transitions.
 
 4. Verify before completion.
    - Run the real verification each acceptance criterion demands: tests, verifier runs, generated-artifact checks, or static evidence tied to the changed files.
-   - Mark each satisfied criterion with `scripts/manifest_tool.py check <node-id> --criterion <n> --evidence "<what proved it>"`.
+   - Mark each satisfied criterion with `scripts/manifest_tool.py check <node-id> --criterion <n> --evidence "<what proved it>"`. Prefer verifiable evidence: `--evidence-cmd "<verification command>"` records the command and requires it to exit 0; `--evidence-file <path>` records the artifact with its sha256.
    - Do not check a criterion without evidence that exists right now.
 
 5. Complete the Node.
@@ -299,10 +312,11 @@ Goal: deliver the selected plan node by node with enforced status transitions.
 
 6. Handle interruptions honestly.
    - If progress stops on an external dependency or a decision only the user can make, run `scripts/manifest_tool.py block <node-id> --reason "..."` and report what would unblock it.
+   - If the Node simply yields to other work and remains executable, run `scripts/manifest_tool.py pause <node-id> --reason "..."` instead of `block`; blocked status is reserved for real dependencies.
    - If the Node is intentionally deferred, run `scripts/manifest_tool.py skip <node-id> --reason "..."`. Skip or rewire dependent Nodes before skipping their prerequisite; the validator rejects non-terminal Nodes whose prerequisites are skipped.
 
 7. Validate and continue.
-   - Run `scripts/manifest_tool.py validate [workspace]` after every state change and fix reported issues before continuing.
+   - Run `scripts/manifest_tool.py validate [workspace]` after every state change and fix reported issues before continuing. When pre-existing issues in sibling plans block the current change, use `validate [workspace] --plan <selector>` as the per-change gate and schedule the sibling debt explicitly instead of ignoring it.
    - Repeat from item 1 until the plan has no eligible Nodes left.
 
 ## Step 6: Close Out The Plan
@@ -312,5 +326,5 @@ Goal: prove the delivered plan matches its original requirements and leave the s
 1. Confirm every Node in the plan is terminal: `completed` or `skipped`. Resolve stragglers through Step 5 instead of editing statuses directly.
 2. Confirm the final-validation Node ran the mapped checks from `Validation.md` and that its `requirements` labels cover every label carried by non-skipped implementation Nodes. Every skipped Node must carry a `status_reason` that explains the deferral.
 3. Confirm the delivered code still matches the `Architecture.md` module map, layer boundaries, dependency direction, and interface contracts, and that no file accumulated unrelated responsibilities during implementation. Resolve drift before closing: fix the code, or update the architecture decision with its new rationale.
-4. Run `scripts/manifest_tool.py sync-plan [workspace]` and then `scripts/manifest_tool.py validate [workspace]`. Both must pass cleanly before reporting completion.
+4. Run `scripts/manifest_tool.py sync-plan [workspace]`, then the full-workspace `scripts/manifest_tool.py validate [workspace]` (not the `--plan`-scoped form), then `scripts/manifest_tool.py check-labels [workspace] --plan <selector>` for the closing plan. All must pass cleanly before reporting completion.
 5. Report a closing snapshot using `scripts/manifest_tool.py status [workspace]`: what was completed, what was skipped and why, the evidence behind the acceptance targets, and any follow-up work that belongs in a new plan.
