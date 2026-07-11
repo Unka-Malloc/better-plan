@@ -35,13 +35,15 @@ The installer is idempotent and installs:
 
 Codex, Cursor, and VS Code Copilot can scan `~/.agents/skills`, but each client resolves its install target independently. A clean install defaults to `~/.agents/skills/better-plan`. If only a client's native path already has Better Plan, such as `~/.codex/skills/better-plan`, update keeps that native path as the source of truth instead of creating a duplicate in `~/.agents`. If both shared and native copies exist for the same client, shared wins and the native duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
 
+On Windows, installation and update also discover each running WSL distribution with OpenCode and run the same installer inside that distribution. This creates its WSL shared skill source and OpenCode primary agent, rather than leaving WSL to use a Windows-only adapter. The Better Plan source must be reachable from that distribution through `wslpath`.
+
 Verify the local install:
 
 ```sh
 python3 scripts/install.py doctor
 ```
 
-On Windows, `doctor` also checks running WSL distributions for OpenCode when `opencode` is not on the Windows `PATH`. If Docker is available, it checks running containers for `opencode` as additional diagnostic context.
+`doctor` validates the structural adapter for every supported client. When a native CLI is available, it additionally checks Cursor and Copilot can run, validates and lists the Gemini extension, validates the Claude plugin, and confirms OpenCode lists the Better Plan agent. On Windows it performs the OpenCode agent-list check inside every detected WSL distribution as well. Missing optional client CLIs produce a warning instead of a failed structural install.
 
 Install a subset of agents:
 
