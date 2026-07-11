@@ -85,6 +85,7 @@ class InstallToolTests(unittest.TestCase):
 
             plugin = json.loads((paths.claude_plugin / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
             self.assertEqual(plugin["name"], "better-plan")
+            self.assertEqual(plugin["version"], install_tool.VERSION)
 
             enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
             self.assertEqual(enablement["better-plan"]["overrides"], [paths.gemini_scope])
@@ -101,23 +102,56 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any(check.target == "claude" and check.status == "WARN" for check in checks), checks)
             self.assertTrue(any(check.target == "opencode" and check.status == "WARN" for check in checks), checks)
 
-    def test_opencode_doctor_reports_wsl_runtime_when_windows_path_is_missing(self) -> None:
+    def test_install_updates_detected_wsl_opencode_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            runtime = install_tool.WslOpenCodeRuntime(
+                distro="Debian",
+                location="/home/unka/.opencode/bin/opencode",
+                home="/home/unka",
+                version="1.17.11",
+            )
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                if command[-3:] == ["wslpath", "-a", str(paths.repo_root)]:
+                    return subprocess.CompletedProcess(command, 0, stdout="/mnt/t/better-plan\n", stderr="")
+                if command[:5] == ["wsl.exe", "-d", "Debian", "-e", "bash"]:
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                raise AssertionError(f"unexpected command: {command}")
+
+            with (
+                mock.patch.object(install_tool.os, "name", "nt"),
+                mock.patch.object(install_tool, "wsl_executable", return_value="wsl.exe"),
+                mock.patch.object(install_tool, "discover_wsl_opencode", return_value=[runtime]),
+                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
+            ):
+                messages = install_tool.install_agents(paths, ["opencode"], dry_run=False)
+
+            self.assertTrue(any("updated WSL Debian" in message for message in messages), messages)
+            self.assertTrue(any("scripts/install.py" in command[-1] for command in commands), commands)
+
+    def test_opencode_doctor_validates_detected_wsl_runtime_when_windows_path_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             install_tool.install_agents(paths, ["opencode"], dry_run=False)
+            runtime = install_tool.WslOpenCodeRuntime(
+                distro="Debian",
+                location="/home/unka/.opencode/bin/opencode",
+                home="/home/unka",
+                version="1.17.11",
+            )
 
             def fake_which(name: str) -> str | None:
-                return "wsl.exe" if name == "wsl.exe" else None
+                return None
 
-            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
-                if command == ["wsl.exe", "-l", "-v"]:
-                    output = "  NAME      STATE           VERSION\r\n* Debian    Running         2\r\n".encode("utf-16le")
-                    return subprocess.CompletedProcess(command, 0, stdout=output, stderr=b"")
-                if command[:4] == ["wsl.exe", "-d", "Debian", "-e"]:
+            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if command[:5] == ["wsl.exe", "-d", "Debian", "-e", "bash"]:
                     return subprocess.CompletedProcess(
                         command,
                         0,
-                        stdout="/home/unka/.opencode/bin/opencode\n1.17.11\n",
+                        stdout="better-plan (primary)\n",
                         stderr="",
                     )
                 raise AssertionError(f"unexpected command: {command}")
@@ -125,41 +159,64 @@ class InstallToolTests(unittest.TestCase):
             with (
                 mock.patch.object(install_tool.os, "name", "nt"),
                 mock.patch.object(install_tool.shutil, "which", side_effect=fake_which),
-                mock.patch.object(install_tool.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(install_tool, "wsl_executable", return_value="wsl.exe"),
+                mock.patch.object(install_tool, "discover_wsl_opencode", return_value=[runtime]),
+                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
             ):
-                check = install_tool.check_opencode(paths, paths.shared_skill)
+                checks = install_tool.check_opencode(paths, paths.shared_skill)
 
-            self.assertEqual(check.status, "WARN")
-            self.assertIn("WSL Debian", check.message)
-            self.assertIn("1.17.11", check.message)
+            self.assertTrue(any(check.target == "opencode" and check.status == "WARN" for check in checks), checks)
+            self.assertTrue(
+                any(check.target == "opencode (WSL Debian)" and check.status == "OK" for check in checks), checks
+            )
 
-    def test_opencode_doctor_reports_running_docker_container_runtime(self) -> None:
+    def test_optional_client_cli_validation_has_explicit_success_warning_and_failure(self) -> None:
+        with mock.patch.object(install_tool.shutil, "which", return_value=None):
+            warning = install_tool.check_optional_client_cli("cursor")
+        self.assertEqual(warning.status, "WARN")
+
+        with (
+            mock.patch.object(install_tool.shutil, "which", return_value="cursor"),
+            mock.patch.object(
+                install_tool,
+                "run_text_command",
+                return_value=subprocess.CompletedProcess(["cursor", "--version"], 0, stdout="1.0\n", stderr=""),
+            ),
+        ):
+            success = install_tool.check_optional_client_cli("cursor")
+        self.assertEqual(success.status, "OK")
+
+        with (
+            mock.patch.object(install_tool.shutil, "which", return_value="copilot"),
+            mock.patch.object(
+                install_tool,
+                "run_text_command",
+                return_value=subprocess.CompletedProcess(["copilot", "--version"], 1, stdout="", stderr="failed"),
+            ),
+        ):
+            failure = install_tool.check_optional_client_cli("copilot")
+        self.assertEqual(failure.status, "FAIL")
+
+    def test_gemini_doctor_requires_extension_validation_and_loaded_listing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_tool.install_agents(paths, ["opencode"], dry_run=False)
-
-            def fake_which(name: str) -> str | None:
-                if name == "docker":
-                    return "docker"
-                return None
+            install_tool.install_agents(paths, ["gemini"], dry_run=False)
 
             def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-                if command[:3] == ["docker", "ps", "--format"]:
-                    return subprocess.CompletedProcess(command, 0, stdout="abc123\tdevbox\n", stderr="")
-                if command[:3] == ["docker", "exec", "abc123"]:
-                    return subprocess.CompletedProcess(command, 0, stdout="/usr/local/bin/opencode\n1.17.11\n", stderr="")
+                if command[1:3] == ["extensions", "validate"]:
+                    return subprocess.CompletedProcess(command, 0, stdout="valid\n", stderr="")
+                if command[1:3] == ["extensions", "list"]:
+                    return subprocess.CompletedProcess(command, 0, stdout="better-plan\n", stderr="")
                 raise AssertionError(f"unexpected command: {command}")
 
             with (
-                mock.patch.object(install_tool.os, "name", "posix"),
-                mock.patch.object(install_tool.shutil, "which", side_effect=fake_which),
-                mock.patch.object(install_tool.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(install_tool, "run_manifest_tool", return_value=True),
+                mock.patch.object(install_tool.shutil, "which", return_value="gemini"),
+                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
             ):
-                check = install_tool.check_opencode(paths, paths.shared_skill)
+                check = install_tool.check_gemini(paths, paths.shared_skill)
 
-            self.assertEqual(check.status, "WARN")
-            self.assertIn("Docker devbox", check.message)
-            self.assertIn("/usr/local/bin/opencode", check.message)
+            self.assertEqual(check.status, "OK")
 
     def test_uninstall_removes_adapters_and_disables_gemini(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -231,9 +288,10 @@ class InstallToolTests(unittest.TestCase):
             )
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
             self.assertIn("OK: codex:", doctor_result.stdout)
-            self.assertIn("OK: cursor:", doctor_result.stdout)
-            self.assertIn("OK: copilot:", doctor_result.stdout)
-            self.assertIn("OK: gemini:", doctor_result.stdout)
+            self.assertIn("cursor:", doctor_result.stdout)
+            self.assertIn("copilot:", doctor_result.stdout)
+            self.assertIn("gemini:", doctor_result.stdout)
+            self.assertNotIn("FAIL:", doctor_result.stdout)
 
     def test_existing_install_routes_installer_to_update(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
