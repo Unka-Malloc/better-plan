@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
+import shlex
 import shutil
 import subprocess
 import sys
@@ -15,6 +17,7 @@ from typing import Iterable
 
 
 SKILL_NAME = "better-plan"
+VERSION = "0.1.0"
 AGENTS = ("codex", "claude", "opencode", "cursor", "copilot", "gemini")
 AGENT_ALIASES = {
     "vscode": "copilot",
@@ -23,6 +26,10 @@ AGENT_ALIASES = {
 }
 SHARED_SCAN_AGENTS = {"codex", "cursor", "copilot"}
 ADAPTER_SKILL_AGENTS = {"opencode", "gemini"}
+OPTIONAL_CLIENT_CLI_COMMANDS = {
+    "cursor": ("cursor", "--version"),
+    "copilot": ("copilot", "--version"),
+}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COPY_IGNORE = (".git", "__pycache__", ".pytest_cache", ".DS_Store")
 DESCRIPTION = "Better Plan workflow for project planning, checkpoints, execution, validation, and commits."
@@ -89,11 +96,11 @@ class Check:
 
 
 @dataclass(frozen=True)
-class RuntimeProbe:
-    runtime: str
+class WslOpenCodeRuntime:
+    distro: str
     location: str
+    home: str
     version: str
-
 
 def default_paths(args: argparse.Namespace) -> InstallPaths:
     home = Path.home()
@@ -197,6 +204,7 @@ def install_claude_plugin(paths: InstallPaths, *, dry_run: bool) -> None:
         (temp / "skills").mkdir()
         plugin = {
             "name": SKILL_NAME,
+            "version": VERSION,
             "description": DESCRIPTION,
             "author": {
                 "name": "Better Plan",
@@ -242,7 +250,7 @@ Keep all work grounded in current repository files, preserve unrelated user chan
 def gemini_manifest() -> dict[str, str]:
     return {
         "name": SKILL_NAME,
-        "version": "0.1.0",
+        "version": VERSION,
         "description": DESCRIPTION,
         "contextFileName": "GEMINI.md",
     }
@@ -439,6 +447,7 @@ def install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> 
         if not dry_run:
             write_text(paths.opencode_agent, opencode_agent_text(root))
         messages.append(f"opencode: {'would update' if dry_run else 'updated'} {paths.opencode_agent}")
+        messages.extend(install_wsl_opencode(paths, dry_run=dry_run))
 
     if "cursor" in agents:
         kind, target = targets["cursor"]
@@ -533,26 +542,33 @@ def parse_running_wsl_distros(output: str) -> list[str]:
     return distros
 
 
-def split_probe_stdout(stdout: str) -> tuple[str, str] | None:
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    if not lines:
-        return None
-    location = lines[0]
-    version = lines[1] if len(lines) > 1 else "version unknown"
-    return location, version
-
-
-OPENCODE_PROBE_SCRIPT = (
+WSL_OPENCODE_PROBE_SCRIPT = (
     "path=$(command -v opencode 2>/dev/null) || exit 1; "
     "printf '%s\\n' \"$path\"; "
+    "printf '%s\\n' \"$HOME\"; "
     "opencode --version 2>/dev/null | head -n 1 || true"
 )
 
 
-def discover_wsl_opencode() -> list[RuntimeProbe]:
+def wsl_executable() -> str | None:
     if os.name != "nt":
-        return []
-    wsl = shutil.which("wsl.exe") or shutil.which("wsl")
+        return None
+    return shutil.which("wsl.exe") or shutil.which("wsl")
+
+
+def run_wsl_script(wsl: str, distro: str, script: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
+    return run_text_command([wsl, "-d", distro, "-e", "bash", "-lic", script], timeout=timeout)
+
+
+def split_wsl_probe_stdout(stdout: str) -> tuple[str, str, str] | None:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    return lines[0], lines[1], lines[2] if len(lines) > 2 else "version unknown"
+
+
+def discover_wsl_opencode() -> list[WslOpenCodeRuntime]:
+    wsl = wsl_executable()
     if wsl is None:
         return []
 
@@ -569,63 +585,48 @@ def discover_wsl_opencode() -> list[RuntimeProbe]:
     if result.returncode != 0:
         return []
 
-    probes: list[RuntimeProbe] = []
+    probes: list[WslOpenCodeRuntime] = []
     for distro in parse_running_wsl_distros(decode_probe_output(result.stdout)):
         try:
-            probe = run_text_command(
-                [wsl, "-d", distro, "-e", "bash", "-lic", OPENCODE_PROBE_SCRIPT],
-                timeout=20,
-            )
+            probe = run_wsl_script(wsl, distro, WSL_OPENCODE_PROBE_SCRIPT, timeout=20)
         except (OSError, subprocess.TimeoutExpired):
             continue
-        found = split_probe_stdout(probe.stdout if probe.returncode == 0 else "")
+        found = split_wsl_probe_stdout(probe.stdout if probe.returncode == 0 else "")
         if found:
-            location, version = found
-            probes.append(RuntimeProbe(f"WSL {distro}", location, version))
+            location, home, version = found
+            probes.append(WslOpenCodeRuntime(distro, location, home, version))
     return probes
 
 
-def discover_docker_opencode() -> list[RuntimeProbe]:
-    docker = shutil.which("docker")
-    if docker is None:
+def wsl_source_path(wsl: str, runtime: WslOpenCodeRuntime, source: Path) -> str:
+    result = run_text_command(
+        [wsl, "-d", runtime.distro, "-e", "wslpath", "-a", str(source)],
+        timeout=20,
+    )
+    path = result.stdout.strip() if result.returncode == 0 else ""
+    if not path:
+        raise InstallError(f"unable to resolve Better Plan source inside WSL {runtime.distro}")
+    return path
+
+
+def install_wsl_opencode(paths: InstallPaths, *, dry_run: bool) -> list[str]:
+    wsl = wsl_executable()
+    if wsl is None:
         return []
-    try:
-        result = run_text_command([docker, "ps", "--format", "{{.ID}}\t{{.Names}}"], timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if result.returncode != 0:
-        return []
 
-    probes: list[RuntimeProbe] = []
-    for line in result.stdout.splitlines()[:20]:
-        value = line.strip()
-        if not value:
+    messages: list[str] = []
+    for runtime in discover_wsl_opencode():
+        if dry_run:
+            messages.append(f"opencode: would update WSL {runtime.distro} at {runtime.home}")
             continue
-        parts = value.split("\t", 1)
-        container = parts[0].strip()
-        name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else container
-        if not container:
-            continue
-        try:
-            probe = run_text_command(
-                [docker, "exec", container, "sh", "-lc", OPENCODE_PROBE_SCRIPT],
-                timeout=20,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        found = split_probe_stdout(probe.stdout if probe.returncode == 0 else "")
-        if found:
-            location, version = found
-            probes.append(RuntimeProbe(f"Docker {name}", location, version))
-    return probes
-
-
-def discover_external_opencode() -> list[RuntimeProbe]:
-    return [*discover_wsl_opencode(), *discover_docker_opencode()]
-
-
-def format_runtime_probes(probes: list[RuntimeProbe]) -> str:
-    return "; ".join(f"{probe.runtime}: {probe.location} ({probe.version})" for probe in probes)
+        source = wsl_source_path(wsl, runtime, paths.repo_root)
+        installer = posixpath.join(source, "scripts", "install.py")
+        script = f"python3 {shlex.quote(installer)} update --agents codex,opencode"
+        result = run_wsl_script(wsl, runtime.distro, script, timeout=120)
+        if result.returncode != 0:
+            raise InstallError(f"failed to update Better Plan for WSL {runtime.distro}")
+        messages.append(f"opencode: updated WSL {runtime.distro} at {runtime.home}")
+    return messages
 
 
 def run_manifest_tool(skill_root: Path) -> bool:
@@ -674,6 +675,8 @@ def check_shared_scan_agent(paths: InstallPaths, target: str) -> Check:
             target,
             f"installed via shared skill at {root}; duplicate native skill still exists at {native_root}",
         )
+    if target in OPTIONAL_CLIENT_CLI_COMMANDS:
+        return check_optional_client_cli(target)
     return Check("OK", target, f"installed via {kind} skill at {root}")
 
 
@@ -689,7 +692,7 @@ def doctor(paths: InstallPaths, agents: list[str]) -> list[Check]:
     if "claude" in agents:
         checks.append(check_claude(paths))
     if "opencode" in agents:
-        checks.append(check_opencode(paths, root))
+        checks.extend(check_opencode(paths, root))
     if "cursor" in agents:
         checks.append(check_shared_scan_agent(paths, "cursor"))
     if "copilot" in agents:
@@ -720,36 +723,60 @@ def check_claude(paths: InstallPaths) -> Check:
     return Check("OK", "claude", f"plugin installed at {paths.claude_plugin}")
 
 
-def check_opencode(paths: InstallPaths, skill: Path) -> Check:
+def check_opencode(paths: InstallPaths, skill: Path) -> list[Check]:
+    checks: list[Check] = []
     if not paths.opencode_agent.is_file():
-        return Check("FAIL", "opencode", f"missing {paths.opencode_agent}")
+        return [Check("FAIL", "opencode", f"missing {paths.opencode_agent}")]
     text = paths.opencode_agent.read_text(encoding="utf-8")
     if str(skill / "SKILL.md") not in text:
-        return Check("FAIL", "opencode", f"{paths.opencode_agent} does not reference {skill}")
+        return [Check("FAIL", "opencode", f"{paths.opencode_agent} does not reference {skill}")]
 
     opencode = shutil.which("opencode")
     if opencode is None:
-        probes = discover_external_opencode()
-        if probes:
-            return Check(
+        checks.append(
+            Check(
                 "WARN",
                 "opencode",
-                (
-                    f"agent file installed at {paths.opencode_agent}; host opencode CLI not found; "
-                    f"found external runtime(s): {format_runtime_probes(probes)}"
-                ),
+                f"agent file installed at {paths.opencode_agent}; host opencode CLI not found",
             )
-        return Check("WARN", "opencode", f"agent file installed at {paths.opencode_agent}; opencode CLI not found")
+        )
+    else:
+        result = run_text_command(
+            [opencode, "agent", "list"],
+            timeout=30,
+        )
+        if result.returncode != 0:
+            checks.append(Check("FAIL", "opencode", "opencode agent list failed"))
+        elif SKILL_NAME not in result.stdout:
+            checks.append(Check("FAIL", "opencode", f"opencode agent list did not include {SKILL_NAME}"))
+        else:
+            checks.append(Check("OK", "opencode", f"agent installed at {paths.opencode_agent}"))
 
-    result = run_text_command(
-        [opencode, "agent", "list"],
-        timeout=30,
-    )
+    for runtime in discover_wsl_opencode():
+        wsl = wsl_executable()
+        if wsl is None:
+            continue
+        script = f"{shlex.quote(runtime.location)} agent list"
+        result = run_wsl_script(wsl, runtime.distro, script, timeout=30)
+        target = f"opencode (WSL {runtime.distro})"
+        if result.returncode != 0:
+            checks.append(Check("FAIL", target, "opencode agent list failed"))
+        elif SKILL_NAME not in result.stdout:
+            checks.append(Check("FAIL", target, f"opencode agent list did not include {SKILL_NAME}"))
+        else:
+            checks.append(Check("OK", target, f"agent installed at {runtime.home}"))
+    return checks
+
+
+def check_optional_client_cli(target: str) -> Check:
+    command = OPTIONAL_CLIENT_CLI_COMMANDS[target]
+    executable = shutil.which(command[0])
+    if executable is None:
+        return Check("WARN", target, f"adapter structure verified; {command[0]} CLI not found for runtime validation")
+    result = run_text_command([executable, *command[1:]], timeout=30)
     if result.returncode != 0:
-        return Check("FAIL", "opencode", "opencode agent list failed")
-    if SKILL_NAME not in result.stdout:
-        return Check("FAIL", "opencode", f"opencode agent list did not include {SKILL_NAME}")
-    return Check("OK", "opencode", f"agent installed at {paths.opencode_agent}")
+        return Check("FAIL", target, f"{command[0]} CLI version check failed")
+    return Check("OK", target, f"adapter structure and {command[0]} CLI verified")
 
 
 def check_gemini(paths: InstallPaths, skill: Path) -> Check:
@@ -771,7 +798,18 @@ def check_gemini(paths: InstallPaths, skill: Path) -> Check:
     text = context.read_text(encoding="utf-8")
     if str(skill / "SKILL.md") not in text:
         return Check("FAIL", "gemini", f"{context} does not reference {skill}")
-    return Check("OK", "gemini", f"extension installed at {paths.gemini_extension}")
+    gemini = shutil.which("gemini")
+    if gemini is None:
+        return Check("WARN", "gemini", "extension structure verified; gemini CLI not found for runtime validation")
+    validation = run_text_command([gemini, "extensions", "validate", str(paths.gemini_extension)], timeout=30)
+    if validation.returncode != 0:
+        return Check("FAIL", "gemini", "gemini extension validation failed")
+    listing = run_text_command([gemini, "extensions", "list"], timeout=30)
+    if listing.returncode != 0:
+        return Check("FAIL", "gemini", "gemini extensions list failed")
+    if SKILL_NAME not in listing.stdout:
+        return Check("FAIL", "gemini", f"gemini extensions list did not include {SKILL_NAME}")
+    return Check("OK", "gemini", f"extension installed and loaded at {paths.gemini_extension}")
 
 
 def print_checks(checks: list[Check]) -> int:
