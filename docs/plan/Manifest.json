@@ -1,0 +1,16 @@
+[
+  {
+    "id": "4d1162da-179d-4abc-9a7c-cc437ceaacf3",
+    "status": "completed",
+    "title": "Complete local-agent installer adaptation",
+    "directory": "installer-adaptation",
+    "source_files": [
+      "README.md",
+      "scripts/install.py",
+      "tests/test_install_tool.py"
+    ],
+    "goal": "Make Better Plan installation and verification cover the local Windows and WSL agent runtimes without duplicate implementations or unverifiable adapters.",
+    "description": "One platform-neutral installer plan covering WSL OpenCode deployment, runtime-aware verification, and the Claude plugin manifest.",
+    "checkpoints": "installer-adaptation/Checkpoints.json"
+  }
+]

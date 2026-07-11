@@ -1,0 +1,215 @@
+[
+  {
+    "id": "5913cebb-fd82-4c26-a555-713b486c6d64",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Define the supported local-agent installation and verification contract.",
+    "description": "Scope: docs/plan/installer-adaptation/Requirements.md; parent is the user's request and children are evidence, validation, and implementation work. Context: the local audit found Windows-only installation, configuration-only checks, and a Claude warning. Target: record REQ-001 through REQ-005, target users, scope, non-goals, and a final acceptance target. Design Considerations: distinguish supported clients from arbitrary third-party tools and keep one current skill tree per resolved runtime. Design Value: a stable contract prevents a platform-specific patch from silently weakening existing update behavior. Constraints & Risks: Docker is diagnostic-only and Windows/WSL must remain separate runtime targets.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements.md defines REQ-001 through REQ-005, users, scope, non-goals, and acceptance target.",
+        "evidence": "Requirements.md defines the five requirements, target users, scope, non-goals, and acceptance target from the local installer audit."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define installer adaptation requirements",
+      "target": "docs/plan/installer-adaptation"
+    },
+    "next": [
+      "b37ee71d-0ce9-40cb-9b84-34271a659aa0"
+    ]
+  },
+  {
+    "id": "b37ee71d-0ce9-40cb-9b84-34271a659aa0",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "5913cebb-fd82-4c26-a555-713b486c6d64"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Ground installer changes in the observed runtime and code-path gaps.",
+    "description": "Scope: docs/plan/installer-adaptation/Evidence.md, scripts/install.py, and tests/test_install_tool.py. Context: requirements define the desired final state. Target: cite the current Path.home routing, WSL probe-only behavior, structural-only checks, and Claude manifest warning. Design Considerations: select a reusable WSL runtime value object and table-driven native validator only where they reduce repeated command policy. Design Value: evidence keeps deployment and verification changes tied to observed behavior. Constraints & Risks: do not expose user-specific runtime data in repository artifacts.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence.md maps each current gap to source behavior and records bounded design decisions.",
+        "evidence": "Evidence.md maps current source behavior to the WSL deployment, runtime validation, and Claude manifest decisions."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: record installer adaptation evidence",
+      "target": "docs/plan/installer-adaptation"
+    },
+    "next": [
+      "ee71d223-b017-4ecd-8d40-df6e52f472a6"
+    ]
+  },
+  {
+    "id": "ee71d223-b017-4ecd-8d40-df6e52f472a6",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "5913cebb-fd82-4c26-a555-713b486c6d64",
+      "b37ee71d-0ce9-40cb-9b84-34271a659aa0"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Map every installer requirement to reproducible automated and local checks.",
+    "description": "Scope: docs/plan/installer-adaptation/Validation.md. Context: requirements and evidence establish the target and current gaps. Target: map each REQ label to unit tests and available local client checks before code changes. Design Considerations: test WSL behavior through mocked command boundaries plus real local smoke checks when present. Design Value: the matrix distinguishes installation evidence from runtime-load evidence. Constraints & Risks: optional CLIs must not make a structurally valid install fail merely because their executable is absent.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Validation.md maps every REQ label to concrete tests or runtime checks.",
+        "evidence": "Validation.md maps REQ-001 through REQ-005 to unit and local runtime verification."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: add installer validation matrix",
+      "target": "docs/plan/installer-adaptation"
+    },
+    "next": [
+      "90890d7a-5321-469c-a69b-870690315005"
+    ]
+  },
+  {
+    "id": "90890d7a-5321-469c-a69b-870690315005",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "5913cebb-fd82-4c26-a555-713b486c6d64",
+      "b37ee71d-0ce9-40cb-9b84-34271a659aa0",
+      "ee71d223-b017-4ecd-8d40-df6e52f472a6"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Fix the installer module boundaries and contracts before adapting runtimes.",
+    "description": "Scope: docs/plan/installer-adaptation/Architecture.md and the inspected installer interfaces. Context: source evidence requires WSL deployment and optional runtime checks without duplicated logic. Target: define the WSL runtime contract, validation result policy, module ownership, and dependency direction. Design Considerations: reuse existing copy and adapter primitives; isolate subprocess execution behind current command helpers. Design Value: explicit contracts keep Windows, WSL, and optional-client paths testable. Constraints & Risks: preserve CLI argument compatibility and one-current-implementation removal behavior.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture.md records module map, contracts, dependency direction, and chosen patterns.",
+        "evidence": "Architecture.md defines the WSL runtime contract, runtime validation policy, module map, and dependency direction."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: design installer runtime adaptation",
+      "target": "docs/plan/installer-adaptation"
+    },
+    "next": [
+      "78a376d1-7c19-4a02-b81e-f4223ef8a8ee"
+    ]
+  },
+  {
+    "id": "78a376d1-7c19-4a02-b81e-f4223ef8a8ee",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "90890d7a-5321-469c-a69b-870690315005"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Deliver runtime-aware WSL deployment, native validation, and a complete Claude manifest.",
+    "description": "Scope: scripts/install.py, tests/test_install_tool.py, and README.md; owns installer runtime discovery/deployment/doctor code and tests, consuming the contracts in Architecture.md. Context: Windows cannot install to detected WSL OpenCode, optional clients have structural-only checks, and Claude warns about a missing version. Target: satisfy REQ-001 through REQ-005 in the single installer implementation. Design Considerations: use structured runtime data, argument-list subprocess calls, safely quoted WSL scripts, atomic skill replacement, and table-driven optional validators. Design Value: the changes make discovery actionable and diagnostics meaningful without duplicate adapter flows. Constraints & Risks: do not retain compatibility shims, mutate unrelated user configuration, or turn missing optional CLIs into failures.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "WSL OpenCode deployment and verification, optional client validation, Claude manifest version, documentation, and unit coverage are implemented.",
+        "evidence": "Implemented WSL OpenCode deployment and agent-list checks, optional CLI checks, Gemini extension validation/listing, Claude manifest version, documentation, and unit coverage."
+      },
+      {
+        "checked": true,
+        "text": "Existing shared/native resolution and duplicate-removal behavior remains covered by tests.",
+        "evidence": "Existing resolution, duplicate-removal, uninstall, managed-config, and CLI override tests pass in the full suite."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: complete local agent installer adaptation",
+      "target": "scripts/install.py, tests/test_install_tool.py, README.md"
+    },
+    "next": [
+      "56d223bd-b017-4ecd-8d40-df6e52f472a6"
+    ]
+  },
+  {
+    "id": "56d223bd-b017-4ecd-8d40-df6e52f472a6",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "78a376d1-7c19-4a02-b81e-f4223ef8a8ee",
+      "ee71d223-b017-4ecd-8d40-df6e52f472a6"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Prove the installer meets every runtime-adaptation requirement end to end.",
+    "description": "Scope: full test suite, installer doctor, available native client validators, WSL OpenCode agent listing, and generated skill digests. Context: implementation delivers the planned installer behavior. Target: prove REQ-001 through REQ-005 using the Validation.md mapping. Design Considerations: distinguish unavailable optional CLIs from failing configured runtimes. Design Value: end-to-end evidence prevents an apparently valid file layout from masking an unloaded adapter. Constraints & Risks: report environmental limitations explicitly rather than claiming unsupported clients were exercised.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "All mapped automated tests and available local runtime checks pass.",
+        "evidence": "48 automated tests passed; real Windows update deployed WSL Debian; doctor reports WSL OpenCode OK; Claude plugin validation passed; Cursor CLI validation passed; Copilot and Gemini CLIs are unavailable and therefore reported as structural-install warnings."
+      },
+      {
+        "checked": true,
+        "text": "Manifest workspace validates and reports a completed plan state.",
+        "evidence": "manifest_tool validate, sync-plan, and status complete successfully for docs/plan."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: verify installer runtime adaptation",
+      "target": "validation evidence and checkpoint state"
+    },
+    "next": []
+  }
+]
