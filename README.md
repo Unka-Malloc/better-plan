@@ -2,7 +2,7 @@
 
 Better Plan is a Codex skill that turns project plans into a small validated workflow state machine.
 
-Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements through `REQ-...` labels recorded on each Node.
+Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements through canonical `REQ-...` labels recorded on each Node. Labels begin with `REQ` and use hyphen-delimited alphanumeric segments; Plan-local `REQ-###` labels are preferred, and prefixes before `REQ` are invalid.
 
 The architecture role fixes module boundaries, layering, dependency direction, and deliberate design-pattern choices in `Architecture.md` before implementation starts. Implementation Nodes are split along those module boundaries and declare the files they own, so independent Nodes stay decoupled and can be developed in parallel instead of piling code into one file.
 
@@ -75,7 +75,7 @@ Validate a Better Plan workspace that already contains `Manifest.json` and plan-
 python3 scripts/manifest_tool.py validate <better-plan-workspace> [--plan <selector>] [--check-sources] [--json] [--no-git]
 ```
 
-Cross-check requirement labels between plan markdown documents and Node `requirements` fields. Node labels missing from the documents are errors; documented labels carried by no non-skipped Node are warnings:
+Cross-check requirement labels between plan markdown documents and Node `requirements` fields. Noncanonical document or Node labels and Node labels missing from the documents are errors; documented canonical labels carried by no non-skipped Node are warnings:
 
 ```sh
 python3 scripts/manifest_tool.py check-labels <workspace> [--plan <selector>] [--json]

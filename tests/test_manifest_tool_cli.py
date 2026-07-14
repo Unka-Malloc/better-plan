@@ -182,6 +182,18 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(payload["state_files"], 2)
         self.assertEqual(payload["issues"], [])
 
+    def test_python_validate_rejects_noncanonical_requirement_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            nodes = [checkpoint_node(NODE_ID)]
+            nodes[0]["requirements"] = ["PLAN-REQ-001"]
+            write_workspace(root, nodes=nodes)
+
+            result = run_command(sys.executable, PYTHON_TOOL, "validate", tmpdir, "--no-git")
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("canonical format", result.stderr)
+
     def test_python_validate_accepts_hierarchical_plan_directories(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             write_hierarchical_workspace(Path(tmpdir))
@@ -432,6 +444,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertIn("requirements", node_schema["optional_fields"])
         self.assertIn("status_reason", node_schema["optional_fields"])
         self.assertIn("any", node_schema["platforms"])
+        self.assertEqual(node_schema["requirement_label_pattern"], r"^REQ(?:-[A-Za-z0-9]+)+$")
 
         self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
         plan_schema = json.loads(plan_result.stdout)
@@ -572,6 +585,37 @@ class ManifestToolCliTests(unittest.TestCase):
             self.assertIn("must reference an earlier node id", result.stderr)
             self.assertEqual(len(read_nodes(root)), 1)
 
+    def test_add_node_rejects_noncanonical_requirement_labels_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
+            before = read_nodes(root)
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "add-node",
+                tmpdir,
+                "--plan",
+                "main-plan",
+                "--requirements",
+                "PLAN-REQ-001",
+                "--goal",
+                "Attempt to add an invalid requirement label.",
+                "--description",
+                "Scope: label validation. Context: regression test. Target: reject invalid labels.",
+                "--criterion",
+                "The invalid node is not written.",
+                "--commit-message",
+                "test invalid requirement label",
+                "--commit-target",
+                "tests",
+            )
+
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("canonical format", result.stderr)
+            self.assertEqual(read_nodes(root), before)
+
     def test_rewire_replaces_and_edits_edges(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -663,6 +707,37 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(node["goal"], "Refined goal.")
         self.assertEqual(node["difficulty"], "high")
         self.assertEqual(node["acceptance_criteria"][1], {"checked": False, "text": "A second concrete check."})
+
+    def test_edit_node_rejects_noncanonical_requirement_labels_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
+            before = read_nodes(root)
+
+            replacement = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "edit-node",
+                NODE_ID,
+                tmpdir,
+                "--requirements",
+                "PLAN-REQ-001",
+            )
+            addition = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "edit-node",
+                NODE_ID,
+                tmpdir,
+                "--add-requirement",
+                "PLAN-REQ-001",
+            )
+
+            self.assertNotEqual(replacement.returncode, 0, replacement.stdout)
+            self.assertNotEqual(addition.returncode, 0, addition.stdout)
+            self.assertIn("canonical format", replacement.stderr)
+            self.assertIn("canonical format", addition.stderr)
+            self.assertEqual(read_nodes(root), before)
 
     def test_check_records_structured_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -829,6 +904,44 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(passing.returncode, 0, passing.stderr)
         self.assertIn("warning: label REQ-002", passing.stdout)
         self.assertIn("1 warning(s)", passing.stdout)
+
+    def test_check_labels_rejects_noncanonical_node_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            nodes = read_nodes(root)
+            nodes[0]["requirements"] = ["PLAN-REQ-001"]
+            (root / "main-plan" / "Checkpoints.json").write_text(json.dumps(nodes), encoding="utf-8")
+            (root / "main-plan" / "Requirements.md").write_text(
+                "# Requirements\n\n- REQ-001 canonical behavior\n",
+                encoding="utf-8",
+            )
+
+            result = run_command(sys.executable, PYTHON_TOOL, "check-labels", tmpdir, "--json")
+            payload = json.loads(result.stdout)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        plan_payload = payload["plans"][0]
+        self.assertEqual(list(plan_payload["invalid_node_labels"].keys()), ["PLAN-REQ-001"])
+        self.assertEqual(plan_payload["node_labels"], 0)
+
+    def test_check_labels_rejects_prefixed_document_labels_without_substring_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            (root / "main-plan" / "Requirements.md").write_text(
+                "# Requirements\n\n- PLAN-REQ-001 noncanonical behavior\n",
+                encoding="utf-8",
+            )
+
+            result = run_command(sys.executable, PYTHON_TOOL, "check-labels", tmpdir, "--json")
+            payload = json.loads(result.stdout)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        plan_payload = payload["plans"][0]
+        self.assertEqual(plan_payload["doc_labels"], 0)
+        self.assertEqual(plan_payload["invalid_document_labels"], ["PLAN-REQ-001"])
+        self.assertNotIn("REQ-001", plan_payload.get("undefined", {}))
 
     @unittest.skipUnless(shutil.which("git"), "git is required for transition history validation")
     def test_validate_rejects_illegal_transitions_against_git_head(self) -> None:
