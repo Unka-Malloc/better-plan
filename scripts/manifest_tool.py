@@ -57,8 +57,11 @@ DISCOVERY_SKIP_DIRS = {
 UUID4_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 GIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-REQUIREMENT_LABEL_PATTERN = re.compile(r"^\S+$")
-REQUIREMENT_XREF_PATTERN = re.compile(r"\bREQ(?:-[A-Za-z0-9]+)+\b")
+REQUIREMENT_LABEL_TOKEN = r"REQ(?:-[A-Za-z0-9]+)+"
+REQUIREMENT_LABEL_PATTERN = re.compile(rf"^{REQUIREMENT_LABEL_TOKEN}$")
+REQUIREMENT_LABEL_CANDIDATE_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:[A-Za-z0-9]+[-_])*REQ(?:[-_][A-Za-z0-9]+)+(?![A-Za-z0-9_-])"
+)
 EXTERNAL_SOURCE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:")
 PLAN_REQUIRED_FIELDS = {
     "id",
@@ -426,6 +429,10 @@ def is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def is_requirement_label(value: Any) -> bool:
+    return isinstance(value, str) and REQUIREMENT_LABEL_PATTERN.fullmatch(value) is not None
+
+
 def is_manifest_id(value: Any) -> bool:
     return isinstance(value, str) and UUID4_PATTERN.fullmatch(value) is not None
 
@@ -608,8 +615,14 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
             else:
                 seen_labels: set[str] = set()
                 for label_index, label in enumerate(requirements):
-                    if not label.strip() or not REQUIREMENT_LABEL_PATTERN.fullmatch(label):
-                        issues.append(Issue(path, f"{prefix}.requirements[{label_index}]: must be a non-empty label without whitespace, such as 'REQ-001'"))
+                    if not is_requirement_label(label):
+                        issues.append(
+                            Issue(
+                                path,
+                                f"{prefix}.requirements[{label_index}]: must use the canonical format 'REQ-...' "
+                                "with REQ first and hyphen-delimited alphanumeric segments, such as 'REQ-001'",
+                            )
+                        )
                     elif label in seen_labels:
                         issues.append(Issue(path, f"{prefix}.requirements[{label_index}]: duplicate label {label!r}"))
                     else:
@@ -844,7 +857,11 @@ def validate_requirement_traceability(path: Path, data: Any) -> list[Issue]:
         if role not in VALID_NODE_ROLES:
             continue
         requirements = node.get("requirements")
-        labels = set(requirements) if is_string_list(requirements) else set()
+        labels = (
+            {label for label in requirements if is_requirement_label(label)}
+            if is_string_list(requirements)
+            else set()
+        )
         skipped = node.get("status") == "skipped"
 
         if role == "final_validation":
@@ -1694,8 +1711,9 @@ def edit_node_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def plan_document_labels(plan_dir: Path, exclude_dirs: set[Path]) -> tuple[set[str], int]:
+def plan_document_labels(plan_dir: Path, exclude_dirs: set[Path]) -> tuple[set[str], set[str], int]:
     labels: set[str] = set()
+    invalid_labels: set[str] = set()
     scanned = 0
     for current_root, dirs, files in os.walk(plan_dir):
         current = Path(current_root)
@@ -1712,8 +1730,12 @@ def plan_document_labels(plan_dir: Path, exclude_dirs: set[Path]) -> tuple[set[s
             except OSError:
                 continue
             scanned += 1
-            labels.update(REQUIREMENT_XREF_PATTERN.findall(text))
-    return labels, scanned
+            for candidate in REQUIREMENT_LABEL_CANDIDATE_PATTERN.findall(text):
+                if is_requirement_label(candidate):
+                    labels.add(candidate)
+                else:
+                    invalid_labels.add(candidate)
+    return labels, invalid_labels, scanned
 
 
 def check_labels_command(args: argparse.Namespace) -> int:
@@ -1754,9 +1776,10 @@ def check_labels_command(args: argparse.Namespace) -> int:
             continue
 
         exclude_dirs = {path for other_index, path in plan_dirs.items() if other_index != index}
-        doc_labels, scanned = plan_document_labels(plan_dir, exclude_dirs)
+        doc_labels, invalid_document_labels, scanned = plan_document_labels(plan_dir, exclude_dirs)
 
         carried: dict[str, list[str]] = {}
+        invalid_node_labels: dict[str, list[str]] = {}
         carried_non_skipped: set[str] = set()
         for node in nodes:
             if not isinstance(node, dict):
@@ -1765,7 +1788,8 @@ def check_labels_command(args: argparse.Namespace) -> int:
             if not is_string_list(requirements):
                 continue
             for value in requirements:
-                if not REQUIREMENT_XREF_PATTERN.fullmatch(value):
+                if not is_requirement_label(value):
+                    invalid_node_labels.setdefault(value, []).append(str(node.get("id")))
                     continue
                 carried.setdefault(value, []).append(str(node.get("id")))
                 if node.get("status") != "skipped":
@@ -1774,6 +1798,14 @@ def check_labels_command(args: argparse.Namespace) -> int:
         payload["documents_scanned"] = scanned
         payload["doc_labels"] = len(doc_labels)
         payload["node_labels"] = len(carried)
+        if invalid_document_labels:
+            payload["invalid_document_labels"] = sorted(invalid_document_labels)
+            errors += len(invalid_document_labels)
+        if invalid_node_labels:
+            payload["invalid_node_labels"] = {
+                value: invalid_node_labels[value] for value in sorted(invalid_node_labels)
+            }
+            errors += len(invalid_node_labels)
         if not doc_labels:
             payload["warning"] = "no requirement labels found in plan documents; document labels before relying on traceability"
             warnings += 1
@@ -1805,6 +1837,17 @@ def check_labels_command(args: argparse.Namespace) -> int:
             print(f"  error: {payload['error']}", file=sys.stderr)
             continue
         print(f"  documents scanned: {payload['documents_scanned']}, doc labels: {payload['doc_labels']}, node labels: {payload['node_labels']}")
+        for value in payload.get("invalid_document_labels", []):
+            print(
+                f"  error: noncanonical document label {value}; use REQ first, for example REQ-001",
+                file=sys.stderr,
+            )
+        for value, node_ids in payload.get("invalid_node_labels", {}).items():
+            print(
+                f"  error: noncanonical node label {value} is carried by node(s) {', '.join(node_ids)}; "
+                "use REQ first, for example REQ-001",
+                file=sys.stderr,
+            )
         if "warning" in payload:
             print(f"  warning: {payload['warning']}")
             continue
@@ -2028,6 +2071,7 @@ def schema_command(args: argparse.Namespace) -> int:
             "roles": sorted(VALID_NODE_ROLES),
             "difficulties": sorted(VALID_DIFFICULTIES),
             "platforms": sorted(VALID_PLATFORMS),
+            "requirement_label_pattern": REQUIREMENT_LABEL_PATTERN.pattern,
             "template": NODE_TEMPLATE,
         }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -2107,7 +2151,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_node.add_argument("--role", default="implementation", choices=sorted(VALID_NODE_ROLES), help="delivery role; defaults to implementation")
     add_node.add_argument("--difficulty", default="medium", choices=sorted(VALID_DIFFICULTIES), help="difficulty; defaults to medium")
     add_node.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS), help="platform; defaults to any")
-    add_node.add_argument("--requirements", help="comma-separated requirement labels, such as REQ-001,REQ-002")
+    add_node.add_argument(
+        "--requirements",
+        help="comma-separated canonical labels that begin with REQ, such as REQ-001,REQ-002",
+    )
     add_node.add_argument("--criterion", action="append", required=True, help="acceptance criterion text; repeatable, at least one")
     add_node.add_argument("--commit-message", required=True, help="suggested commit message")
     add_node.add_argument("--commit-target", required=True, help="where the work should be committed or delivered")
@@ -2138,8 +2185,15 @@ def build_parser() -> argparse.ArgumentParser:
     edit_node.add_argument("--description", help="replace the node description")
     edit_node.add_argument("--difficulty", choices=sorted(VALID_DIFFICULTIES), help="replace the node difficulty")
     edit_node.add_argument("--platform", choices=sorted(VALID_PLATFORMS), help="replace the node platform")
-    edit_node.add_argument("--requirements", help="replace requirement labels with this comma-separated list; pass '' to clear")
-    edit_node.add_argument("--add-requirement", action="append", help="append one requirement label; repeatable")
+    edit_node.add_argument(
+        "--requirements",
+        help="replace requirement labels with a comma-separated canonical REQ-... list; pass '' to clear",
+    )
+    edit_node.add_argument(
+        "--add-requirement",
+        action="append",
+        help="append one canonical REQ-... requirement label; repeatable",
+    )
     edit_node.add_argument("--remove-requirement", action="append", help="remove one requirement label; repeatable")
     edit_node.add_argument("--add-criterion", action="append", help="append one unchecked acceptance criterion; repeatable")
     edit_node.add_argument("--commit-message", help="replace commit.message")

@@ -310,8 +310,52 @@ class WorkflowStateMachineTests(unittest.TestCase):
         self.assertTrue(any("commit.delivered: must be a lowercase hex commit sha" in message for message in messages), messages)
         self.assertTrue(any("evidence: must be a non-empty string" in message for message in messages), messages)
         self.assertTrue(
-            any("must be a non-empty label without whitespace" in message for message in messages), messages
+            any("canonical format" in message for message in messages), messages
         )
+
+    def test_requirement_labels_use_the_canonical_req_first_grammar(self) -> None:
+        for label in ("REQ-001", "REQ-X", "REQ-X-001"):
+            with self.subTest(label=label):
+                _, issues = manifest_tool.validate_checkpoints_data(
+                    Path("Checkpoints.json"),
+                    [make_node(NODE_A_ID, "pending", requirements=[label])],
+                )
+
+                self.assertFalse(
+                    [issue.message for issue in issues if "canonical format" in issue.message],
+                    [issue.message for issue in issues],
+                )
+
+        for label in ("PLAN-REQ-001", "Plan-REQ-001", "REQ_001", "REQ"):
+            with self.subTest(label=label):
+                _, issues = manifest_tool.validate_checkpoints_data(
+                    Path("Checkpoints.json"),
+                    [make_node(NODE_A_ID, "pending", requirements=[label])],
+                )
+
+                self.assertTrue(
+                    any("canonical format" in issue.message for issue in issues),
+                    [issue.message for issue in issues],
+                )
+
+    def test_noncanonical_labels_do_not_satisfy_traceability(self) -> None:
+        data = [
+            make_node(NODE_A_ID, "pending", requirements=["PLAN-REQ-001"]),
+            make_node(
+                NODE_B_ID,
+                "pending",
+                role="final_validation",
+                difficulty="high",
+                requirements=["PLAN-REQ-001"],
+            ),
+        ]
+
+        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        messages = [issue.message for issue in issues]
+
+        self.assertTrue(any("canonical format" in message for message in messages), messages)
+        self.assertTrue(any("implementation nodes must list" in message for message in messages), messages)
+        self.assertTrue(any("final_validation nodes must list" in message for message in messages), messages)
 
     def test_derive_plan_status_follows_node_states(self) -> None:
         derive = manifest_tool.derive_plan_status

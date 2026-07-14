@@ -77,7 +77,7 @@ Required fields:
 
 Optional fields:
 
-- `requirements`: list of requirement labels such as `REQ-001` that this Node delivers or proves. Labels must be non-empty and contain no whitespace. Implementation Nodes must list at least one label or describe enabling work in `description`. Final-validation Nodes must list the labels they prove; the validator requires them to cover every label carried by non-skipped implementation Nodes. `check-labels` cross-checks these labels against the labels written in the plan directory's markdown documents.
+- `requirements`: list of requirement labels such as `REQ-001` that this Node delivers or proves. Labels must begin with `REQ` and contain one or more hyphen-delimited alphanumeric segments (`REQ-001` and `REQ-CLIENT-001` are valid; `CLIENT-REQ-001` is not). Prefer Plan-local `REQ-###` labels because the Plan boundary already supplies the namespace. Implementation Nodes must list at least one canonical label or describe enabling work in `description`. Final-validation Nodes must list the canonical labels they prove; the validator requires them to cover every label carried by non-skipped implementation Nodes. `check-labels` cross-checks these labels against the labels written in the plan directory's markdown documents and rejects noncanonical labels instead of silently dropping them.
 - `status_reason`: why the Node is `blocked`, `skipped`, or paused back to `pending`, and what would unblock, revive, or resume it. The `block` and `skip` commands require it; `pause` records it when given; other transitions clear it.
 
 Acceptance criterion object:
@@ -144,7 +144,7 @@ Plan consistency rules:
 | `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--requirements] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated placement and wiring; `--splice` inserts it into the anchor's outgoing chain and rewires downstream prerequisites |
 | `rewire <node-id> [root] [--prerequisites ...] [--next ...] [--add-prerequisite <id>] [--remove-prerequisite <id>] [--add-next <id>] [--remove-next <id>]` | replace or incrementally edit a Node's edges with validation |
 | `edit-node <node-id> [root] [--goal] [--description] [--difficulty] [--platform] [--requirements] [--add-requirement] [--remove-requirement] [--add-criterion] [--commit-message] [--commit-target] [--commit-repository]` | edit Node fields through validation; terminal Nodes accept only requirements-label corrections |
-| `check-labels [root] [--plan <selector>] [--json]` | cross-check `REQ-...` labels between plan markdown documents and Node `requirements`; undefined Node labels are errors, uncovered document labels are warnings |
+| `check-labels [root] [--plan <selector>] [--json]` | cross-check canonical `REQ-...` labels between plan markdown documents and Node `requirements`; noncanonical or undefined Node labels and noncanonical document labels are errors, uncovered canonical document labels are warnings |
 | `sync-plan [root]` | re-derive every Plan status from its Nodes |
 | `status [root] [--json]` | report per-plan progress, the in-progress Node, and blocked Nodes |
 | `next [root] [--json]` | list the resumable or eligible Nodes per plan for the current platform |
