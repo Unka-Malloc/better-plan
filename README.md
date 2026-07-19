@@ -1,21 +1,21 @@
 # better-plan
 
-Better Plan is a Codex skill that turns project plans into a small validated workflow state machine.
+Better Plan is an agent skill that turns project plans into a small validated workflow state machine.
 
-Plans are treated as end-to-end product delivery contracts: requirements and evidence come first, implementation checkpoints follow, and validation must trace back to the original requirements through canonical `REQ-...` labels recorded on each Node. Labels begin with `REQ` and use hyphen-delimited alphanumeric segments; Plan-local `REQ-###` labels are preferred, and prefixes before `REQ` are invalid.
+Plans are revisable delivery models derived from the latest user request. Requirements and evidence come first, implementation checkpoints follow, and validation traces to canonical `REQ-...` labels recorded on each Node. Labels begin with `REQ` and use hyphen-delimited alphanumeric segments; Plan-local `REQ-###` labels are preferred, and prefixes before `REQ` are invalid.
 
-The architecture role fixes module boundaries, layering, dependency direction, and deliberate design-pattern choices in `Architecture.md` before implementation starts. Implementation Nodes are split along those module boundaries and declare the files they own, so independent Nodes stay decoupled and can be developed in parallel instead of piling code into one file.
+Architecture establishes only the boundaries and decisions relevant to the requested change. Files, symbols, interfaces, errors, algorithms, data structures, state, cache, isolation, and concurrency are risk-driven design candidates rather than mandatory prose. Implementation Nodes declare a primary file focus, while the native main judges necessary adjacent changes reported by a leaf.
 
 The workflow state is stored in two JSON files:
 
 - `Manifest.json` indexes Plans.
 - `Checkpoints.json` stores each Plan's executable Node graph, including each Node's delivery `role` and `requirements` labels.
 
-Status changes go through the manifest tool's mutation commands, which enforce the transition table and every snapshot invariant before writing. `validate` additionally compares each Plan and Node status against the file's git HEAD version and rejects changes that no transition path allows, such as `completed` back to `in_progress`.
+One user-visible capability uses one selected implementation Node as its lifecycle identity. Acceptance revision, implementation repair, focused regression, and audit remain correlated to that Node. The state tool runs the declared focused regression after executor exit: failure returns a repair/defer decision to the native main, success selects one fresh read-only auditor, and a fingerprint-bound PASS completes the Node. Completion and adjacent findings never select another Node automatically.
 
 Plans can be nested when one plan is the common foundation for other plans. For example, a shared `common` plan can own `common/Checkpoints.json`, while dependent business-line plans live under `common/a/Checkpoints.json`, `common/b/Checkpoints.json`, and `common/c/Checkpoints.json`. The root `Manifest.json` stays a flat array; hierarchy is expressed through each Plan's relative `directory` and `checkpoints` paths. The tree grows top-down: upper directories are foundations, leaves are concrete delivery branches. Platform adaptation follows the same shape — a platform-neutral parent plan with one child plan per operating system or runtime target, so each platform's development direction is planned and executed independently.
 
-Field semantics and examples live in `references/state-files.md`; the canonical object shapes are printed by `scripts/manifest_tool.py schema plan|node`.
+Field semantics and examples are in the canonical plan/schema output from `scripts/manifest_tool.py schema plan|node`.
 
 ## Install
 
@@ -23,19 +23,40 @@ Install or update Better Plan for all supported local agents:
 
 ```sh
 python3 scripts/install.py
-python3 scripts/update.py
+python3 scripts/install.py update
 ```
 
 The installer is idempotent and installs:
 
-- Shared skill source for Codex, Cursor, VS Code Copilot, and adapters when selected by the per-agent resolver: `~/.agents/skills/better-plan`
-- Claude Code skills-dir plugin: `~/.claude/skills/better-plan`
-- OpenCode primary agent: `~/.config/opencode/agents/better-plan.md`
-- Gemini/Antigravity extension: `~/.gemini/extensions/better-plan`
+- A configured shared or client-native skill source for Codex, Cursor, Copilot, and adapter clients
+- A Claude Code skills-dir plugin
+- An OpenCode primary agent
+- A Gemini/Antigravity extension with a relative enablement scope
+- Managed detector-gated lifecycle handlers for Codex, Claude Code, and Cursor:
+  - Codex and Claude Code receive nested `SessionStart`, `UserPromptSubmit`, and an Agent-only `PostToolUse` hook.
+  - Cursor receives flat version 1 hooks: `sessionStart`, `beforeSubmitPrompt`, and Agent/Task-only `postToolUse`.
+- Managed Hook handlers are attached only through these supported events.
 
-Codex, Cursor, and VS Code Copilot can scan `~/.agents/skills`, but each client resolves its install target independently. A clean install defaults to `~/.agents/skills/better-plan`. If only a client's native path already has Better Plan, such as `~/.codex/skills/better-plan`, update keeps that native path as the source of truth instead of creating a duplicate in `~/.agents`. If both shared and native copies exist for the same client, shared wins and the native duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
+Nested Codex and Claude command handlers use one bounded timeout, `HOOK_TIMEOUT_SECONDS` (currently 30 seconds), for the Hook command process itself. It does not observe, limit, interrupt, or replace an Agent: Agent completion has already occurred before the completion Hook starts. If automatic regression outlives that outer Hook window, the host may terminate the Hook before its directive or final state update is returned; the native main remains running and can inspect progress. Cursor handlers use the host's flat version 1 command shape without adding undocumented handler fields.
+
+Better Plan does not poll or time delegated Agents. Dispatch lifetime, cancellation, and host-level timeout behavior belong exclusively to the native agent framework. Better Plan reacts only after the correlated Agent-completion event is delivered.
+
+Codex, Cursor, and Copilot can scan the configured shared skill directory, but each client resolves its install target independently. A clean install uses the shared target. If only a client's native target already has Better Plan, update keeps that target as the source of truth. If both shared and native copies exist for the same client, shared wins and the duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
+
+Selecting Cursor through `--agents` installs both its Better Plan skill surface and its managed lifecycle handlers.
 
 On Windows, installation and update also discover each running WSL distribution with OpenCode and run the same installer inside that distribution. This creates its WSL shared skill source and OpenCode primary agent, rather than leaving WSL to use a Windows-only adapter. The Better Plan source must be reachable from that distribution through `wslpath`.
+
+The installed payload has one canonical layered implementation:
+
+- `scripts/better_plan/domain/`: workflow values, validation, design contracts, and transitions
+- `scripts/better_plan/infrastructure/`: workspace persistence and regression execution
+- `scripts/better_plan/application/`: workflow use cases and Agent-completion reduction
+- `scripts/better_plan/hooks/`: workspace scope, event context, read-only runtime, and Hook config ownership
+- `scripts/better_plan/installation/`: models, atomic skill copies, target adapters, diagnostics, and service composition
+- `scripts/better_plan/adapters/`: manifest and installer CLI adapters
+- `scripts/manifest_tool.py`, `scripts/hook_tool.py`, and `scripts/install.py`: behavior-free executable entrypoints
+- `references/`: one conditionally loaded contract per orchestration role
 
 Verify the local install:
 
@@ -43,23 +64,37 @@ Verify the local install:
 python3 scripts/install.py doctor
 ```
 
-`doctor` validates the structural adapter for every supported client. When a native CLI is available, it additionally checks Cursor and Copilot can run, validates and lists the Gemini extension, validates the Claude plugin, and confirms OpenCode lists the Better Plan agent. On Windows it performs the OpenCode agent-list check inside every detected WSL distribution as well. Missing optional client CLIs produce a warning instead of a failed structural install.
+`doctor` validates structural adapters for all supported clients and requires exactly one managed handler for each supported event:
+
+- Codex: `SessionStart`, `UserPromptSubmit`, `PostToolUse` matched only to `Agent`
+- Claude Code: `SessionStart`, `UserPromptSubmit`, `PostToolUse` matched only to `Agent`
+- Cursor: `sessionStart`, `beforeSubmitPrompt`, `postToolUse` matched only to `Agent` or `Task`
+
+When a native CLI is available, it additionally checks Cursor and Copilot can run, validates and lists the Gemini extension, validates the Claude plugin, and confirms OpenCode lists the Better Plan agent. On Windows it performs the OpenCode agent-list check inside every detected WSL distribution as well. Missing optional client CLIs produce a warning instead of a failed structural install.
+
+Codex, Claude Code, and Cursor Hook installation preserves unrelated settings and handlers. Repeated install/update replaces only handlers carrying the Better Plan ownership marker; full `uninstall` removes installed adapters and their managed handlers, while hook-only uninstallation is done with `uninstall-hooks`. Managed commands contain no concrete machine path and locate the skill through client environment roots plus relative path segments. Every invocation runs the dedicated project detector first and returns a safe no-op when no structured Better Plan workspace exists.
+
+Every invocation first detects exactly one valid Better Plan workspace. If there is no workspace, ambiguity, malformed structure, or conflicting repository root, callbacks exit successfully with no action.
+
+Session and prompt Hooks provide guidance only. The Agent-completion Hook is the sole tool-scoped specialization: it runs after a native child Agent has returned, never blocks the tool or continues the stopped child, and invokes only the correlated Better Plan reducer. No Hook subscribes to `PreToolUse`, generic tool calls, or a main-agent stop event, and no callback may deny user prompts.
 
 Install a subset of agents:
 
 ```sh
 python3 scripts/install.py --agents codex,claude
 python3 scripts/install.py update --agents opencode cursor copilot gemini
-python3 scripts/install.py update --agents vscode-copilot
 ```
 
 Remove installed adapters:
 
 ```sh
 python3 scripts/install.py uninstall
+python3 scripts/install.py uninstall-hooks --agents codex,claude,cursor
 ```
 
-The installer uses `SKILL.md` and `scripts/manifest_tool.py` as the single implementation for each resolved target. OpenCode and Gemini/Antigravity point to whichever skill tree the resolver selected. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer manages are updated in place without creating Better Plan backup copies.
+Hook-only removal is idempotent and affects only managed handlers; it does not remove installed skills or unrelated settings.
+
+The current implementation uses `CURRENT_SKILL_FILES` above as the canonical payload inventory for each resolved target. OpenCode and Gemini/Antigravity discover the installed skill by logical name instead of persisting a concrete local path. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer manages are updated in place without creating Better Plan backup copies.
 
 ## Commands
 
@@ -86,26 +121,89 @@ Generate IDs and check one status transition edge:
 ```sh
 python3 scripts/manifest_tool.py uuid --count 3
 python3 scripts/manifest_tool.py transition pending in_progress
+python3 scripts/manifest_tool.py platform --json
 ```
 
-Change Node status through enforced transitions. Each command validates the whole state file before writing, writes atomically, and re-derives the owning Plan's status. `pause` returns the running Node to `pending` so another Node can start, keeping `blocked` reserved for real dependencies. `check` records verifiable evidence: `--evidence-cmd` runs the verification command and requires exit 0, `--evidence-file` records the artifact with a sha256:
+Drive implementation and final-validation Nodes through the acceptance state machine. `next-action` is read-only. `dispatch` creates one bounded correlation, and `advance` consumes matching acceptance-design/review/executor/audit/regression/repair events. The state tool runs tests, writes safe receipts, routes repair, checks mapped criteria, and auto completes; native agents do none of those things:
 
 ```sh
-python3 scripts/manifest_tool.py start <node-id> <workspace>
-python3 scripts/manifest_tool.py pause <node-id> <workspace> --reason "yielding to an inserted task"
+python3 scripts/manifest_tool.py next-action <node-id> <workspace>
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role acceptance_designer
+python3 scripts/manifest_tool.py advance <node-id> <workspace> --event acceptance-designer-exited --dispatch-id <id>
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role acceptance_reviewer
+python3 scripts/manifest_tool.py advance <node-id> <workspace> --event acceptance-approved --dispatch-id <id>
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role executor
+python3 scripts/manifest_tool.py advance <node-id> <workspace> --event executor-exited --dispatch-id <id>
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role auditor
+python3 scripts/manifest_tool.py advance <node-id> <workspace> --event audit-passed --dispatch-id <id>
+python3 scripts/manifest_tool.py advance <final-id> <workspace> --event regression-requested
+```
+
+Foundation Nodes that are not `implementation` or `final_validation` retain the smaller evidence workflow. This is not a delivery acceptance backdoor:
+
+```sh
+python3 scripts/manifest_tool.py start <foundation-node-id> <workspace>
 python3 scripts/manifest_tool.py check <node-id> <workspace> --criterion 0 --evidence "unit tests passed" \
-  --evidence-cmd "python3 -m unittest discover -s tests" --evidence-file reports/coverage.txt
-python3 scripts/manifest_tool.py complete <node-id> <workspace> --delivered <sha>
+  --evidence-cmd "python3 -m unittest tests.test_example -v" --evidence-file reports/coverage.txt
+python3 scripts/manifest_tool.py complete <foundation-node-id> <workspace> --delivered <sha>
+```
+
+Administrative suspension is separate from acceptance. It cancels stale dispatches and proof before moving the Node:
+
+```sh
+python3 scripts/manifest_tool.py pause <node-id> <workspace> --reason "yielding to an inserted task"
 python3 scripts/manifest_tool.py block <node-id> <workspace> --reason "waiting on credentials"
 python3 scripts/manifest_tool.py skip <node-id> <workspace> --reason "deferred to a follow-up plan"
 ```
+
+Every executable `implementation` or `final_validation` Node declares a regression object. Implementation uses `focused`; final validation uses `full`. `criteria` identifies which acceptance criteria the complete command set proves, while `paths` identifies the smallest repository-relative source/test content bound into the freshness receipt:
+
+```json
+{
+  "regression": {
+    "scope": "focused",
+    "commands": ["python3 -m unittest tests.test_example"],
+    "criteria": [0],
+    "paths": ["src/example.py", "tests/test_example.py"]
+  }
+}
+```
+
+Every supported lifecycle callback enters the thin Hook runtime, which first runs the
+canonical structural detector in `scripts/better_plan/hooks/scope.py`. Every invocation requires exactly one valid Better Plan workspace, otherwise it returns success with no action.
+Only supported-callback contexts continue orchestration. The native parent then uses this role model:
+
+- Native main
+- Acceptance designer
+- Acceptance reviewer
+- Executor
+- Auditor
+
+Better Plan is considered only after the user explicitly asks for implementation. The native main first understands and follows that request, then inspects relevant Plans as fallible references and aligns one selected Node to one user-visible capability. An existing or active Node never authorizes work by itself.
+The parent reads `next-action`, then dispatches `dispatch_acceptance_designer`, `dispatch_acceptance_reviewer`, `dispatch_executor`, or `dispatch_auditor` by the returned role with role isolation.
+When a native Agent tool returns, the completion Hook submits the correlated write-role exit to the state reducer before the parent receives its next model step. Acceptance-designer exit selects `dispatch_acceptance_reviewer`. Executor exit runs the declared focused regression: success selects `dispatch_auditor`, while failure emits `main_repair_decision`. The Hook never launches an agent itself and never continues the stopped child.
+
+Read-only verdicts remain main-thread decisions. Approval may continue the same Node; rejection and preparation drift emit `main_acceptance_decision`, where the native main may explicitly revise the same Node, narrow the capability, defer it, or proceed when evidence permits. Regression failure and audit findings likewise return to the native main. No rejection, drift, failure, finding, completion, or newly discovered scope automatically selects a different Node.
+
+Waiting cadence is a communication heuristic. While delegated state is unchanged, the native main uses the host waiting facility without repeating status reports. Better Plan does not time, poll, interrupt, replace, or decide the lifetime of a delegated agent, and waiting is never an execution, completion, or failure gate.
+
+Codex and Claude receive only the short intent guidance at prompt submit; no Plan list, Plan prose, active Node, workspace label, or role contract is injected ahead of the main agent's judgment.
+- Cursor `sessionStart` supplies `additional_context`. Its `beforeSubmitPrompt` callback returns only `continue: true`; the standing session duty therefore carries intent-alignment responsibility without denying the prompt.
+- Session and prompt duties share one short instruction: prioritize the user's request, and consider Better Plan only after an explicit implementation request.
+- Recognized Codex and Claude subagent lifecycle callbacks are no-ops to prevent orchestration recursion without misclassifying ordinary named main sessions.
+
+“Node start” is an internal acceptance transition, not a host Hook. Session and prompt callbacks stop after returning bounded context or explicit prompt allowance. Only the Agent-completion callback reads the unique correlated dispatch, and duplicate, unrelated, ambiguous, or out-of-phase callbacks are successful no-ops.
+
+The automatic full-regression route starts only from `regression-requested`, and a fresh full receipt still requires a final read-only acceptance audit. Handoffs and responses use repository-relative paths and redacted evidence; raw prompts, Plan prose, absolute paths, machine identity, backend runtime data, and command output are excluded.
 
 Change Node structure without hand-editing JSON. `add-node` inserts a new pending Node at a validated position (`--after X --splice` inserts it into X's outgoing chain and rewires downstream prerequisites), `rewire` edits `prerequisites`/`next`, and `edit-node` updates Node fields — terminal Nodes accept only requirements-label corrections because completed history stays immutable:
 
 ```sh
 python3 scripts/manifest_tool.py add-node <workspace> --plan <selector> --after <node-id> --splice \
   --goal "..." --description "Scope: ... Context: ... Target: ..." --requirements REQ-001 \
-  --criterion "..." --commit-message "..." --commit-target "..."
+  --criterion "..." --commit-message "..." --commit-target "..." \
+  --regression-command "python3 -m unittest tests.test_example" \
+  --regression-path src/example.py --regression-path tests/test_example.py --regression-criterion 0
 python3 scripts/manifest_tool.py rewire <node-id> <workspace> --add-prerequisite <id> --remove-next <id>
 python3 scripts/manifest_tool.py edit-node <node-id> <workspace> --add-requirement REQ-002
 ```
@@ -125,7 +223,14 @@ python3 scripts/manifest_tool.py schema plan
 python3 scripts/manifest_tool.py schema node
 ```
 
-The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, structured evidence references, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
+The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, regression contracts and receipts, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, structured evidence references, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
+
+Reference set:
+- [orchestration-main](references/orchestration-main.md)
+- [acceptance-designer](references/acceptance-designer.md)
+- [acceptance-reviewer](references/acceptance-reviewer.md)
+- [executor](references/executor.md)
+- [auditor](references/auditor.md)
 
 ## Test
 
@@ -133,7 +238,7 @@ The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, 
 python3 -m unittest discover -s tests -v
 ```
 
-The test suite covers the validator state machine, the mutation commands, and CLI behavior.
+The test suite covers the validator state machine, mutation commands, regression freshness, Hook protocol translation, the five-stage role and prompt contract, configuration ownership, installer behavior, and CLI behavior.
 
 ## Minimal Release Checklist
 
@@ -142,6 +247,7 @@ The test suite covers the validator state machine, the mutation commands, and CL
 - `python3 scripts/manifest_tool.py discover <project-root>` finds structurally valid Better Plan workspaces.
 - `python3 scripts/manifest_tool.py uuid --count 1` prints one UUID4 value.
 - `python3 scripts/manifest_tool.py transition pending in_progress` succeeds.
+- `python3 scripts/manifest_tool.py platform --json` prints one normalized platform.
 - `python3 scripts/manifest_tool.py schema node` prints the canonical Node shape.
-- `start`, `check`, `complete`, and `sync-plan` drive a sample workspace from `pending` to `completed` and `validate` stays clean.
+- `next-action`, `dispatch`, and `advance` drive a sample delivery Node through executor exit, regression, audit, and automatic completion while `validate` stays clean.
 - `git status --short` contains only intended release files.
