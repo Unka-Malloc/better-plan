@@ -133,8 +133,10 @@ class AgentCompletionHookTests(unittest.TestCase):
         (self.workspace / "Manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     def cli(self, *arguments: str) -> dict[str, object]:
+        command_arguments = list(arguments)
+        command_arguments.insert(2, str(self.workspace))
         result = subprocess.run(
-            [sys.executable, str(MANIFEST_TOOL), *arguments, str(self.workspace)],
+            [sys.executable, str(MANIFEST_TOOL), *command_arguments],
             cwd=ROOT,
             text=True,
             capture_output=True,

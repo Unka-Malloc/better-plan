@@ -22,6 +22,10 @@ INSTALL_TOOL = SCRIPTS_DIR / "install.py"
 
 MAX_FILE_LINES = 1400
 
+TRY_NODE_TYPES: tuple[type[ast.AST], ...] = (ast.Try,)
+if hasattr(ast, "TryStar"):
+    TRY_NODE_TYPES += (ast.TryStar,)
+
 REQUIRED_SYMBOLS = {
     "workflow_state_machine": ("WorkflowStateMachine", "scripts.better_plan.domain.models"),
     "transition": ("transition", "scripts.better_plan.domain.transitions"),
@@ -258,7 +262,7 @@ def dependency_and_antipattern_violations(
                 )
 
         for node in ast.walk(tree):
-            if isinstance(node, (ast.Try, ast.TryStar)):
+            if isinstance(node, TRY_NODE_TYPES):
                 for handler in node.handlers:
                     if isinstance(handler.type, ast.Name) and handler.type.id == "ImportError":
                         findings.append(Violation(path, node.lineno, "disallow fallback imports with except ImportError"))
@@ -420,7 +424,7 @@ def _direct_tool_entry_violations(
                 has_main_import = True
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             findings.append(Violation(path, node.lineno, f"{path.name} contains a business function or class"))
-        elif isinstance(node, (ast.Try, ast.TryStar, ast.For, ast.While, ast.With)):
+        elif isinstance(node, (*TRY_NODE_TYPES, ast.For, ast.While, ast.With)):
             findings.append(Violation(path, node.lineno, f"{path.name} must stay a thin wrapper"))
         if isinstance(node, (ast.AsyncFor, ast.AsyncWith)):
             findings.append(Violation(path, node.lineno, f"{path.name} must stay a thin wrapper"))

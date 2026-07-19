@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.better_plan.adapters import manifest_cli
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_TOOL = ROOT / "scripts" / "manifest_tool.py"
@@ -189,8 +191,10 @@ class AcceptanceMachineContract(unittest.TestCase):
         return command(sys.executable, "-c", program)
 
     def cli(self, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
+        arguments = list(args)
+        arguments.insert(2, str(self.workspace))
         result = subprocess.run(
-            [sys.executable, str(MANIFEST_TOOL), *args, str(self.workspace)],
+            [sys.executable, str(MANIFEST_TOOL), *arguments],
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -234,6 +238,21 @@ class AcceptanceMachineContract(unittest.TestCase):
 
     def next_action(self, node_id: str = NODE_ID) -> str:
         return json.loads(self.cli("next-action", node_id).stdout)["action"]
+
+    def test_node_parser_preserves_windows_roots_and_rejects_unknown_options(self) -> None:
+        parser = manifest_cli.build_parser()
+        separator = "\\"
+        drive_root = "X:" + separator + separator.join(("synthetic-workspace", "docs", "plan"))
+        unc_root = separator * 2 + separator.join(("synthetic-server", "share", "docs", "plan"))
+        roots = (drive_root, unc_root)
+
+        for root in roots:
+            with self.subTest(root=root):
+                args = parser.parse_args(["dispatch", NODE_ID, root, "--role", "executor"])
+                self.assertEqual(args.root, root)
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["dispatch", NODE_ID, roots[0], "--rolee", "executor"])
 
     def assert_automated_proof_cleared(self, node: dict) -> None:
         regression = node["regression"]
