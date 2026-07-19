@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,18 +9,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts.better_plan.adapters import install_cli
+from scripts.better_plan.hooks import config as hook_config
+from scripts.better_plan.installation import doctor as install_doctor
+from scripts.better_plan.installation import models as install_models
+from scripts.better_plan.installation import service as install_service
+from scripts.better_plan.installation import targets as install_targets
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_TOOL_PATH = REPO_ROOT / "scripts" / "install.py"
-UPDATE_TOOL_PATH = REPO_ROOT / "scripts" / "update.py"
-
-spec = importlib.util.spec_from_file_location("install_tool", INSTALL_TOOL_PATH)
-assert spec is not None
-install_tool = importlib.util.module_from_spec(spec)
-sys.modules["install_tool"] = install_tool
-assert spec.loader is not None
-spec.loader.exec_module(install_tool)
-
 
 def run_command(*args: str | Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -35,7 +33,7 @@ def run_command(*args: str | Path) -> subprocess.CompletedProcess[str]:
 
 def make_paths(root: Path) -> object:
     home = root / "home"
-    return install_tool.InstallPaths(
+    return install_models.InstallPaths(
         repo_root=REPO_ROOT,
         codex_home=home / ".codex",
         shared_home=home / ".agents",
@@ -44,7 +42,7 @@ def make_paths(root: Path) -> object:
         cursor_home=home / ".cursor",
         copilot_home=home / ".copilot",
         gemini_home=home / ".gemini",
-        gemini_scope=f"{home}/*",
+        gemini_scope="*",
     )
 
 
@@ -52,20 +50,17 @@ class InstallToolTests(unittest.TestCase):
     def test_parse_running_wsl_distros(self) -> None:
         output = "\ufeff  NAME                   STATE           VERSION\r\n* Debian                 Running         2\r\n  Ubuntu                 Stopped         2\r\n  docker-desktop         Running         2\r\n"
 
-        self.assertEqual(install_tool.parse_running_wsl_distros(output), ["Debian", "docker-desktop"])
+        self.assertEqual(install_targets.parse_running_wsl_distros(output), ["Debian", "docker-desktop"])
 
-    def test_install_creates_all_targets_and_removes_stale_files(self) -> None:
+    def test_install_creates_all_current_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            stale = paths.codex_skill / "scripts" / "manifest_tool_linux.sh"
-            stale.parent.mkdir(parents=True)
-            stale.write_text("#!/bin/sh\n", encoding="utf-8")
             paths.cursor_skill.mkdir(parents=True)
             (paths.cursor_skill / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
             paths.copilot_skill.mkdir(parents=True)
             (paths.copilot_skill / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
 
-            messages = install_tool.install_agents(paths, list(install_tool.AGENTS), dry_run=False)
+            messages = install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
             self.assertTrue(any("native: updated" in message for message in messages), messages)
             self.assertTrue(any("codex: using native skill" in message for message in messages), messages)
@@ -74,41 +69,209 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue((paths.codex_skill / "SKILL.md").is_file())
             self.assertTrue((paths.cursor_skill / "SKILL.md").is_file())
             self.assertTrue((paths.copilot_skill / "SKILL.md").is_file())
-            self.assertFalse(stale.exists())
             self.assertFalse(paths.shared_skill.exists())
             self.assertTrue((paths.claude_plugin / ".claude-plugin" / "plugin.json").is_file())
             self.assertTrue((paths.claude_skill / "SKILL.md").is_file())
+            self.assertTrue(paths.codex_hooks.is_file())
+            self.assertTrue(paths.claude_settings.is_file())
+            self.assertTrue((paths.cursor_home / "hooks.json").is_file())
+            self.assertEqual(paths.codex_hooks.read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
+            self.assertEqual(paths.claude_settings.read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
+            self.assertEqual((paths.cursor_home / "hooks.json").read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
+            codex = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            claude = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
+            cursor = json.loads((paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(codex["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+            self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+            self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
             self.assertTrue((paths.opencode_agent).is_file())
             self.assertTrue((paths.gemini_extension / "gemini-extension.json").is_file())
-            self.assertIn(str(paths.codex_skill / "SKILL.md"), paths.opencode_agent.read_text(encoding="utf-8"))
-            self.assertIn(str(paths.codex_skill / "SKILL.md"), (paths.gemini_extension / "GEMINI.md").read_text(encoding="utf-8"))
+            opencode_text = paths.opencode_agent.read_text(encoding="utf-8")
+            gemini_text = (paths.gemini_extension / "GEMINI.md").read_text(encoding="utf-8")
+            self.assertIn("installed `better-plan` skill", opencode_text)
+            self.assertIn("installed `better-plan` skill", gemini_text)
+            self.assertNotIn(str(Path(tmpdir)), opencode_text + gemini_text)
+            self.assertFalse([message for message in messages if str(Path(tmpdir)) in message], messages)
 
             plugin = json.loads((paths.claude_plugin / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
             self.assertEqual(plugin["name"], "better-plan")
-            self.assertEqual(plugin["version"], install_tool.VERSION)
+            self.assertEqual(plugin["version"], install_models.VERSION)
 
             enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
             self.assertEqual(enablement["better-plan"]["overrides"], [paths.gemini_scope])
+            for event in ("sessionStart", "beforeSubmitPrompt", "postToolUse"):
+                self.assertIn(event, cursor["hooks"])
+                handlers = cursor["hooks"][event]
+                self.assertEqual(len(handlers), 1, event)
+                payload = handlers[0]
+                expected_fields = {"command", "matcher"} if event == "postToolUse" else {"command"}
+                self.assertEqual(set(payload), expected_fields)
+                self.assertIn("--managed-by better-plan", payload["command"])
+                self.assertNotIn(str(Path(tmpdir)), payload["command"])
+
+    def test_managed_lifecycle_hook_command_is_portable_and_detector_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = make_paths(root)
+            install_service.install_agents(paths, ["codex", "claude", "cursor"], dry_run=False)
+            codex = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            claude = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
+            cursor = json.loads((paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
+            managed_commands = [
+                codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+                codex["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
+                codex["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+                claude["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+                claude["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
+                claude["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+                cursor["hooks"]["sessionStart"][0]["command"],
+                cursor["hooks"]["beforeSubmitPrompt"][0]["command"],
+                cursor["hooks"]["postToolUse"][0]["command"],
+            ]
+            unrelated = root / "unrelated"
+            unrelated.mkdir()
+            (unrelated / ".git").mkdir()
+            env = os.environ.copy()
+            env["BETTER_PLAN_SHARED_HOME"] = str(paths.shared_home)
+            env["CODEX_HOME"] = str(paths.codex_home)
+            env["CLAUDE_HOME"] = str(paths.claude_home)
+            env["CURSOR_HOME"] = str(paths.cursor_home)
+            env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
+            for command in managed_commands:
+                result = subprocess.run(
+                    command,
+                    cwd=unrelated,
+                    env=env,
+                    input=json.dumps({"cwd": str(unrelated)}),
+                    shell=True,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertNotIn(str(root), command)
+                self.assertNotIn(sys.executable, command)
+                self.assertIn("scope.py", command)
+                self.assertIn("context.py", command)
+                self.assertIn("--event", command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {})
+            active = root / "active"
+            active.mkdir()
+            (active / ".git").mkdir()
+            plan_workspace = active / "docs" / "plan"
+            plan_workspace.mkdir(parents=True)
+            (plan_workspace / "Manifest.json").write_text(
+                json.dumps([
+                    {
+                        "id": "11111111-1111-4a5d-9a11-111111111111",
+                        "status": "in_progress",
+                        "title": "SessionStart fixture",
+                        "directory": "main-plan",
+                        "source_files": [],
+                        "goal": "Test session-start context generation.",
+                        "description": "Controlled hook invocation fixture.",
+                        "checkpoints": "main-plan/Checkpoints.json",
+                    }
+                ],),
+                encoding="utf-8",
+            )
+            main_plan = plan_workspace / "main-plan"
+            main_plan.mkdir()
+            (main_plan / "Checkpoints.json").write_text("[]", encoding="utf-8")
+
+            session_commands = {
+                "codex": codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+                "claude": claude["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+                "cursor": cursor["hooks"]["sessionStart"][0]["command"],
+            }
+
+            codex_claude_payload = json.dumps({"cwd": str(active)})
+            cursor_payload = json.dumps({"cwd": str(active)})
+            for command in session_commands.values():
+                self.assertNotIn(str(root), command)
+                self.assertNotIn(sys.executable, command)
+
+            codex_result = subprocess.run(
+                session_commands["codex"],
+                cwd=active,
+                env=env,
+                input=codex_claude_payload,
+                shell=True,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(codex_result.returncode, 0, codex_result.stderr)
+            codex_output = json.loads(codex_result.stdout)
+            self.assertEqual(set(codex_output.keys()), {"hookSpecificOutput"})
+            self.assertEqual(set(codex_output["hookSpecificOutput"].keys()), {"hookEventName", "additionalContext"})
+            self.assertEqual(codex_output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+
+            claude_result = subprocess.run(
+                session_commands["claude"],
+                cwd=active,
+                env=env,
+                input=codex_claude_payload,
+                shell=True,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(claude_result.returncode, 0, claude_result.stderr)
+            claude_output = json.loads(claude_result.stdout)
+            self.assertEqual(set(claude_output.keys()), {"hookSpecificOutput"})
+            self.assertEqual(set(claude_output["hookSpecificOutput"].keys()), {"hookEventName", "additionalContext"})
+            self.assertEqual(claude_output["hookSpecificOutput"]["hookEventName"], "SessionStart")
+
+            cursor_result = subprocess.run(
+                session_commands["cursor"],
+                cwd=active,
+                env=env,
+                input=cursor_payload,
+                shell=True,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(cursor_result.returncode, 0, cursor_result.stderr)
+            cursor_output = json.loads(cursor_result.stdout)
+            self.assertEqual(set(cursor_output.keys()), {"additional_context"})
+
+
+    def test_gemini_scope_rejects_absolute_paths_without_echoing_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            value = str(Path(tmpdir) / "scope")
+            with self.assertRaises(install_models.InstallError) as raised:
+                install_targets.relative_scope(value)
+
+        self.assertNotIn(value, str(raised.exception))
 
     def test_doctor_accepts_installed_files_without_optional_clis(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_tool.install_agents(paths, list(install_tool.AGENTS), dry_run=False)
+            install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
-            with mock.patch.object(install_tool.shutil, "which", return_value=None):
-                checks = install_tool.doctor(paths, list(install_tool.AGENTS))
+            with mock.patch.object(install_doctor.shutil, "which", return_value=None):
+                checks = install_doctor.doctor(paths, list(install_models.AGENTS))
 
             self.assertFalse([check for check in checks if check.status == "FAIL"], checks)
             self.assertTrue(any(check.target == "claude" and check.status == "WARN" for check in checks), checks)
             self.assertTrue(any(check.target == "opencode" and check.status == "WARN" for check in checks), checks)
+            self.assertFalse([check for check in checks if check.target == "cursor lifecycle"], checks)
+            self.assertTrue(any(check.target == "cursor hooks" for check in checks), checks)
+            self.assertTrue(any(check.target == "cursor hooks" and check.status == "OK" for check in checks), checks)
 
     def test_install_updates_detected_wsl_opencode_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            runtime = install_tool.WslOpenCodeRuntime(
+            runtime = install_models.WslOpenCodeRuntime(
                 distro="Debian",
-                location="/home/unka/.opencode/bin/opencode",
-                home="/home/unka",
+                location="runtime/opencode",
+                home="runtime/home",
                 version="1.17.11",
             )
             commands: list[list[str]] = []
@@ -116,30 +279,30 @@ class InstallToolTests(unittest.TestCase):
             def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 commands.append(command)
                 if command[-3:] == ["wslpath", "-a", str(paths.repo_root)]:
-                    return subprocess.CompletedProcess(command, 0, stdout="/mnt/t/better-plan\n", stderr="")
+                    return subprocess.CompletedProcess(command, 0, stdout="mnt/t/better-plan\n", stderr="")
                 if command[:5] == ["wsl.exe", "-d", "Debian", "-e", "bash"]:
                     return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
                 raise AssertionError(f"unexpected command: {command}")
 
             with (
-                mock.patch.object(install_tool.os, "name", "nt"),
-                mock.patch.object(install_tool, "wsl_executable", return_value="wsl.exe"),
-                mock.patch.object(install_tool, "discover_wsl_opencode", return_value=[runtime]),
-                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
+                mock.patch.object(install_targets.os, "name", "nt"),
+                mock.patch.object(install_targets, "wsl_executable", return_value="wsl.exe"),
+                mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[runtime]),
+                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
             ):
-                messages = install_tool.install_agents(paths, ["opencode"], dry_run=False)
+                messages = install_service.install_agents(paths, ["opencode"], dry_run=False)
 
-            self.assertTrue(any("updated WSL Debian" in message for message in messages), messages)
+            self.assertTrue(any("updated detected WSL runtime" in message for message in messages), messages)
             self.assertTrue(any("scripts/install.py" in command[-1] for command in commands), commands)
 
     def test_opencode_doctor_validates_detected_wsl_runtime_when_windows_path_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_tool.install_agents(paths, ["opencode"], dry_run=False)
-            runtime = install_tool.WslOpenCodeRuntime(
+            install_service.install_agents(paths, ["opencode"], dry_run=False)
+            runtime = install_models.WslOpenCodeRuntime(
                 distro="Debian",
-                location="/home/unka/.opencode/bin/opencode",
-                home="/home/unka",
+                location="runtime/opencode",
+                home="runtime/home",
                 version="1.17.11",
             )
 
@@ -157,50 +320,50 @@ class InstallToolTests(unittest.TestCase):
                 raise AssertionError(f"unexpected command: {command}")
 
             with (
-                mock.patch.object(install_tool.os, "name", "nt"),
-                mock.patch.object(install_tool.shutil, "which", side_effect=fake_which),
-                mock.patch.object(install_tool, "wsl_executable", return_value="wsl.exe"),
-                mock.patch.object(install_tool, "discover_wsl_opencode", return_value=[runtime]),
-                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
+                mock.patch.object(install_targets.os, "name", "nt"),
+                mock.patch.object(install_doctor.shutil, "which", side_effect=fake_which),
+                mock.patch.object(install_targets, "wsl_executable", return_value="wsl.exe"),
+                mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[runtime]),
+                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
             ):
-                checks = install_tool.check_opencode(paths, paths.shared_skill)
+                checks = install_doctor.check_opencode(paths)
 
             self.assertTrue(any(check.target == "opencode" and check.status == "WARN" for check in checks), checks)
             self.assertTrue(
-                any(check.target == "opencode (WSL Debian)" and check.status == "OK" for check in checks), checks
+                any(check.target == "opencode (WSL)" and check.status == "OK" for check in checks), checks
             )
 
     def test_optional_client_cli_validation_has_explicit_success_warning_and_failure(self) -> None:
-        with mock.patch.object(install_tool.shutil, "which", return_value=None):
-            warning = install_tool.check_optional_client_cli("cursor")
+        with mock.patch.object(install_doctor.shutil, "which", return_value=None):
+            warning = install_doctor.check_optional_client_cli("cursor")
         self.assertEqual(warning.status, "WARN")
 
         with (
-            mock.patch.object(install_tool.shutil, "which", return_value="cursor"),
+            mock.patch.object(install_doctor.shutil, "which", return_value="cursor"),
             mock.patch.object(
-                install_tool,
+                install_targets,
                 "run_text_command",
                 return_value=subprocess.CompletedProcess(["cursor", "--version"], 0, stdout="1.0\n", stderr=""),
             ),
         ):
-            success = install_tool.check_optional_client_cli("cursor")
+            success = install_doctor.check_optional_client_cli("cursor")
         self.assertEqual(success.status, "OK")
 
         with (
-            mock.patch.object(install_tool.shutil, "which", return_value="copilot"),
+            mock.patch.object(install_doctor.shutil, "which", return_value="copilot"),
             mock.patch.object(
-                install_tool,
+                install_targets,
                 "run_text_command",
                 return_value=subprocess.CompletedProcess(["copilot", "--version"], 1, stdout="", stderr="failed"),
             ),
         ):
-            failure = install_tool.check_optional_client_cli("copilot")
+            failure = install_doctor.check_optional_client_cli("copilot")
         self.assertEqual(failure.status, "FAIL")
 
     def test_gemini_doctor_requires_extension_validation_and_loaded_listing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_tool.install_agents(paths, ["gemini"], dry_run=False)
+            install_service.install_agents(paths, ["gemini"], dry_run=False)
 
             def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
                 if command[1:3] == ["extensions", "validate"]:
@@ -210,20 +373,68 @@ class InstallToolTests(unittest.TestCase):
                 raise AssertionError(f"unexpected command: {command}")
 
             with (
-                mock.patch.object(install_tool, "run_manifest_tool", return_value=True),
-                mock.patch.object(install_tool.shutil, "which", return_value="gemini"),
-                mock.patch.object(install_tool, "run_text_command", side_effect=fake_run),
+                mock.patch.object(install_doctor, "run_manifest_tool", return_value=True),
+                mock.patch.object(install_doctor.shutil, "which", return_value="gemini"),
+                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
             ):
-                check = install_tool.check_gemini(paths, paths.shared_skill)
+                check = install_doctor.check_gemini(paths)
 
             self.assertEqual(check.status, "OK")
+
+    def test_installed_skill_inventory_requires_current_files(self) -> None:
+        def build_complete_tree(root: Path) -> None:
+            for relative in install_models.CURRENT_SKILL_FILES:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("x\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as all_current_root:
+            root = Path(all_current_root)
+            build_complete_tree(root)
+
+            with mock.patch.object(install_doctor, "run_manifest_tool", return_value=True):
+                ok = install_doctor.check_skill_tree("implementation", root)
+
+            self.assertEqual(ok.status, "OK", ok.message)
+            self.assertEqual(ok.message, "installed skill structure verified")
+
+        for relative in install_models.CURRENT_SKILL_FILES:
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory() as sampledir:
+                    root = Path(sampledir)
+                    build_complete_tree(root)
+
+                    missing = root / relative
+                    missing.unlink()
+
+                    with mock.patch.object(install_doctor, "run_manifest_tool", return_value=True):
+                        result = install_doctor.check_skill_tree("implementation", root)
+
+                    self.assertEqual(result.status, "FAIL")
+                    self.assertIn(str(relative), result.message)
+                    self.assertIn("missing", result.message.lower())
+                    self.assertNotIn(sampledir, result.message)
 
     def test_uninstall_removes_adapters_and_disables_gemini(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_tool.install_agents(paths, list(install_tool.AGENTS), dry_run=False)
+            install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
-            install_tool.uninstall_agents(paths, list(install_tool.AGENTS), remove_shared=True, dry_run=False)
+            dry_run_messages = install_service.uninstall_agents(
+                paths,
+                list(install_models.AGENTS),
+                remove_shared=True,
+                dry_run=True,
+            )
+            messages = install_service.uninstall_agents(
+                paths,
+                list(install_models.AGENTS),
+                remove_shared=True,
+                dry_run=False,
+            )
+
+            for emitted in (dry_run_messages, messages):
+                self.assertFalse(any(str(Path(tmpdir)) in message for message in emitted), emitted)
 
             self.assertFalse(paths.shared_skill.exists())
             self.assertFalse(paths.codex_skill.exists())
@@ -232,8 +443,378 @@ class InstallToolTests(unittest.TestCase):
             self.assertFalse(paths.cursor_skill.exists())
             self.assertFalse(paths.copilot_skill.exists())
             self.assertFalse(paths.gemini_extension.exists())
+            self.assertNotIn("--managed-by better-plan", paths.codex_hooks.read_text(encoding="utf-8"))
+            self.assertNotIn("--managed-by better-plan", paths.claude_settings.read_text(encoding="utf-8"))
+            self.assertTrue((paths.cursor_home / "hooks.json").is_file())
+            self.assertNotIn("--managed-by better-plan", (paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
             enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
             self.assertNotIn("better-plan", enablement)
+
+    def test_supported_hook_install_is_idempotent_and_cursor_config_is_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            paths.codex_hooks.parent.mkdir(parents=True)
+            paths.codex_hooks.write_text(
+                json.dumps(
+                    {
+                        "custom": True,
+                        "hooks": {
+                            "SessionStart": [
+                                {"matcher": "Bash", "hooks": [{"type": "command", "command": "custom-codex"}]}
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths.claude_settings.parent.mkdir(parents=True)
+            paths.claude_settings.write_text(
+                json.dumps(
+                    {
+                        "theme": "dark",
+                        "hooks": {
+                            "Stop": [{"hooks": [{"type": "command", "command": "custom-claude"}]}]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cursor_hooks = paths.cursor_home / "hooks.json"
+            cursor_hooks.parent.mkdir(parents=True)
+            cursor_hooks.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "custom": "keep",
+                        "hooks": {
+                            "sessionStart": [{"command": "custom-cursor"}],
+                            "beforeSubmitPrompt": [{"command": "custom-cursor-prompt"}],
+                            "stop": [{"command": "custom-cursor-stop"}],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            for _ in range(2):
+                install_service.install_agents(paths, ["codex", "claude", "cursor"], dry_run=False)
+
+            expected_counts = {
+                paths.codex_hooks: 3,
+                paths.claude_settings: 3,
+                cursor_hooks: 3,
+            }
+            for config, count in expected_counts.items():
+                self.assertEqual(config.read_text(encoding="utf-8").count("--managed-by better-plan"), count)
+
+            install_service.uninstall_agents(
+                paths,
+                ["codex", "claude", "cursor"],
+                remove_shared=True,
+                dry_run=False,
+            )
+            install_service.uninstall_hooks(
+                paths,
+                ["codex", "claude", "cursor"],
+                dry_run=False,
+            )
+
+            codex = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            claude = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
+            cursor = json.loads(cursor_hooks.read_text(encoding="utf-8"))
+            self.assertTrue(codex["custom"])
+            self.assertEqual(codex["hooks"]["SessionStart"][0]["hooks"][0]["command"], "custom-codex")
+            self.assertEqual(claude["theme"], "dark")
+            self.assertEqual(claude["hooks"]["Stop"][0]["hooks"][0]["command"], "custom-claude")
+            self.assertEqual(cursor["custom"], "keep")
+            self.assertEqual(cursor["hooks"]["sessionStart"][0]["command"], "custom-cursor")
+            self.assertEqual(cursor["hooks"]["beforeSubmitPrompt"][0]["command"], "custom-cursor-prompt")
+            self.assertEqual(cursor["hooks"]["stop"][0]["command"], "custom-cursor-stop")
+            for value in (codex, claude, cursor):
+                self.assertNotIn("--managed-by better-plan", json.dumps(value))
+
+    def test_hook_merge_preserves_unrelated_empty_and_non_array_entries(self) -> None:
+        nested = {
+            "hooks": {
+                "SessionStart": [{"matcher": "keep-empty", "hooks": []}],
+                "CustomEvent": {"owner": "other-extension"},
+            }
+        }
+        nested_result = hook_config.merged_config(nested, "codex")
+        self.assertEqual(
+            nested_result["hooks"]["SessionStart"][0],
+            {"matcher": "keep-empty", "hooks": []},
+        )
+        self.assertEqual(
+            nested_result["hooks"]["CustomEvent"],
+            {"owner": "other-extension"},
+        )
+
+        flat = {
+            "version": 1,
+            "hooks": {
+                "sessionStart": [],
+                "customEvent": {"owner": "other-extension"},
+            },
+        }
+        flat_result = hook_config.merged_config(flat, "cursor")
+        self.assertEqual(
+            flat_result["hooks"]["customEvent"],
+            {"owner": "other-extension"},
+        )
+        self.assertEqual(len(flat_result["hooks"]["sessionStart"]), 1)
+        self.assertEqual(set(flat_result["hooks"]["sessionStart"][0]), {"command"})
+
+    def test_hook_only_uninstall_preserves_skills_and_unrelated_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            paths.codex_hooks.parent.mkdir(parents=True, exist_ok=True)
+            paths.codex_hooks.write_text(
+                json.dumps(
+                    {
+                        "custom": True,
+                        "meta": {"owner": "team-x"},
+                        "hooks": {
+                            "UserPromptSubmit": [
+                                {
+                                    "matcher": "Bash",
+                                    "hooks": [
+                                        {"type": "command", "command": "keep-before-codex"},
+                                        {"type": "command", "command": "codex-marker"},
+                                    ]
+                                }
+                            ],
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            paths.claude_settings.parent.mkdir(parents=True, exist_ok=True)
+            paths.claude_settings.write_text(
+                json.dumps(
+                    {
+                        "theme": "dark",
+                        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "keep-before-claude"}]}]},
+                        "extras": {"flag": True},
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            cursor_hooks = paths.cursor_home / "hooks.json"
+            cursor_hooks.parent.mkdir(parents=True, exist_ok=True)
+            cursor_hooks.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "custom": "keep",
+                        "hooks": {
+                            "sessionStart": [{"command": "keep-before-cursor"}],
+                            "beforeSubmitPrompt": [{"command": "keep-before-cursor-prompt"}],
+                            "stop": [{"command": "keep-stop-cursor"}],
+                            "other": [{"command": "keep-unrelated-cursor"}],
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
+            install_service.install_agents(paths, ["codex", "claude", "cursor"], dry_run=False)
+
+            shared_skill = (paths.shared_skill / "SKILL.md").read_bytes()
+            claude_plugin_json = (paths.claude_plugin / ".claude-plugin" / "plugin.json").read_bytes()
+            codex_config_before = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            claude_config_before = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
+            cursor_config_before = json.loads(cursor_hooks.read_text(encoding="utf-8"))
+
+            messages = install_service.uninstall_hooks(paths, ["codex", "claude", "cursor"], dry_run=False)
+
+            self.assertFalse(any(str(Path(tmpdir)) in message for message in messages), messages)
+            self.assertTrue(any("removed managed handlers" in message for message in messages), messages)
+            self.assertEqual(shared_skill, (paths.shared_skill / "SKILL.md").read_bytes(), "skill tree changed on hook-only uninstall")
+            self.assertFalse((paths.codex_skill / "SKILL.md").exists(), "native codex skill should not exist for shared install path")
+            self.assertFalse((paths.cursor_skill / "SKILL.md").exists(), "native cursor skill should not exist for shared install path")
+            codex_config_after = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            claude_config_after = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
+            self.assertEqual(codex_config_before["meta"], codex_config_after.get("meta"))
+            self.assertEqual(codex_config_before["custom"], codex_config_after.get("custom"))
+            self.assertEqual(
+                codex_config_before["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
+                codex_config_after["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
+            )
+            self.assertNotIn("SessionStart", codex_config_after["hooks"])
+            self.assertIn("UserPromptSubmit", codex_config_after["hooks"])
+            self.assertEqual(claude_config_before["theme"], claude_config_after["theme"])
+            self.assertEqual(claude_config_before["extras"], claude_config_after.get("extras"))
+            self.assertEqual(
+                claude_config_before["hooks"]["Stop"][0]["hooks"][0]["command"],
+                claude_config_after["hooks"]["Stop"][0]["hooks"][0]["command"],
+            )
+            self.assertEqual(
+                claude_plugin_json,
+                (paths.claude_plugin / ".claude-plugin" / "plugin.json").read_bytes(),
+                "claude plugin marker changed on hook-only uninstall",
+            )
+            cursor_config_after = json.loads(cursor_hooks.read_text(encoding="utf-8"))
+            self.assertEqual(cursor_config_before["custom"], cursor_config_after["custom"])
+            self.assertEqual(
+                cursor_config_before["hooks"]["other"],
+                cursor_config_after["hooks"]["other"],
+            )
+            self.assertEqual(
+                cursor_config_before["hooks"]["sessionStart"][0]["command"],
+                cursor_config_after["hooks"]["sessionStart"][0]["command"],
+            )
+            self.assertEqual(
+                cursor_config_before["hooks"]["beforeSubmitPrompt"][0]["command"],
+                cursor_config_after["hooks"]["beforeSubmitPrompt"][0]["command"],
+            )
+            self.assertEqual(
+                cursor_config_before["hooks"]["stop"][0]["command"],
+                cursor_config_after["hooks"]["stop"][0]["command"],
+            )
+            for command in (
+                cursor_config_before["hooks"]["sessionStart"][0]["command"],
+                cursor_config_before["hooks"]["beforeSubmitPrompt"][0]["command"],
+                cursor_config_before["hooks"]["stop"][0]["command"],
+            ):
+                self.assertNotIn("--managed-by better-plan", command)
+                self.assertNotIn("--managed-by better-plan", json.dumps(cursor_config_after))
+            self.assertIn("keep-before-codex", paths.codex_hooks.read_text(encoding="utf-8"))
+            self.assertIn("keep-before-claude", paths.claude_settings.read_text(encoding="utf-8"))
+            self.assertIn("keep-before-cursor", paths.cursor_home.joinpath("hooks.json").read_text(encoding="utf-8"))
+            self.assertIn("keep-before-cursor-prompt", paths.cursor_home.joinpath("hooks.json").read_text(encoding="utf-8"))
+            self.assertIn("keep-stop-cursor", paths.cursor_home.joinpath("hooks.json").read_text(encoding="utf-8"))
+            self.assertIn("keep-unrelated-cursor", paths.cursor_home.joinpath("hooks.json").read_text(encoding="utf-8"))
+            self.assertNotIn("--managed-by better-plan", paths.codex_hooks.read_text(encoding="utf-8"))
+            self.assertNotIn("--managed-by better-plan", paths.claude_settings.read_text(encoding="utf-8"))
+            self.assertNotIn("--managed-by better-plan", paths.cursor_home.joinpath("hooks.json").read_text(encoding="utf-8"))
+
+            parser = install_cli.build_parser()
+            parsed = parser.parse_args(["uninstall-hooks", "--agents", "codex,claude"])
+            self.assertIs(parsed.func, install_cli.uninstall_hooks_command)
+
+    def test_managed_lifecycle_inventory_is_exact_and_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex", "claude", "cursor"], dry_run=False)
+            self.assertLessEqual(hook_config.HOOK_TIMEOUT_SECONDS, 30)
+
+            for agent, path in [("codex", paths.codex_hooks), ("claude", paths.claude_settings)]:
+                handlers = hook_config.nested_handlers(agent)
+                self.assertEqual(set(handlers.keys()), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+                for event, groups in handlers.items():
+                    self.assertEqual(len(groups), 1)
+                    if event == "PostToolUse":
+                        self.assertEqual(groups[0]["matcher"], "^Agent$")
+                    else:
+                        self.assertNotIn("matcher", groups[0])
+                    hooks = groups[0]["hooks"]
+                    self.assertEqual(len(hooks), 1)
+                    payload = hooks[0]
+                    self.assertEqual(payload["timeout"], hook_config.HOOK_TIMEOUT_SECONDS)
+
+                config = json.loads(path.read_text(encoding="utf-8"))
+                commands = hook_config.configured_commands(config, agent)
+                for values in commands.values():
+                    self.assertEqual(len(values), 1)
+
+            cursor = json.loads((paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
+            self.assertEqual(cursor.get("version"), 1)
+            self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
+            for event in ("sessionStart", "beforeSubmitPrompt", "postToolUse"):
+                hooks = cursor["hooks"][event]
+                self.assertEqual(len(hooks), 1)
+                self.assertNotIn("hooks", hooks[0])
+                expected_fields = {"command", "matcher"} if event == "postToolUse" else {"command"}
+                self.assertEqual(set(hooks[0]), expected_fields)
+
+
+    def test_doctor_fails_when_a_supported_agent_hook_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            required_events = {
+                "codex": "SessionStart",
+                "claude": "SessionStart",
+                "cursor": "sessionStart",
+            }
+            for agent in ("codex", "claude", "cursor"):
+                with self.subTest(agent=agent):
+                    paths = make_paths(base / agent)
+                    install_service.install_agents(paths, [agent], dry_run=False)
+                    path = install_targets.hook_config_path(paths, agent)
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    hooks = data.setdefault("hooks", {})
+                    hooks.pop(required_events[agent], None)
+                    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                    ok, message = hook_config.hook_config_status(path, agent)
+                    self.assertFalse(ok, message)
+                    check = install_doctor.check_agent_hooks(paths, agent)
+                    self.assertEqual(check.status, "FAIL", check.message)
+
+    def test_managed_hook_validation_fails_for_malformed_missing_and_duplicate_owned_handlers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            required_events = {
+                "codex": ["SessionStart", "UserPromptSubmit", "PostToolUse"],
+                "claude": ["SessionStart", "UserPromptSubmit", "PostToolUse"],
+                "cursor": ["sessionStart", "beforeSubmitPrompt", "postToolUse"],
+            }
+            for agent in ("codex", "claude", "cursor"):
+                with self.subTest(agent=agent):
+                    paths = make_paths(base / agent)
+                    install_service.install_agents(paths, [agent], dry_run=False)
+                    path = install_targets.hook_config_path(paths, agent)
+
+                    path.write_text("{}", encoding="utf-8")
+                    ok, message = hook_config.hook_config_status(path, agent)
+                    self.assertFalse(ok, message)
+
+                    path.write_text(json.dumps({"hooks": []}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    with self.assertRaises(hook_config.HookConfigError):
+                        hook_config.install_hook_config(path, agent, dry_run=False)
+
+                    path.write_text("{}\n", encoding="utf-8")
+                    install_service.install_agents(paths, [agent], dry_run=False)
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    event = required_events[agent][0]
+                    handlers = data["hooks"][event]
+                    self.assertIsInstance(handlers, list)
+                    handlers.append(handlers[0])
+                    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                    ok, message = hook_config.hook_config_status(path, agent)
+                    self.assertFalse(ok, message)
+                    check = install_doctor.check_agent_hooks(paths, agent)
+                    self.assertEqual(check.status, "FAIL", check.message)
+
+    def test_doctor_rejects_noncanonical_managed_handler_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            for agent in ("codex", "claude", "cursor"):
+                with self.subTest(agent=agent):
+                    paths = make_paths(base / agent)
+                    install_service.install_agents(paths, [agent], dry_run=False)
+                    path = install_targets.hook_config_path(paths, agent)
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    if agent == "cursor":
+                        data["hooks"]["sessionStart"][0]["type"] = "command"
+                    else:
+                        data["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = 999
+                    path.write_text(
+                        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8",
+                    )
+
+                    ok, _ = hook_config.hook_config_status(path, agent)
+                    self.assertFalse(ok)
+
+                    install_service.install_agents(paths, [agent], dry_run=False)
+                    repaired, message = hook_config.hook_config_status(path, agent)
+                    self.assertTrue(repaired, message)
 
     def test_cli_default_install_and_doctor_support_temp_homes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -249,7 +830,7 @@ class InstallToolTests(unittest.TestCase):
                 sys.executable,
                 INSTALL_TOOL_PATH,
                 "--agents",
-                "codex,cursor,vscode-copilot,gemini",
+                "codex,cursor,copilot,gemini",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
@@ -261,13 +842,14 @@ class InstallToolTests(unittest.TestCase):
                 "--gemini-home",
                 gemini_home,
                 "--gemini-scope",
-                f"{home}/*",
+                "*",
             )
             self.assertEqual(install_result.returncode, 0, install_result.stderr)
             self.assertIn("shared: updated", install_result.stdout)
             self.assertIn("codex: using shared skill", install_result.stdout)
             self.assertIn("cursor: using shared skill", install_result.stdout)
             self.assertIn("copilot: using shared skill", install_result.stdout)
+            self.assertNotIn(str(root), install_result.stdout + install_result.stderr)
 
             doctor_result = run_command(
                 sys.executable,
@@ -289,9 +871,12 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
             self.assertIn("OK: codex:", doctor_result.stdout)
             self.assertIn("cursor:", doctor_result.stdout)
+            self.assertIn("WARN: cursor:", doctor_result.stdout)
+            self.assertIn("OK: cursor hooks:", doctor_result.stdout)
             self.assertIn("copilot:", doctor_result.stdout)
             self.assertIn("gemini:", doctor_result.stdout)
             self.assertNotIn("FAIL:", doctor_result.stdout)
+            self.assertNotIn(str(root), doctor_result.stdout + doctor_result.stderr)
 
     def test_existing_install_routes_installer_to_update(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -317,7 +902,7 @@ class InstallToolTests(unittest.TestCase):
             self.assertIn("codex: using shared skill", install_result.stdout)
             self.assertTrue((shared_home / "skills" / "better-plan" / "SKILL.md").is_file())
 
-    def test_update_script_keeps_native_only_codex_install_native(self) -> None:
+    def test_update_command_keeps_native_only_codex_install_native(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             home = root / "home"
@@ -329,7 +914,8 @@ class InstallToolTests(unittest.TestCase):
 
             update_result = run_command(
                 sys.executable,
-                UPDATE_TOOL_PATH,
+                INSTALL_TOOL_PATH,
+                "update",
                 "--agents",
                 "codex",
                 "--shared-home",
@@ -344,7 +930,7 @@ class InstallToolTests(unittest.TestCase):
             self.assertFalse((shared_home / "skills" / "better-plan").exists())
             self.assertTrue((native_install / "SKILL.md").is_file())
 
-    def test_update_script_removes_native_duplicate_when_shared_install_exists(self) -> None:
+    def test_update_command_removes_native_duplicate_when_shared_install_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             home = root / "home"
@@ -359,7 +945,8 @@ class InstallToolTests(unittest.TestCase):
 
             update_result = run_command(
                 sys.executable,
-                UPDATE_TOOL_PATH,
+                INSTALL_TOOL_PATH,
+                "update",
                 "--agents",
                 "codex",
                 "--shared-home",
@@ -386,7 +973,7 @@ class InstallToolTests(unittest.TestCase):
             paths.gemini_enablement.parent.mkdir(parents=True, exist_ok=True)
             paths.gemini_enablement.write_text("{}\n", encoding="utf-8")
 
-            install_tool.install_agents(paths, ["opencode", "gemini"], dry_run=False)
+            install_service.install_agents(paths, ["opencode", "gemini"], dry_run=False)
 
             self.assertEqual([], list(Path(tmpdir).rglob("*bak-better-plan-*")))
 
