@@ -1,0 +1,404 @@
+[
+  {
+    "id": "5d03883a-c1dc-4276-ae94-a7ec5493771f",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Define task-to-Plan alignment as a nonblocking lifecycle contract.",
+    "description": "Scope: define the user-visible alignment contract. Context: workspace detection alone cannot identify intent drift, while tool interception blocks recovery. Target: structural activation, latest-intent authority, nonterminal correction, terminal history preservation, host-correct context, privacy, and managed delivery. Design Considerations: distinguish deterministic detection from semantic judgment. Design Value: keep execution aligned without turning workflow guidance into permissions. Constraints & Risks: host prompt protocols differ.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements define scope, non-goals, drift correction, and final acceptance.",
+        "evidence": "Requirements.md records the current delivery contract."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define task Plan alignment",
+      "target": "docs/plan/task-plan-alignment"
+    },
+    "next": [
+      "455367a8-60c9-4cda-9707-0540f7e28196"
+    ]
+  },
+  {
+    "id": "455367a8-60c9-4cda-9707-0540f7e28196",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "5d03883a-c1dc-4276-ae94-a7ec5493771f"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Ground lifecycle alignment in repository structure and current host protocols.",
+    "description": "Scope: collect repository and primary protocol evidence. Context: structural detection and semantic task matching have different reliability boundaries. Target: map current modules and host context capabilities to a safe cross-host design. Design Considerations: separate verified protocol behavior from design inference. Design Value: prevent keyword classifiers and permission fallbacks from becoming workflow policy. Constraints & Risks: protocol capabilities may change.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence connects repository behavior and official host protocols to the design.",
+        "evidence": "Evidence.md contains repository evidence, primary sources, and bounded deductions."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: ground task Plan alignment",
+      "target": "docs/plan/task-plan-alignment"
+    },
+    "next": [
+      "c4f12e08-eef1-4448-8965-3404f62e27e6"
+    ]
+  },
+  {
+    "id": "c4f12e08-eef1-4448-8965-3404f62e27e6",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "455367a8-60c9-4cda-9707-0540f7e28196"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Map every task alignment requirement to focused and final proof.",
+    "description": "Scope: define verification before completing implementation. Context: lifecycle context, privacy, configuration ownership, and Stop regression require distinct proof. Target: focused Hook and installer tests, one final suite, state validation, and a one-time obsolete-interface search. Design Considerations: test intended behavior without retaining obsolete interfaces as permanent fixtures. Design Value: ensure protocol claims and privacy guarantees are executable. Constraints & Risks: run the full suite only at final validation.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Every requirement maps to focused and final proof.",
+        "evidence": "Validation.md contains the requirement matrix."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: map task Plan alignment validation",
+      "target": "docs/plan/task-plan-alignment"
+    },
+    "next": [
+      "c1399ddf-6c54-44c3-899f-f5187f8f2487"
+    ]
+  },
+  {
+    "id": "c1399ddf-6c54-44c3-899f-f5187f8f2487",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "c4f12e08-eef1-4448-8965-3404f62e27e6"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Fix context, protocol, state, and delivery boundaries before completion.",
+    "description": "Scope: define the lifecycle context architecture. Context: detection, task guidance, regression, and installation must not accumulate in one module. Target: separate structural scope, privacy-safe context, host translation, state enforcement, and managed configuration. Design Considerations: functional core, data minimization, capability fallback, and immutable history. Design Value: preserve one-way dependencies and independently testable responsibilities. Constraints & Risks: no semantic keyword matcher or tool permission gate.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture assigns one responsibility to each module and defines every lifecycle transition.",
+        "evidence": "Architecture.md records module, lifecycle, privacy, and failure contracts."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: design task Plan alignment",
+      "target": "docs/plan/task-plan-alignment"
+    },
+    "next": [
+      "35897532-69fd-41aa-afa5-9a8cc36b56aa"
+    ]
+  },
+  {
+    "id": "35897532-69fd-41aa-afa5-9a8cc36b56aa",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "c1399ddf-6c54-44c3-899f-f5187f8f2487"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Inject structural session context and semantic task-to-Plan alignment guidance.",
+    "description": "Scope: Closure: module - privacy-safe lifecycle context; scripts/hook_context.py, scripts/hook_tool.py, and tests/test_hook_tool.py. Context: the host agent must compare its latest task with canonical planning state without a script ingesting or classifying private prompt prose. Target: bounded Plan inventory, session standing rule, Codex/Claude prompt guidance, Cursor session fallback, and unchanged bounded Stop regression. Design Considerations: pure context builders, data-only inventory, and fail-open event dispatch. Design Value: semantic alignment uses the agent's full intent while deterministic code owns only structural facts. Constraints & Risks: never echo prompt or Plan prose and never deny tool execution.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Session events inject a relative standing alignment rule only for one structural Better Plan workspace.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:52:48Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Codex and Claude prompt events request semantic latest-intent alignment and corrective planning; Cursor prompt fallback remains absent and nonblocking.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:52:48Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Private prompt text, Plan prose, concrete paths, and regression output are absent from Hook responses.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:52:48Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: add task Plan lifecycle context",
+      "target": "scripts/hook_context.py, scripts/hook_tool.py, and focused tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "tests/test_hook_tool.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T06:52:48Z",
+        "contract_digest": "11a3bd9caa9745155085d6d5f1bd520b5acce8fa69fd6c31cd8d03cbb99d3b7b",
+        "content_fingerprint": "5a7c9f077cadd67c5cbb109b69dd2073e7a789d9bc2154d70e04208bdd7ca41e"
+      }
+    },
+    "next": [
+      "6402616a-708b-4e34-ab9e-d375bcc6ccca"
+    ]
+  },
+  {
+    "id": "6402616a-708b-4e34-ab9e-d375bcc6ccca",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "35897532-69fd-41aa-afa5-9a8cc36b56aa"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Deliver the current host lifecycle mappings and operator contract.",
+    "description": "Scope: Closure: capability - managed lifecycle delivery; scripts/hook_config.py, scripts/install.py, tests/test_install_tool.py, SKILL.md, and README.md. Context: context behavior is useful only when each host receives the exact nonblocking events it supports. Target: Codex/Claude session, prompt, and Stop handlers; Cursor session and Stop handlers; portable commands; idempotent doctor/uninstall; and clear Node-start semantics. Design Considerations: declarative event maps and ownership-marker replacement. Design Value: one current interface prevents old tool Hooks and unsupported prompt fallbacks from surviving. Constraints & Risks: preserve unrelated settings and leave local managed Hooks uninstalled.",
+    "requirements": [
+      "REQ-005",
+      "REQ-006",
+      "REQ-008"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Managed configuration contains exactly the supported lifecycle events for each host and no tool-use event.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:54:46Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Install, update, doctor, and uninstall are portable, idempotent, and preserve unrelated handlers.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:54:46Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Skill and README explain session detection, semantic task alignment, internal Node start, Cursor capability limits, and Stop regression.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:54:46Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: deliver task Plan lifecycle hooks",
+      "target": "Hook configuration, installer, tests, and documentation"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_install_tool.py",
+        "SKILL.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T06:54:46Z",
+        "contract_digest": "00beff879d5fbf768b9fb987cefc2d888577d1c97f4b428a7e2109902cf40347",
+        "content_fingerprint": "5a53946e78e4781111599f7650fd848c95e278eebe97a7d2f3a989ae2690603b"
+      }
+    },
+    "next": [
+      "9981adbf-733c-4084-b7b5-cdf56af8538a"
+    ]
+  },
+  {
+    "id": "9981adbf-733c-4084-b7b5-cdf56af8538a",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "6402616a-708b-4e34-ab9e-d375bcc6ccca"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Prove task-to-Plan lifecycle alignment and preserve the requested local uninstall.",
+    "description": "Scope: final validation of task alignment behavior, managed delivery, privacy, and state consistency. Context: each implementation module has focused proof. Target: run the full suite once, validate workspace structure and requirement labels, perform one obsolete-interface/privacy inventory, sync local skill code without Hooks, and confirm managed handler counts stay zero. Design Considerations: use only relative redacted evidence. Design Value: close the current Plan against the latest user intent. Constraints & Risks: do not reinstall local Hooks while synchronizing files.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The complete unit suite passes once after all focused regressions.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T06:56:25Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Workspace validation and requirement-label checks pass.",
+        "evidence": "Workspace structure, source resolution, and requirement labels validated with no warnings"
+      },
+      {
+        "checked": true,
+        "text": "One-time inventory finds no tool-use Hook, obsolete interface, concrete path disclosure, or server/runtime data disclosure.",
+        "evidence": "One-time static inventory found no tool-use Hook, obsolete wrapper, concrete machine path, secret, server identity, or runtime-data artifact"
+      },
+      {
+        "checked": true,
+        "text": "Local skill copies match the repository while managed Better Plan Hook counts remain zero.",
+        "evidence": "Installed runtime files match the repository and managed Hook counts remain zero for all three Hook-capable hosts"
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: validate task Plan lifecycle alignment",
+      "target": "task Plan alignment release proof"
+    },
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -v"
+      ],
+      "criteria": [
+        0
+      ],
+      "paths": [
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "SKILL.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T06:56:25Z",
+        "contract_digest": "a5ac15d18c173f097de1b1d2c563ddbf397e280c4f1834e85140af9e8a4d986d",
+        "content_fingerprint": "6b417389e376b2680c3fdba68fef044890873f16803067b533fd395ddeb32173"
+      }
+    },
+    "next": []
+  }
+]

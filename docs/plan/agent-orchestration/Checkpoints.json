@@ -1,0 +1,1348 @@
+[
+  {
+    "id": "06f25b2d-e88b-42cc-ae0b-4c0a6b1243c3",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Define the fresh-subagent Better Plan orchestration contract.",
+    "description": "Scope: define the user-visible workflow contract. Context: the user requires separate plan comprehension, acceptance design, sequential execution, and stop audit stages. Target: specify role isolation, host capability honesty, privacy, and verifiable state handoffs. Design Considerations: keep the parent agent as orchestrator and the manifest tool as state authority. Design Value: prevent one context from defining, implementing, and approving the same work. Constraints & Risks: Hooks cannot portably spawn native subagents themselves.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements define all five workflow stages, role boundaries, capability limits, privacy, non-goals, and final acceptance.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Requirements.md",
+            "sha256": "a2f785eb5b978502846e06aa0f4935ecb3cf2cfc1145cd952a9316f8c3043340",
+            "recorded_at": "2026-07-17T07:06:30Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define agent orchestration requirements",
+      "target": "docs/plan/agent-orchestration"
+    },
+    "next": [
+      "95aa9e02-6ef0-4c2a-8257-959ef558be51"
+    ]
+  },
+  {
+    "id": "95aa9e02-6ef0-4c2a-8257-959ef558be51",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "06f25b2d-e88b-42cc-ae0b-4c0a6b1243c3"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Ground orchestration in repository behavior and native host capabilities.",
+    "description": "Scope: inspect current lifecycle modules and primary host documentation. Context: the workflow must distinguish portable command Hooks from native subagent delegation. Target: record verified capabilities and the design deductions they support. Design Considerations: prefer current first-party sources and separate facts from inference. Design Value: avoid fake dispatch, experimental coupling, and incompatible host assumptions. Constraints & Risks: host capabilities may evolve after this delivery.",
+    "requirements": [
+      "REQ-001",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence maps current repository gaps and official Codex, Claude Code, and Cursor capabilities to the orchestration design.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Evidence.md",
+            "sha256": "1fb665c37deb0bbab89f8df486341eaf47b43fda5ee530fa4cabd06cdcf556a4",
+            "recorded_at": "2026-07-17T07:06:30Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: ground agent orchestration",
+      "target": "docs/plan/agent-orchestration"
+    },
+    "next": [
+      "5470aaad-0de6-4565-b456-20bad98ede23"
+    ]
+  },
+  {
+    "id": "5470aaad-0de6-4565-b456-20bad98ede23",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "95aa9e02-6ef0-4c2a-8257-959ef558be51"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Have a fresh acceptance agent write the requirement-to-proof scheme.",
+    "description": "Scope: docs/plan/agent-orchestration/Validation.md. Context: acceptance must be authored independently from implementation. Target: a fresh subagent reads the user's instruction, Requirements.md, Evidence.md, and current code, then writes objective focused and final proof for every requirement. Design Considerations: prohibit implementation edits and require testable outcomes. Design Value: acceptance is fixed before execution Nodes are finalized. Constraints & Risks: the parent agent validates labels and completeness but does not replace the independent artifact with its own design.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "A fresh non-implementation subagent writes Validation.md and maps every requirement to objective focused and final proof.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Validation.md",
+            "sha256": "d9fad27e25fb29cb04337b56abc12cfa42664efe9d77849226f7541f409f1dfc",
+            "recorded_at": "2026-07-17T07:16:35Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: add independent orchestration acceptance",
+      "target": "docs/plan/agent-orchestration/Validation.md"
+    },
+    "next": [
+      "0ce5696a-3669-4cc5-bbe8-782116881adc"
+    ]
+  },
+  {
+    "id": "0ce5696a-3669-4cc5-bbe8-782116881adc",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "5470aaad-0de6-4565-b456-20bad98ede23"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Define the parent, acceptance, executor, auditor, Hook, and state boundaries.",
+    "description": "Scope: docs/plan/agent-orchestration/Architecture.md. Context: validation is fixed and implementation needs one portable role protocol. Target: define role prompts, handoff data, lifecycle context, Stop continuation, failure handling, module ownership, and dependency direction. Design Considerations: main-agent orchestrator, fresh role agents, command-Hook context, and manifest state authority. Design Value: explicit boundaries keep host integrations thin and role behavior testable. Constraints & Risks: no direct model process spawning from scripts and no recursive delegation.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture defines every role, handoff, module boundary, dependency direction, and failure path against the accepted validation scheme.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Architecture.md",
+            "sha256": "3f207544465ce05cc4337a3508253a25ea8be3e42ca239b270008f670b23e276",
+            "recorded_at": "2026-07-17T07:19:37Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: design agent orchestration",
+      "target": "docs/plan/agent-orchestration/Architecture.md"
+    },
+    "next": [
+      "f2be0e84-04ca-4b7a-8bbd-8e4896e5d1ff"
+    ]
+  },
+  {
+    "id": "f2be0e84-04ca-4b7a-8bbd-8e4896e5d1ff",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "0ce5696a-3669-4cc5-bbe8-782116881adc"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Inject the five-stage orchestration contract into lifecycle events.",
+    "description": "Scope: Closure: module - lifecycle orchestration context; scripts/hook_context.py, scripts/hook_tool.py, and tests/test_hook_tool.py. Context: session and prompt context must require plan comprehension, acceptance delegation, and sequential execution, while Stop must require a fresh read-only audit. Target: privacy-safe host responses that make the parent agent perform native delegation and wait for results. Design Considerations: static pure context, fail-open scope detection, bounded Stop continuation, and no direct subagent process. Design Value: one portable event adapter triggers the same workflow without host-specific model launchers. Constraints & Risks: preserve deterministic regression and never claim a subagent was spawned by the command Hook.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Session context requires workspace detection plus complete Plan reading and understanding.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:32:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Prompt context requires Plan/Node alignment, a fresh acceptance agent, then a distinct fresh executor with exact Nodes executed sequentially.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:32:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Stop continuation requires a fresh read-only audit agent to judge code against the accepted scheme before completion.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:32:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Context remains relative, bounded, private, fail-open, and free of tool-use interception or direct model spawning.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b3839949b1bd1f0edaf57f2dd74bd47828135c6cfe3f03965cf4fa224abb3fbe",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:32:56Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: add lifecycle agent orchestration",
+      "target": "lifecycle context module and focused tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "tests/test_hook_tool.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T07:32:56Z",
+        "contract_digest": "1789f470ced0ad4a0c8f9328935ab2802b7b87b9d0c54dda755673167682878c",
+        "content_fingerprint": "83ec60d24f444a4852966c5972e94fd2878cae1cb68dc3e6381443a834266dc3"
+      }
+    },
+    "next": [
+      "489c8893-c636-46c2-a584-683718e40ef9"
+    ]
+  },
+  {
+    "id": "489c8893-c636-46c2-a584-683718e40ef9",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "f2be0e84-04ca-4b7a-8bbd-8e4896e5d1ff"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Make fresh-agent role contracts explicit and reusable for every host.",
+    "description": "Scope: Closure: capability - Better Plan agent-role protocol; SKILL.md, references/agent-orchestration.md, README.md, and tests/test_orchestration_workflow.py. Context: lifecycle context must be backed by detailed prompts and operating rules another agent can follow without conversation history. Target: define parent, acceptance, executor, and auditor responsibilities, minimum handoff data, sequential execution, audit findings, and capability failure behavior. Design Considerations: concise core instructions with progressive disclosure to one reference. Design Value: role prompts stay reusable and independently testable without bloating SKILL.md. Constraints & Risks: use imperative instructions, prohibit recursive delegation, and preserve local Hook uninstall state.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "SKILL.md defines the mandatory five-stage order and points to one detailed orchestration reference.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f34b1733975578041ad0436f5cb7abe5655f7469468a69f131c2523aea028f71",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:39:05Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The reference defines fresh acceptance, sequential executor, and read-only auditor prompts with minimum private handoffs and explicit prohibitions.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f34b1733975578041ad0436f5cb7abe5655f7469468a69f131c2523aea028f71",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:39:05Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Focused workflow tests and skill validation pass, and current user-facing documentation matches the contract.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f34b1733975578041ad0436f5cb7abe5655f7469468a69f131c2523aea028f71",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T07:39:05Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define Better Plan agent role protocol",
+      "target": "skill workflow, reference, documentation, and focused tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T07:39:05Z",
+        "contract_digest": "1a9bd9fc77b9c9741de2b737a2c00e2b81eefcc24ac9cfd0fc20b24212b0f4df",
+        "content_fingerprint": "d5e8e8351acf87bf0143d4218cb848b94fb99cf142de048f6fc1df44d9889602"
+      }
+    },
+    "next": [
+      "63130241-e84b-4cef-a2b7-f826d0446e91"
+    ]
+  },
+  {
+    "id": "63130241-e84b-4cef-a2b7-f826d0446e91",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "489c8893-c636-46c2-a584-683718e40ef9"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Repair lifecycle orchestration against independent audit findings.",
+    "description": "Scope: Closure: capability - auditable cross-host lifecycle enforcement; own scripts/hook_scope.py, scripts/hook_context.py, scripts/hook_tool.py, scripts/hook_config.py, scripts/install.py, their focused tests, SKILL.md, README.md, references/agent-orchestration.md, and the current Plan's Evidence.md and Architecture.md. Context: the first fresh stop audit found that Cursor context injection is currently unreliable, full regression could run before audit, combined root signals could select an ambiguous workspace, and final receipts omitted host interface files. Target: represent Cursor as an explicit capability gap without installing unsupported lifecycle handlers, gate final full regression behind independent audit, fail open on inconsistent or non-repository event roots, and fingerprint every host mapping file. Design Considerations: keep Codex and Claude lifecycle behavior, focused regression before audit, final full regression after audit, conservative root normalization, and repository-relative outputs. Design Value: the implementation becomes capability-honest and cannot mutate or validate the wrong workspace. Constraints & Risks: no tool-use interception, no model launching, no compatibility fallback, no local Hook installation, no change to the independently authored Validation.md, and no full regression in this repair Node.",
+    "requirements": [
+      "REQ-001",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Cursor is represented as an explicit unsupported lifecycle capability and no Better Plan Cursor Hook is installed or claimed.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "0cfdacf37dd82f66b734c9c9b6e5b1299b0cf6427ff13898efb8253fd94ec9f3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:16:53Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Final-validation Stop never runs full regression before an independent audit obligation, while focused Node regression remains deterministic.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "0cfdacf37dd82f66b734c9c9b6e5b1299b0cf6427ff13898efb8253fd94ec9f3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:16:53Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Conflicting, multiple, or non-repository host roots fail open without state mutation or machine-specific labels.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "0cfdacf37dd82f66b734c9c9b6e5b1299b0cf6427ff13898efb8253fd94ec9f3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:16:53Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Plan source inventory and final receipt fingerprint cover every host configuration, installer, documentation, and test interface in the orchestration capability.",
+        "evidence": "Plan source validation, requirement-label validation, and exact final interface inventory verification passed.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3af80c682b707fe7815ee66f2e3cb0ed45c7740c1bf0c3244d45972abcc6cc4b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:17:35Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/Manifest.json",
+            "sha256": "b192d4eef38c9170fbc0c5a83227c4d33b06baca26f7b2bb3de4a31f9bb43769",
+            "recorded_at": "2026-07-17T08:17:35Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: close orchestration audit gaps",
+      "target": "lifecycle scope, host mapping, validation order, and coverage"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T08:16:53Z",
+        "contract_digest": "dfd7a20c85847541891e734474ff5258ea0ce44e4adee9dbb5aabb5c77ea9b02",
+        "content_fingerprint": "af8ca0e869177d9db922d58991765d6c3212c9ba4158430a6e2a289183f96d67"
+      }
+    },
+    "next": [
+      "a2c65d2c-1dcc-4f2e-add4-a972cf35e082"
+    ]
+  },
+  {
+    "id": "a2c65d2c-1dcc-4f2e-add4-a972cf35e082",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "63130241-e84b-4cef-a2b7-f826d0446e91"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Prevent complete from starting or repeating final full regression.",
+    "description": "Scope: Closure: module - final regression command authority; own scripts/manifest_tool.py, tests/test_manifest_tool_cli.py, tests/test_orchestration_workflow.py, SKILL.md, README.md, and the current Plan's Architecture.md. Context: the second fresh stop audit proved that Stop no longer launches full, but complete still invokes an absent or stale final-validation contract and can bypass the independent audit gate. Target: require final_validation complete to consume an already-current full receipt and refuse otherwise without executing commands, while retaining the implementation focused fallback. Design Considerations: explicit regress is the only full-run authority, fresh fingerprints prevent completion after change, and tests use side effects to prove non-execution and non-repetition. Design Value: one full regression cannot be triggered implicitly or repeated by completion. Constraints & Risks: do not change Validation.md, do not weaken focused implementation completion, do not install Hooks, and do not run the full suite in this Node.",
+    "requirements": [
+      "REQ-005",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Final-validation complete without a current full receipt refuses without executing the declared command, including stale-receipt cases.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "e95eda0f20f000b66b388a1475302409b3476d2aeb60825c654fffa3b4a99619",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:42:27Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Final-validation complete with a current full receipt completes without executing the declared command again, while implementation focused fallback remains supported.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "e95eda0f20f000b66b388a1475302409b3476d2aeb60825c654fffa3b4a99619",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:42:27Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Skill, README, architecture, Plan source inventory, and final fingerprint consistently name explicit regress as the only full-run authority.",
+        "evidence": "Current contract documents, Plan source inventory, final-validation fingerprint, source resolution, and requirement labels are consistent.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "95771f95515bd857bcb6d0cdf4a5814e506b9045df6b8811463e736fb7161723",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:43:36Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "29668882b06750f0d09d79271439577fa91c3734756e661f50b6132c923b238d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:43:36Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "fc53973c6192484768c20c35a74353eb70ef3d0c77da3d29c68a077d74e1e248",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T08:43:36Z"
+          },
+          {
+            "type": "file",
+            "path": "SKILL.md",
+            "sha256": "36d91f6a8d657f889554fb5f3c31608ae9b4965a39a5b8d2b3eb41ed1f72e82f",
+            "recorded_at": "2026-07-17T08:43:36Z"
+          },
+          {
+            "type": "file",
+            "path": "README.md",
+            "sha256": "00fe593bf662fa13debe1c96dcc10c2398dcee9fc871a3b779cfc2c4d33ed076",
+            "recorded_at": "2026-07-17T08:43:36Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Architecture.md",
+            "sha256": "d8992c9481e680c3efab8bcb2ced4e91c8c366832a011492539247854692f79a",
+            "recorded_at": "2026-07-17T08:43:36Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: require explicit final regression receipt",
+      "target": "manifest completion gate and focused CLI proof"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T08:42:27Z",
+        "contract_digest": "d65cfbab411d3b0912437eb4cabca5470713d5c4c9b73b1d2c21756b88025000",
+        "content_fingerprint": "0821f2feff86f112c18b9e3e677b9213529682b5da47a7980eb1927b44182b90"
+      }
+    },
+    "next": [
+      "37afb171-15f7-46db-afbf-6f876ffcf9fe"
+    ]
+  },
+  {
+    "id": "37afb171-15f7-46db-afbf-6f876ffcf9fe",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "a2c65d2c-1dcc-4f2e-add4-a972cf35e082"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Fail open before Stop regression when Better Plan state is semantically invalid.",
+    "description": "Scope: Closure: capability - Stop semantic state gate; own scripts/manifest_tool.py, scripts/hook_tool.py, tests/test_hook_tool.py, and focused validation helpers/tests. Context: the pre-full auditor proved structural discovery plus local regression validation can still execute a focused command before the complete workspace semantics are checked. Target: expose a read-only workspace semantic validator and require Stop to return an empty success response before selecting an active Node whenever Manifest, referenced Checkpoints, global IDs, Plan status, graph, or declared sources are invalid. Design Considerations: no git-history dependency in a lifecycle callback, no state mutation during validation, bounded repository-only discovery, and side-effect tests. Design Value: malformed or inconsistent planning state cannot trigger repository commands. Constraints & Risks: preserve valid focused Stop behavior, preserve full audit gating, do not echo validation details, and do not run full regression.",
+    "requirements": [
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Stop performs complete read-only workspace semantic validation before active-Node selection or regression execution.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "5973f80422181488e45911ba576fffb014368b9916095c93b0aabfcc7b59b330",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:14:13Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A structurally discoverable but semantically invalid workspace returns an empty success response and the declared side-effect command is not executed.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "5973f80422181488e45911ba576fffb014368b9916095c93b0aabfcc7b59b330",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:14:13Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: validate state before Stop regression",
+      "target": "Stop semantic validation gate"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_manifest_tool_cli -v"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_tool.py",
+        "tests/test_hook_tool.py",
+        "tests/test_manifest_tool_cli.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T09:14:13Z",
+        "contract_digest": "ecb11a34985617c00f86adc4ef4a5b340373abb5e35407781a65765b43cdf69d",
+        "content_fingerprint": "a8c48a70806515de5ff2dd7521b10137947018d32e5c78750079df95c047c933"
+      }
+    },
+    "next": [
+      "839202cd-c313-42b5-87d9-61810ffdf343"
+    ]
+  },
+  {
+    "id": "839202cd-c313-42b5-87d9-61810ffdf343",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "37afb171-15f7-46db-afbf-6f876ffcf9fe"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Make final regression execution single-use and establish current focused delivery evidence.",
+    "description": "Scope: Closure: scenario - pre-full orchestration safety; own manifest regression/diagnostic commands, their CLI tests, README evidence examples, and the current focused aggregate receipt across the orchestration capability. Context: pre-full audit found explicit regress can rerun a current full receipt, active-Node diagnostics can expose a concrete state path, and earlier focused receipts became stale after later repairs. Target: make a fresh final/full receipt single-use, keep stale-content repair eligible for a later explicitly audited attempt, render mutation diagnostics repository-relative, and run one final focused aggregate command over the current feature surfaces. Design Considerations: no full discover, side-effect counters for non-repetition, relative_path_label for diagnostics, and one current aggregate receipt rather than mutating terminal history. Design Value: final validation starts from current focused evidence and cannot repeat full accidentally. Constraints & Risks: do not weaken implementation focused reruns, do not claim stale historical receipts are current, do not install Hooks, and do not start final_validation.",
+    "requirements": [
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Explicit regress for a final-validation Node reuses a current full receipt without executing its command again; changed fingerprint remains eligible only as a new explicit attempt.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:20:55Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Active-Node conflict diagnostics contain only a repository-relative state label and never expose the supplied absolute workspace path.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:20:55Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "One fresh focused aggregate receipt covers the current manifest, lifecycle, host configuration, installer, documentation, and orchestration test surfaces before full validation.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:20:55Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "README examples, Plan source inventory, final fingerprint, source validation, and requirement labels remain consistent with the single-use full contract.",
+        "evidence": "Static inventory, current source resolution, requirement labels, and contract documents verified.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "9389b26780b778be5616ae54143bd2b8a56f5a9ed91ad4601a0995720562f5da",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "95771f95515bd857bcb6d0cdf4a5814e506b9045df6b8811463e736fb7161723",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "29668882b06750f0d09d79271439577fa91c3734756e661f50b6132c923b238d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "file",
+            "path": "README.md",
+            "sha256": "2e10d14e30829e243d09e5b7a0e88be2f450f738306a78eea7d5cd9d082615c7",
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "file",
+            "path": "SKILL.md",
+            "sha256": "f688318ef61016de3c8e3f487d3d683054e31b583192d15e5757b01fde4ac6f6",
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "file",
+            "path": "references/agent-orchestration.md",
+            "sha256": "cd733a11c777e787732d61e3b1e2f06dd795711e1c6d6c15bbe3667999c6b8fb",
+            "recorded_at": "2026-07-17T09:22:39Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/agent-orchestration/Architecture.md",
+            "sha256": "4c5d2c73075960ee3f4c66a06884a7c06f664eee73c6f663b2bb90c7e09636d4",
+            "recorded_at": "2026-07-17T09:22:39Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: harden pre-full regression safety",
+      "target": "manifest command safety and focused aggregate evidence"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T09:20:55Z",
+        "contract_digest": "8ac5c5bb5858805fd907f08085bc0751612e1e2b5803c546801e370e06452ea7",
+        "content_fingerprint": "a5a520e55139a91ffeb55494db945c911f1ab4183dc4f81d187a8c0bde04c024"
+      }
+    },
+    "next": [
+      "82037c05-7e37-4c45-b0a0-25c857b8a55a"
+    ]
+  },
+  {
+    "id": "82037c05-7e37-4c45-b0a0-25c857b8a55a",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "839202cd-c313-42b5-87d9-61810ffdf343"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Reject embedded absolute paths from every persisted Better Plan summary.",
+    "description": "Scope: Closure: module - persisted summary privacy validation; own scripts/manifest_tool.py, tests/test_manifest_tool_cli.py, and the current focused aggregate receipt. Context: post-full audit found the absolute-path pattern only recognized a narrow set of leading separators, allowing assignment-prefixed concrete paths to reach evidence or status summaries. Target: reject POSIX, home-relative, Windows-drive, and UNC absolute paths wherever they occur as a summary token, without echoing or persisting the supplied value, while accepting repository-relative prose. Design Considerations: token-boundary detection must cover assignment punctuation without treating ordinary repository-relative paths as absolute; every command path that uses safe_summary_issue inherits the fix. Design Value: one central validator closes evidence and status persistence consistently. Constraints & Risks: no raw value in diagnostics, no Hook changes, no Validation.md edit, no full run in this Node, and no unrelated secret-pattern expansion.",
+    "requirements": [
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence and status summaries reject assignment-prefixed POSIX, home-relative, Windows-drive, and UNC absolute paths without echoing or persisting them.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:54:25Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Repository-relative summaries remain accepted and the central validator continues to reject endpoints, server identifiers, and credentials.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:54:25Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The declared aggregate focused regression passes on the current orchestration delivery surface and records a fresh receipt after the privacy fix.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T09:54:25Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: reject embedded absolute paths",
+      "target": "persisted summary privacy validator and focused proof"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T09:54:25Z",
+        "contract_digest": "8ac5c5bb5858805fd907f08085bc0751612e1e2b5803c546801e370e06452ea7",
+        "content_fingerprint": "e246bb208b2aa91ecdffe664211a823b8a6d04e981af836db33e79aef29a5c31"
+      }
+    },
+    "next": [
+      "3eec1c2f-a3f2-4a13-bd67-dc1a08851ab3"
+    ]
+  },
+  {
+    "id": "3eec1c2f-a3f2-4a13-bd67-dc1a08851ab3",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "82037c05-7e37-4c45-b0a0-25c857b8a55a"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Reject double-slash absolute paths from persisted summaries.",
+    "description": "Scope: Closure: module - double-slash absolute summary detection; own scripts/manifest_tool.py, tests/test_manifest_tool_cli.py, and the refreshed focused aggregate receipt. Context: privacy pre-audit found token-leading double slash paths bypass the single-slash and backslash-UNC alternatives. Target: classify POSIX double-root and forward-slash UNC tokens as absolute across evidence and status summaries without changing repository-relative acceptance. Design Considerations: extend the existing central boundary pattern and dynamic table instead of adding a second validator. Design Value: every explicit absolute-root spelling shares one persistence guard. Constraints & Risks: no other sensitive-pattern changes, no Hook or protocol edits, no Validation.md change, and no full run.",
+    "requirements": [
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Token-leading double-slash paths are rejected by evidence and status mutations without echo or persistence.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:08:14Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Single-slash, home, drive, backslash UNC, repository-relative, endpoint, server, and credential cases retain their accepted or rejected behavior.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:08:14Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The current five-module focused aggregate passes and records a fresh receipt after the boundary fix.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:08:14Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: reject double-slash summary paths",
+      "target": "absolute summary boundary and focused proof"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T10:08:14Z",
+        "contract_digest": "8ac5c5bb5858805fd907f08085bc0751612e1e2b5803c546801e370e06452ea7",
+        "content_fingerprint": "09a2d89d5b7dc6174e82ced1718194646ce3fb5f52c43c88ac558cec847dbf0d"
+      }
+    },
+    "next": [
+      "8ab23f67-97bc-4b90-8656-212a3ae11770"
+    ]
+  },
+  {
+    "id": "8ab23f67-97bc-4b90-8656-212a3ae11770",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "3eec1c2f-a3f2-4a13-bd67-dc1a08851ab3"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Reject root-only absolute paths from persisted summaries.",
+    "description": "Scope: Closure: module - root-only absolute summary detection; own scripts/manifest_tool.py, tests/test_manifest_tool_cli.py, and the refreshed focused aggregate receipt. Context: adversarial pre-full audit found each absolute-root branch required a following nonspace character, allowing root tokens alone to persist. Target: reject POSIX root, double root, home root, Windows drive root, and UNC root at token boundaries, including assignment-prefixed forms, while retaining normal repository-relative slash text. Design Considerations: remove only the unnecessary post-root lookahead and extend the existing dynamic table and mutation assertions. Design Value: the central summary guard covers both root-only and rooted-child spellings. Constraints & Risks: preserve pass/fail, scripts/file.py, dir-/file, plus/hyphen relative tokens, endpoint/server/credential rejection, and do not change Hooks, protocols, Validation, or run full.",
+    "requirements": [
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Root-only POSIX, double-root, home, drive, and UNC tokens are rejected by evidence and status mutations without echo or persistence.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:22:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Rooted-child cases and safe relative slash tokens retain their expected behavior, and endpoint/server/credential guards remain active.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:22:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The current five-module focused aggregate passes and records a fresh receipt after the root-only fix.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:22:09Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: reject root-only summary paths",
+      "target": "absolute summary roots and focused proof"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T10:22:09Z",
+        "contract_digest": "8ac5c5bb5858805fd907f08085bc0751612e1e2b5803c546801e370e06452ea7",
+        "content_fingerprint": "4fdd0a48ed54552f5af5bc48032cbcd3dfa31f178067605a62c872de20cfc14d"
+      }
+    },
+    "next": [
+      "746cb263-8fe4-4ae0-bb57-8236c688cff2"
+    ]
+  },
+  {
+    "id": "746cb263-8fe4-4ae0-bb57-8236c688cff2",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "8ab23f67-97bc-4b90-8656-212a3ae11770"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Bind persisted-state privacy validation into the current focused aggregate receipt.",
+    "description": "Scope: Closure: scenario - persisted-state privacy preflight; own one focused method in tests/test_manifest_tool_state_machine.py and the final current aggregate receipt. Context: the latest pre-full audit found the aggregate covered all changed implementation surfaces but omitted the state validator test file and did not dynamically prove unsafe evidence/status_reason already present in Checkpoints is rejected. Target: add one state-machine test for central summary privacy and append only that method to the existing five-module focused contract, binding the exact 15 source/final paths. Design Considerations: do not run the full state-machine module; reuse dynamic unsafe summary cases and validate both rejection and safe relative state. Design Value: the pre-full receipt proves every persisted entry path and matches the final fingerprint set exactly. Constraints & Risks: no production-code change unless the focused test reveals a defect, no full/discover, no Hook/protocol/Validation changes, and no real machine data.",
+    "requirements": [
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "State validation rejects unsafe absolute-path evidence and status_reason values while accepting repository-relative summaries.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "11ee59c32db3c3ac6b8c0739725af416651e23ec3306f95e8fd1788de29025c6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The focused contract runs the five orchestration modules plus only the dedicated persisted-state privacy method, not the complete state-machine module or full suite.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "11ee59c32db3c3ac6b8c0739725af416651e23ec3306f95e8fd1788de29025c6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The fresh aggregate receipt binds the exact 15 paths shared by Plan source_files and final-validation fingerprint.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f77ea0e63ef3c4408759349efbe0ad9574f18e2169333f75bbd39297ea4dec32",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "11ee59c32db3c3ac6b8c0739725af416651e23ec3306f95e8fd1788de29025c6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:36:00Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: cover persisted summary privacy",
+      "target": "state privacy test and complete focused preflight"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_hook_scope tests.test_hook_tool tests.test_install_tool tests.test_orchestration_workflow -v",
+        "python3 -m unittest tests.test_manifest_tool_state_machine.WorkflowStateMachineTests.test_persisted_summaries_reject_absolute_paths -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T10:36:00Z",
+        "contract_digest": "b4d04cdf16e2dce8970c89a24fd49ec7dcc2cdd4f603e96383e0e70f9f10d797",
+        "content_fingerprint": "42b550decc182ba5d43354d52bccf00120c4483818e0bb723c9b68ceb2510c48"
+      }
+    },
+    "next": [
+      "85ca36c8-9e95-458b-95e4-862bfb156a4a"
+    ]
+  },
+  {
+    "id": "85ca36c8-9e95-458b-95e4-862bfb156a4a",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "746cb263-8fe4-4ae0-bb57-8236c688cff2"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Obtain an independent acceptance audit and close the orchestration workflow.",
+    "description": "Scope: final validation of orchestration context, role protocol, host mapping, privacy, and state consistency. Context: focused Nodes prove their own modules and the user requires a fresh stop-time auditor. Target: dispatch a fresh read-only audit subagent against Validation.md, resolve findings through the executor when necessary, run the complete suite once, validate the skill and Plan, and preserve zero local managed Hooks. Design Considerations: auditor independence, evidence-first findings, one full regression, and redacted receipts. Design Value: the workflow cannot self-approve. Constraints & Risks: the auditor edits nothing, and any fix invalidates the prior audit and requires a new fresh auditor.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "A fresh read-only auditor reports that the implementation satisfies every accepted requirement, or all actionable findings are fixed and re-audited.",
+        "evidence": "Fresh independent post-full read-only audit PASS; REQ-001..REQ-009, source fingerprint, role separation, privacy, host boundaries, and receipt reuse were accepted."
+      },
+      {
+        "checked": true,
+        "text": "The complete unit suite passes once after focused verification.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:45:25Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Skill validation, workspace validation, source checking, and requirement-label checking pass.",
+        "evidence": "SKILL.md frontmatter passed the system validator's YAML, allowed-key, naming, and description rules; workspace source validation and requirement-label checks passed.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3859dd52a9e0c0954654c2bb64c51360790f2f006ef0c1172c707231f954b685",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:54:34Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d2386cb64881c084583b392a7aca272e2d59f13c35f2939b9ac5d51c39bfd691",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T10:54:34Z"
+          },
+          {
+            "type": "file",
+            "path": "SKILL.md",
+            "sha256": "f688318ef61016de3c8e3f487d3d683054e31b583192d15e5757b01fde4ac6f6",
+            "recorded_at": "2026-07-17T10:54:34Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Static privacy and interface inventory passes and local managed Better Plan Hook counts remain zero.",
+        "evidence": "Static inventory found no concrete absolute path, server address, credential assignment, tool-use interception, model SDK import, Cursor lifecycle handler, or removed update entry point. Installed skill and adapters match current sources; managed Better Plan Hook counts are codex=0, cursor=0, claude=0.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "scripts/hook_config.py",
+            "sha256": "141d753b4e22840f074899281fa381d0d939ccf4add30e8f16660d5ce62fb980",
+            "recorded_at": "2026-07-17T10:54:34Z"
+          },
+          {
+            "type": "file",
+            "path": "scripts/hook_tool.py",
+            "sha256": "0f646bc89027bcc18a8af4ed0b463c217fb92f4b2abf18203f303b9f47fd0d3a",
+            "recorded_at": "2026-07-17T10:54:34Z"
+          },
+          {
+            "type": "file",
+            "path": "scripts/manifest_tool.py",
+            "sha256": "ddf4acc0e11e2c84b57e3ab09ef02b65102d327222912a6683580c1001df6c4d",
+            "recorded_at": "2026-07-17T10:54:34Z"
+          },
+          {
+            "type": "file",
+            "path": "scripts/install.py",
+            "sha256": "7a11fc0e03df220b92e7eec8470d4f6c5ec6b1af34bb3d0a669af49f39ba56e8",
+            "recorded_at": "2026-07-17T10:54:34Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: validate agent orchestration",
+      "target": "agent orchestration acceptance evidence"
+    },
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -v"
+      ],
+      "criteria": [
+        1
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "SKILL.md",
+        "references/agent-orchestration.md",
+        "README.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T10:45:25Z",
+        "contract_digest": "595239dcb37f4e378f8ae477f71190a09ce882ece2f9759d3f63a68ce49d5809",
+        "content_fingerprint": "42b550decc182ba5d43354d52bccf00120c4483818e0bb723c9b68ceb2510c48"
+      }
+    },
+    "next": []
+  }
+]

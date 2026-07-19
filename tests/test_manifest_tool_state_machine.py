@@ -1,22 +1,13 @@
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_TOOL_PATH = REPO_ROOT / "scripts" / "manifest_tool.py"
-
-spec = importlib.util.spec_from_file_location("manifest_tool", MANIFEST_TOOL_PATH)
-assert spec is not None
-manifest_tool = importlib.util.module_from_spec(spec)
-sys.modules["manifest_tool"] = manifest_tool
-assert spec.loader is not None
-spec.loader.exec_module(manifest_tool)
+from scripts.better_plan.domain import models, validation
+from scripts.better_plan.infrastructure import workspace as workspace_state
 
 
 PLAN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -37,6 +28,7 @@ def make_node(
     requirements: list[str] | None = None,
     description: str = "Test node for Better Plan state machine rules.",
     status_reason: str | None = None,
+    with_regression: bool = True,
 ) -> dict[str, object]:
     node: dict[str, object] = {
         "id": node_id,
@@ -63,6 +55,14 @@ def make_node(
     }
     if status_reason is not None:
         node["status_reason"] = status_reason
+    scope = "focused" if role == "implementation" else "full" if role == "final_validation" else None
+    if scope is not None and with_regression:
+        node["regression"] = {
+            "scope": scope,
+            "commands": ["python3 -c \"pass\""],
+            "criteria": [0],
+            "paths": ["tracked.txt"],
+        }
     return node
 
 
@@ -89,13 +89,19 @@ def plan_snapshot_issues(plan_status: str, nodes: list[dict[str, object]]) -> li
         manifest_path = workspace / "Manifest.json"
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-        _, issues = manifest_tool.validate_plan_manifest_data(manifest_path, manifest)
+        _, issues = workspace_state.validate_plan_manifest_data(manifest_path, manifest)
     return issues
 
 
 class WorkflowStateMachineTests(unittest.TestCase):
+    def write_discovery_workspace(self, workspace: Path, node: dict[str, object]) -> None:
+        plan_dir = workspace / "main-plan"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "Checkpoints.json").write_text(json.dumps([node]), encoding="utf-8")
+        (workspace / "Manifest.json").write_text(json.dumps([make_plan("in_progress")]), encoding="utf-8")
+
     def test_transition_rules_allow_expected_edges(self) -> None:
-        machine = manifest_tool.WORKFLOW_STATE_MACHINE
+        machine = models.WORKFLOW_STATE_MACHINE
 
         self.assertTrue(machine.can_transition("pending", "in_progress"))
         self.assertTrue(machine.can_transition("in_progress", "completed"))
@@ -104,7 +110,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
         self.assertFalse(machine.can_transition("skipped", "pending"))
 
     def test_reachability_follows_transition_paths(self) -> None:
-        machine = manifest_tool.WORKFLOW_STATE_MACHINE
+        machine = models.WORKFLOW_STATE_MACHINE
 
         self.assertTrue(machine.can_reach("pending", "completed"))
         self.assertTrue(machine.can_reach("blocked", "completed"))
@@ -119,7 +125,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_B_ID, "in_progress", prerequisites=[NODE_A_ID]),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("cannot be 'in_progress' until prerequisites are completed" in issue.message for issue in issues),
@@ -129,10 +135,56 @@ class WorkflowStateMachineTests(unittest.TestCase):
     def test_completed_node_requires_checked_acceptance_criteria(self) -> None:
         data = [make_node(NODE_A_ID, "completed", checked=False)]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("cannot be 'completed' with unchecked acceptance criteria" in issue.message for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_in_progress_delivery_node_requires_a_regression_contract(self) -> None:
+        data = [make_node(NODE_A_ID, "in_progress", with_regression=False)]
+
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
+
+        self.assertTrue(
+            any("must declare a 'focused' regression contract" in issue.message for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_regression_contract_enforces_scope_paths_and_criterion_indexes(self) -> None:
+        node = make_node(NODE_A_ID, "pending")
+        node["regression"] = {
+            "scope": "full",
+            "commands": ["python3 -c \"pass\"", "python3 -c \"pass\""],
+            "criteria": [0, 1],
+            "paths": ["src", "src/module.py"],
+        }
+
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), [node])
+
+        messages = [issue.message for issue in issues]
+        self.assertTrue(any("must use 'focused'" in message for message in messages), messages)
+        self.assertTrue(any("duplicate command" in message for message in messages), messages)
+        self.assertTrue(any("must be between 0 and 0" in message for message in messages), messages)
+        self.assertTrue(any("overlaps declared path 'src'" in message for message in messages), messages)
+
+    def test_final_validation_cannot_start_while_implementation_is_unfinished(self) -> None:
+        data = [
+            make_node(NODE_A_ID, "pending"),
+            make_node(
+                NODE_B_ID,
+                "in_progress",
+                role="final_validation",
+                difficulty="high",
+                prerequisites=[],
+            ),
+        ]
+
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
+
+        self.assertTrue(
+            any("until every non-skipped implementation node is completed" in issue.message for issue in issues),
             [issue.message for issue in issues],
         )
 
@@ -142,7 +194,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_B_ID, "in_progress"),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("only one node may be in_progress" in issue.message for issue in issues),
@@ -156,7 +208,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_C_ID, "pending", prerequisites=[NODE_B_ID]),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         messages = [issue.message for issue in issues]
         self.assertTrue(any("node[1]: unstartable" in message for message in messages), messages)
@@ -168,7 +220,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_B_ID, "skipped", prerequisites=[NODE_A_ID], status_reason="Cascade skipped."),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertFalse([issue.message for issue in issues if "unstartable" in issue.message])
 
@@ -210,7 +262,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
     def test_foundation_roles_require_high_or_deep_difficulty(self) -> None:
         data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="medium")]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("role 'product_requirements' must use 'high' or 'deep'" in issue.message for issue in issues),
@@ -220,7 +272,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
     def test_foundation_roles_accept_high_difficulty(self) -> None:
         data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="high")]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertFalse([issue.message for issue in issues if "difficulty" in issue.message])
 
@@ -230,7 +282,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_B_ID, "pending", role="validation_matrix", difficulty="deep"),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("'architecture_scaffold' must not appear before 'validation_matrix'" in issue.message for issue in issues),
@@ -240,7 +292,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
     def test_implementation_requires_requirement_labels_or_enabling_description(self) -> None:
         data = [make_node(NODE_A_ID, "pending", requirements=[])]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("implementation nodes must list at least one requirement label" in issue.message for issue in issues),
@@ -256,7 +308,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             )
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), enabling)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), enabling)
 
         self.assertFalse(
             [issue.message for issue in issues if "must list at least one requirement label" in issue.message]
@@ -274,7 +326,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             ),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("final_validation must cover requirement label(s): REQ-002" in issue.message for issue in issues),
@@ -286,7 +338,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             make_node(NODE_A_ID, "pending", role="final_validation", difficulty="high", requirements=[]),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
             any("final_validation nodes must list the requirement labels they prove" in issue.message for issue in issues),
@@ -301,7 +353,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
         evidence["acceptance_criteria"][0]["evidence"] = ""  # type: ignore[index]
         labels = make_node(NODE_D_ID, "pending", requirements=["REQ 001"])
 
-        _, issues = manifest_tool.validate_checkpoints_data(
+        _, issues = validation.validate_checkpoints_data(
             Path("Checkpoints.json"), [blocked, delivered, evidence, labels]
         )
 
@@ -313,10 +365,47 @@ class WorkflowStateMachineTests(unittest.TestCase):
             any("canonical format" in message for message in messages), messages
         )
 
+    def test_persisted_summaries_reject_absolute_paths(self) -> None:
+        synthetic_token = f"state-{uuid.uuid4().hex}"
+        unsafe = make_node(NODE_A_ID, "blocked", status_reason="/")
+        unsafe["acceptance_criteria"][0]["evidence"] = (  # type: ignore[index]
+            f"artifact=/{synthetic_token}/receipt.json"
+        )
+
+        _, unsafe_issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), [unsafe])
+
+        unsafe_messages = [issue.message for issue in unsafe_issues]
+        absolute_path_messages = [
+            message for message in unsafe_messages if "must not contain a concrete absolute path" in message
+        ]
+        self.assertEqual(len(absolute_path_messages), 2, unsafe_messages)
+        self.assertTrue(any(".status_reason:" in message for message in absolute_path_messages))
+        self.assertTrue(any(".acceptance_criteria[0].evidence:" in message for message in absolute_path_messages))
+        self.assertNotIn(synthetic_token, "\n".join(unsafe_messages))
+
+        safe = make_node(
+            NODE_B_ID,
+            "blocked",
+            status_reason="Paused after reviewing docs/plan/Checkpoints.json.",
+        )
+        safe["acceptance_criteria"][0]["evidence"] = (  # type: ignore[index]
+            "Verified tests/fixtures/state-summary.json with a safe digest."
+        )
+
+        _, safe_issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), [safe])
+
+        safe_messages = [issue.message for issue in safe_issues]
+        summary_messages = [
+            message
+            for message in safe_messages
+            if ".status_reason:" in message or ".acceptance_criteria[0].evidence:" in message
+        ]
+        self.assertEqual(summary_messages, [], safe_messages)
+
     def test_requirement_labels_use_the_canonical_req_first_grammar(self) -> None:
         for label in ("REQ-001", "REQ-X", "REQ-X-001"):
             with self.subTest(label=label):
-                _, issues = manifest_tool.validate_checkpoints_data(
+                _, issues = validation.validate_checkpoints_data(
                     Path("Checkpoints.json"),
                     [make_node(NODE_A_ID, "pending", requirements=[label])],
                 )
@@ -328,7 +417,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
         for label in ("PLAN-REQ-001", "Plan-REQ-001", "REQ_001", "REQ"):
             with self.subTest(label=label):
-                _, issues = manifest_tool.validate_checkpoints_data(
+                _, issues = validation.validate_checkpoints_data(
                     Path("Checkpoints.json"),
                     [make_node(NODE_A_ID, "pending", requirements=[label])],
                 )
@@ -350,7 +439,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             ),
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), data)
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
         messages = [issue.message for issue in issues]
 
         self.assertTrue(any("canonical format" in message for message in messages), messages)
@@ -358,7 +447,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
         self.assertTrue(any("final_validation nodes must list" in message for message in messages), messages)
 
     def test_derive_plan_status_follows_node_states(self) -> None:
-        derive = manifest_tool.derive_plan_status
+        derive = models.derive_plan_status
 
         self.assertEqual(derive("pending", []), "pending")
         self.assertEqual(
@@ -389,7 +478,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
         )
 
     def test_derive_plan_status_blocks_only_when_nothing_is_startable(self) -> None:
-        derive = manifest_tool.derive_plan_status
+        derive = models.derive_plan_status
 
         stalled = [
             make_node(NODE_A_ID, "blocked", status_reason="Waiting on a decision."),
@@ -407,7 +496,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
         self.assertEqual(derive("in_progress", only_blocked), "blocked")
 
     def test_pause_transition_edge_is_reversible(self) -> None:
-        machine = manifest_tool.WORKFLOW_STATE_MACHINE
+        machine = models.WORKFLOW_STATE_MACHINE
 
         self.assertTrue(machine.can_transition("in_progress", "pending"))
         self.assertTrue(machine.can_reach("in_progress", "pending"))
@@ -418,15 +507,16 @@ class WorkflowStateMachineTests(unittest.TestCase):
         node = make_node(NODE_A_ID, "pending")
         node["acceptance_criteria"][0]["evidence_refs"] = [  # type: ignore[index]
             {"type": "file", "path": "report.txt", "sha256": "zz", "recorded_at": "2026-07-11T00:00:00Z"},
-            {"type": "command", "command": "pytest", "exit_code": 1, "recorded_at": "2026-07-11T00:00:00Z"},
+            {"type": "command", "command_sha256": "bad", "exit_code": 1, "recorded_at": "2026-07-11T00:00:00Z"},
             {"type": "unknown"},
             {"type": "file", "path": "ok.txt", "sha256": "a" * 64, "recorded_at": "2026-07-11T00:00:00Z", "extra": True},
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), [node])
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), [node])
 
         messages = [issue.message for issue in issues]
         self.assertTrue(any("sha256: must be a 64-character lowercase hex digest" in message for message in messages), messages)
+        self.assertTrue(any("command_sha256: must be a 64-character lowercase hex digest" in message for message in messages), messages)
         self.assertTrue(any("exit_code: must be the integer 0" in message for message in messages), messages)
         self.assertTrue(any(".type: must be one of command, file" in message for message in messages), messages)
         self.assertTrue(any(".extra: unknown field" in message for message in messages), messages)
@@ -435,12 +525,85 @@ class WorkflowStateMachineTests(unittest.TestCase):
         node = make_node(NODE_A_ID, "pending")
         node["acceptance_criteria"][0]["evidence_refs"] = [  # type: ignore[index]
             {"type": "file", "path": "report.txt", "sha256": "a" * 64, "recorded_at": "2026-07-11T00:00:00Z"},
-            {"type": "command", "command": "pytest -q", "exit_code": 0, "recorded_at": "2026-07-11T00:00:00Z"},
+            {"type": "command", "command_sha256": "b" * 64, "exit_code": 0, "recorded_at": "2026-07-11T00:00:00Z"},
         ]
 
-        _, issues = manifest_tool.validate_checkpoints_data(Path("Checkpoints.json"), [node])
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), [node])
 
         self.assertFalse([issue.message for issue in issues if "evidence_refs" in issue.message])
+
+    def test_active_node_loading_uses_an_explicit_structural_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir)
+            (project / ".git").mkdir()
+            workspace = project / "docs" / "plan"
+            self.write_discovery_workspace(workspace, make_node(NODE_A_ID, "in_progress"))
+
+            active = workspace_state.active_node_locations_for_manifest(workspace / "Manifest.json")
+
+        self.assertEqual([entry.checkpoints_data[entry.node_index]["id"] for entry in active], [NODE_A_ID])
+
+    def test_active_node_loading_rejects_a_non_workspace_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir)
+            (project / ".git").mkdir()
+            invalid = project / "plans"
+            invalid.mkdir()
+
+            active = workspace_state.active_node_locations_for_manifest(invalid)
+
+        self.assertEqual(active, [])
+
+    def test_nonterminal_delivery_nodes_require_a_design_contract(self) -> None:
+        _, issues = validation.validate_checkpoints_data(
+            Path("Checkpoints.json"),
+            [make_node(NODE_A_ID, "pending", role="implementation")],
+        )
+        self.assertTrue(
+            any("design" in issue.message.lower() for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_completed_delivery_nodes_do_not_require_a_design_contract(self) -> None:
+        _, issues = validation.validate_checkpoints_data(
+            Path("Checkpoints.json"),
+            [make_node(NODE_A_ID, "completed", role="implementation")],
+        )
+        self.assertFalse(any("design" in issue.message.lower() for issue in issues))
+
+    def test_final_validation_can_be_accepted_only_with_a_current_design(self) -> None:
+        final_node = make_node(NODE_B_ID, "pending", role="final_validation")
+        _, missing = validation.validate_checkpoints_data(Path("Checkpoints.json"), [final_node])
+        self.assertTrue(any("design" in issue.message.lower() for issue in missing))
+
+        final_node["design"] = {
+            "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+            "owned_paths": ["scripts/manifest_tool.py"],
+            "scaffold_paths": ["scripts/manifest_tool.py"],
+            "acceptance_paths": ["tests/test_manifest_tool_cli.py"],
+            "symbols": [
+                {
+                    "path": "scripts/manifest_tool.py",
+                    "kind": "module",
+                    "name": "final_validation_contract",
+                    "operation": "modify",
+                    "signature": "str",
+                }
+            ],
+            "interfaces": [],
+            "dependencies": [],
+            "decisions": {
+                "composition": "one-pass pipeline",
+                "algorithms": "bounded-state checks",
+                "data_structures": "mapping sets",
+                "state": "state checkpoint",
+                "isolation": "separate preparation and delivery",
+                "concurrency": "serialized state mutations",
+            },
+            "test_seams": ["tests/test_manifest_tool_cli.py"],
+        }
+        _, accepted = validation.validate_checkpoints_data(Path("Checkpoints.json"), [final_node])
+        self.assertFalse(any("design" in issue.message.lower() for issue in accepted))
 
 
 if __name__ == "__main__":

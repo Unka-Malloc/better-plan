@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
-  short_description: "End-to-end delivery planning"
-  default_prompt: "Use $better-plan to turn this product goal into requirements, evidence-backed checkpoints, implementation tasks, and validation."
+  short_description: "Lightweight design-first orchestration"
+  default_prompt: "Use $better-plan only for explicit implementation. Align one user-visible capability to one selected Node lifecycle, keep design and acceptance proportional to applicable risk, and return rejection, drift, completion, or new scope to native-main judgment."

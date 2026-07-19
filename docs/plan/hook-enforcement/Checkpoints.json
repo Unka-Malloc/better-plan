@@ -1,0 +1,645 @@
+[
+  {
+    "id": "f47839b3-093d-4c63-b21d-79bb8d3ca4ba",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Define the enforceable platform and regression lifecycle contract.",
+    "description": "Scope: docs/plan/hook-enforcement/Requirements.md. Context: the user requires a Hook layer that checks platform before Node execution and runs accurate regression afterward. Target: define REQ-001 through REQ-007, users, workflow, constraints, scope, non-goals, and final acceptance. Design Considerations: keep host lifecycle behavior separate from state-machine guarantees and preserve immutable history. Design Value: a precise contract prevents advisory prose from being mistaken for enforcement. Constraints & Risks: Hook availability differs by host and evidence must not expose local or backend runtime data.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements.md defines REQ-001 through REQ-007, users, workflow, scope, non-goals, constraints, and final acceptance.",
+        "evidence": "Requirements contract defined and traced.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/hook-enforcement/Requirements.md",
+            "sha256": "529dbce77c2a1f6a212045254dce715d4cd49fb9cf07931cdb2517055b432ad2",
+            "recorded_at": "2026-07-17T02:51:02Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define Hook enforcement requirements",
+      "target": "docs/plan/hook-enforcement"
+    },
+    "next": [
+      "d9b78451-5227-4143-8efe-3dfbb293f96d"
+    ]
+  },
+  {
+    "id": "d9b78451-5227-4143-8efe-3dfbb293f96d",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "f47839b3-093d-4c63-b21d-79bb8d3ca4ba"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Ground Hook enforcement in repository behavior and current host protocols.",
+    "description": "Scope: docs/plan/hook-enforcement/Evidence.md and inspected workflow/installer code. Context: requirements need an evidence-backed enforcement boundary. Target: map current platform/completion gaps and official Codex, Cursor, and Claude Code Hook behavior to bounded design deductions. Design Considerations: use primary host documentation and current repository symbols; avoid retaining environment-specific observations. Design Value: evidence distinguishes reliable state-machine controls from host lifecycle conveniences. Constraints & Risks: external Hook protocols can change and source citations must remain direct.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence.md maps repository gaps and official host Hook behavior to the architecture decisions without private runtime data.",
+        "evidence": "Repository and official host evidence mapped to bounded decisions.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/hook-enforcement/Evidence.md",
+            "sha256": "21a4fcdf7335095c9194c311ae9c739e6d2bff913a1e6b0eff7982ed74ee1474",
+            "recorded_at": "2026-07-17T02:51:02Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: record Hook enforcement evidence",
+      "target": "docs/plan/hook-enforcement"
+    },
+    "next": [
+      "05caf399-2736-49c0-a676-0a1e3482dbd1"
+    ]
+  },
+  {
+    "id": "05caf399-2736-49c0-a676-0a1e3482dbd1",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "f47839b3-093d-4c63-b21d-79bb8d3ca4ba",
+      "d9b78451-5227-4143-8efe-3dfbb293f96d"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Map every Hook enforcement requirement to focused and final proof.",
+    "description": "Scope: docs/plan/hook-enforcement/Validation.md. Context: the requirements and evidence define a cross-host correctness boundary. Target: map REQ-001 through REQ-007 to focused unit/CLI checks and one final full regression. Design Considerations: test host protocols with deterministic stdin/stdout fixtures and test installation in isolated temporary homes. Design Value: the matrix prevents host configuration success from masking workflow-state failure. Constraints & Risks: implementation Nodes must not run the complete suite.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Validation.md maps every requirement to focused implementation proof and one final full-regression proof.",
+        "evidence": "Focused and final proof mapped for all requirements.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/hook-enforcement/Validation.md",
+            "sha256": "439a2bc7acb6c9d8ac6982ce4b87c91b34f953cfac6eb3cf8523f6ef7809d7c6",
+            "recorded_at": "2026-07-17T02:51:03Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: add Hook enforcement validation matrix",
+      "target": "docs/plan/hook-enforcement"
+    },
+    "next": [
+      "1527b74c-f12c-4b0d-8603-278e682caba3"
+    ]
+  },
+  {
+    "id": "1527b74c-f12c-4b0d-8603-278e682caba3",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "f47839b3-093d-4c63-b21d-79bb8d3ca4ba",
+      "d9b78451-5227-4143-8efe-3dfbb293f96d",
+      "05caf399-2736-49c0-a676-0a1e3482dbd1"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Fix the workflow, Hook, configuration, and delivery boundaries before implementation.",
+    "description": "Scope: docs/plan/hook-enforcement/Architecture.md. Context: host protocols differ but platform/regression semantics must remain singular. Target: define module ownership, dependency direction, Node regression contract, Hook decisions, configuration merge contract, patterns, complexity, and risks. Design Considerations: use a functional core with thin protocol adapters and deterministic content-addressed receipts. Design Value: explicit boundaries prevent manifest_tool.py, install.py, and host translation from accumulating unrelated responsibilities. Constraints & Risks: preserve existing installer resolution and terminal Node history.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture.md defines module ownership, dependencies, contracts, deliberate patterns, complexity, and risk controls.",
+        "evidence": "Module boundaries, contracts, patterns, and controls fixed before implementation.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/hook-enforcement/Architecture.md",
+            "sha256": "b88eabc782e1e3843c3e88740b5214281fb2906d8a8c0577246292606a151e95",
+            "recorded_at": "2026-07-17T02:51:03Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: design Hook enforcement architecture",
+      "target": "docs/plan/hook-enforcement"
+    },
+    "next": [
+      "1d5159c3-f609-47a8-ba28-561f95f4f7bb"
+    ]
+  },
+  {
+    "id": "1d5159c3-f609-47a8-ba28-561f95f4f7bb",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "1527b74c-f12c-4b0d-8603-278e682caba3"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Enforce platform eligibility and machine-readable regression receipts in the workflow domain.",
+    "description": "Scope: Closure: module - workflow-domain platform and regression contract; scripts/manifest_tool.py, tests/test_manifest_tool_cli.py, and tests/test_manifest_tool_state_machine.py. Context: start and completion currently rely on advisory prose and checked booleans. Target: add the Node contract, platform gate, regression runner, freshness receipt, completion fallback, schema/CLI support, and focused tests. Design Considerations: sorted path hashing, pre/post command fingerprints, bounded sequential subprocesses, atomic state writes, and immutable completed history. Design Value: one domain implementation guarantees correctness even when host Hooks are absent. Constraints & Risks: this bootstrap Node starts under the pre-Hook state machine, then must declare and pass its new focused contract before completion; never persist captured command output.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Platform, schema, start, regress, receipt freshness, completion fallback, and final-validation ordering tests pass.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "37a0c0b04a16635a3a8fa42369917263961ae7807ab99a18bedf8c0efb92e5dd",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:03:08Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A failing regression records no receipt or checked criterion and exposes no captured output.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "37a0c0b04a16635a3a8fa42369917263961ae7807ab99a18bedf8c0efb92e5dd",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:03:08Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: enforce Node platform and regression contracts",
+      "target": "scripts/manifest_tool.py and focused tests"
+    },
+    "next": [
+      "a858b1a3-9394-4217-b1db-90a00fcbfa73"
+    ],
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest discover -s tests -p \"test_manifest_tool_*.py\""
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:03:08Z",
+        "contract_digest": "6445a21952d83c7fc6ac67477b3d2ba26fd2334d728a1abdf68a189ed08cf708",
+        "content_fingerprint": "588f3a0e3c8624233bbce67a842da947c1dceb305ce5e04ce9ac26c46e84b3c7"
+      }
+    }
+  },
+  {
+    "id": "a858b1a3-9394-4217-b1db-90a00fcbfa73",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "1d5159c3-f609-47a8-ba28-561f95f4f7bb"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Expose deterministic active-node discovery to lifecycle adapters.",
+    "description": "Scope: Closure: module - workflow-domain active-node discovery API; scripts/manifest_tool.py and tests/test_manifest_tool_state_machine.py. Context: the architecture assigns workspace and active-node discovery to the workflow domain, while the Hook adapter must not duplicate state traversal. Target: discover nearest structural Better Plan workspaces from a project or nested working directory and return every in-progress Node location without guessing among them. Design Considerations: stop ascending at the nearest repository root, deduplicate manifests by resolved path, preserve stable ordering, and reuse existing structural discovery/load primitives. Design Value: one public query keeps host adapters thin and makes ambiguity explicit. Constraints & Risks: read-only discovery must skip unrelated dependency/build trees and must not change Node state.",
+    "requirements": [
+      "REQ-004"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Focused state-machine tests prove project-root and nested-root discovery, stable ordering, deduplication, and multiple active Node reporting.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "e0740890e74e49f1a07812de24bfe2b8d7b03f6bd7d093e392307227b031d703",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:06:00Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: expose active Better Plan node discovery",
+      "target": "scripts/manifest_tool.py and focused tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_state_machine"
+      ],
+      "criteria": [
+        0
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:06:00Z",
+        "contract_digest": "0f7361b90aef7eb48fa3d2f2bce2724e311a36d35f8e8bfe38cbbdadda68a740",
+        "content_fingerprint": "fb2051016eea8f7cd0184acb775a0d539bad9977f93564cbed4e627ba88c424b"
+      }
+    },
+    "next": [
+      "b6214a7b-1779-4e52-87a9-c41dda21acea"
+    ]
+  },
+  {
+    "id": "b6214a7b-1779-4e52-87a9-c41dda21acea",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "a858b1a3-9394-4217-b1db-90a00fcbfa73"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Translate Codex, Cursor, and Claude Code lifecycle events into the workflow domain.",
+    "description": "Scope: Closure: module - cross-host Stop Hook protocol runtime; scripts/hook_tool.py and tests/test_hook_tool.py. Context: the workflow domain exposes singular platform and regression operations. Target: read host Stop JSON, discover one active Node, recheck platform compatibility, run stop-time regression, and serialize the host continuation response. Design Considerations: pure response strategies, exact-one active selection, no session persistence, no raw test output, and bounded error messages. Design Value: one thin adapter prevents three separate workflow implementations. Constraints & Risks: no workspace or ambiguous state is a no-op.",
+    "requirements": [
+      "REQ-001",
+      "REQ-003",
+      "REQ-004",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Codex, Cursor, and Claude fixtures prove platform deny, stop continuation, successful receipt, ambiguity, and no-workspace behavior.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "171adf01e3a69243edfb8f6051307e0eb469a0c5748f7aac1b246480bec459c9",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:08:29Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A failing command's sentinel output is absent from Hook stdout, state, and evidence.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "171adf01e3a69243edfb8f6051307e0eb469a0c5748f7aac1b246480bec459c9",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:08:29Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: add cross-host Better Plan Hook runtime",
+      "target": "scripts/hook_tool.py and focused tests"
+    },
+    "next": [
+      "e7418e90-a1df-4f91-9b5b-1f3acc88525e"
+    ],
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool"
+      ],
+      "paths": [
+        "scripts/hook_tool.py",
+        "tests/test_hook_tool.py"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:08:29Z",
+        "contract_digest": "6705855990e6c08f4e29d0e5ac34a0a4809659915c7d4372ad2aabb934498734",
+        "content_fingerprint": "7dbb3e020574785c89a2d220dcf211c483fbf96cee4bb1b4a7e5bd8a3c5f132b"
+      }
+    }
+  },
+  {
+    "id": "e7418e90-a1df-4f91-9b5b-1f3acc88525e",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "b6214a7b-1779-4e52-87a9-c41dda21acea"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Install and manage host Hook configurations without disturbing user entries.",
+    "description": "Scope: Closure: module - Hook configuration and installer delivery; scripts/hook_config.py, scripts/install.py, and tests/test_install_tool.py. Context: the Hook runtime must be invoked by each supported host from its installed skill path. Target: add idempotent Codex/Cursor/Claude configuration merges, doctor checks, scoped uninstall, atomic writes, and focused installer tests. Design Considerations: stable command ownership marker, preservation of unknown fields/handlers, resolved per-agent script paths, and current shared/native selection. Design Value: declarative configuration ownership makes updates and removal safe. Constraints & Risks: do not overwrite unrelated settings or create duplicate handlers.",
+    "requirements": [
+      "REQ-004",
+      "REQ-005",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Install/update create exactly one Stop handler for each supported host and doctor verifies the resolved runtime script.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "c1ad43739b69aa559d894e2e3ed1f87a116b3c38a927de86dad8093798f0a005",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:13:42Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Uninstall removes only Better Plan handlers while preserving unrelated configuration and repeated install is idempotent.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "c1ad43739b69aa559d894e2e3ed1f87a116b3c38a927de86dad8093798f0a005",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:13:42Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: manage Better Plan Hook installation",
+      "target": "scripts/hook_config.py, scripts/install.py, and focused tests"
+    },
+    "next": [
+      "6188522d-12b0-4788-b6b2-fd4eb497f0be"
+    ],
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool"
+      ],
+      "paths": [
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_install_tool.py"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:13:42Z",
+        "contract_digest": "da1e7aee57dbf09a36c35afe3ca2e564b989e48dfa509c6ce8d1c77dc2dd0b35",
+        "content_fingerprint": "42960b5af29956e51c07557963700857b215ec45161b1d81faf48a1bb1e77df5"
+      }
+    }
+  },
+  {
+    "id": "6188522d-12b0-4788-b6b2-fd4eb497f0be",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "e7418e90-a1df-4f91-9b5b-1f3acc88525e"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Document the enforced Hook lifecycle and Node regression contract.",
+    "description": "Scope: Closure: capability - operator-facing Hook and regression workflow; SKILL.md, references/state-files.md, and README.md. Context: agents and users need the exact commands, contract fields, host coverage, trust behavior, and fallback semantics. Target: make pre-start platform checks, stop-time regression, complete fallback, installation, diagnosis, and uninstall discoverable. Design Considerations: distinguish hard state-machine guarantees from host-dependent lifecycle execution and keep examples repository-relative and privacy-safe. Design Value: clear operational guidance prevents bypass through obsolete manual steps. Constraints & Risks: do not claim that host Hooks replace native permissions or run when disabled.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Skill, schema reference, and README consistently document the enforced lifecycle, contract, commands, host limitations, and privacy behavior.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "f627cc5616ed62c5f407a3b22298bbefdb54d5d9718e1132f13734704728c237",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:19:00Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "53228b231d3a3c8de0b0100f9c00a8ee24149a7bc67ab3cb582dc2645bc266c8",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:19:00Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: explain Better Plan Hook enforcement",
+      "target": "SKILL.md, references/state-files.md, and README.md"
+    },
+    "next": [
+      "ac62288d-28c0-4845-9ce6-c78535a4c1ab"
+    ],
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 scripts/manifest_tool.py validate docs/plan --plan hook-enforcement --check-sources",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan hook-enforcement"
+      ],
+      "paths": [
+        "SKILL.md",
+        "references/state-files.md",
+        "README.md"
+      ],
+      "criteria": [
+        0
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:19:00Z",
+        "contract_digest": "d216796cb7a5cb8908eefdee9b0611acd10562aeed320d040b20ac60af86de5e",
+        "content_fingerprint": "205efeca3f5de9f6132eadd7c0142565d40ed4e260defe33a128a42f4b7c32e6"
+      }
+    }
+  },
+  {
+    "id": "ac62288d-28c0-4845-9ce6-c78535a4c1ab",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "1d5159c3-f609-47a8-ba28-561f95f4f7bb",
+      "b6214a7b-1779-4e52-87a9-c41dda21acea",
+      "e7418e90-a1df-4f91-9b5b-1f3acc88525e",
+      "6188522d-12b0-4788-b6b2-fd4eb497f0be",
+      "05caf399-2736-49c0-a676-0a1e3482dbd1"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Prove the Hook layer and manifest fallback enforce every requirement end to end.",
+    "description": "Scope: full automated suite, installed-tree structural checks in isolated homes, workspace validation, requirement traceability, and one-time current-implementation search. Context: every focused implementation closure is complete. Target: prove REQ-001 through REQ-007 once using Validation.md. Design Considerations: run the complete suite exactly once and retain only redacted command-success evidence. Design Value: end-to-end proof verifies both host adapters and the host-independent hard boundary. Constraints & Risks: optional host executables may be unavailable; structural adapter proof remains distinct from live host execution.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The complete automated regression suite passes once after all focused implementation checks.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "93b8448603cd2071b7398a38b0f6759a33383d318a32f374f0057a59746644cb",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f627cc5616ed62c5f407a3b22298bbefdb54d5d9718e1132f13734704728c237",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "53228b231d3a3c8de0b0100f9c00a8ee24149a7bc67ab3cb582dc2645bc266c8",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "5127c2b87d7f6cfd2a5ef8bcf3337ce010bd9b5f0b43c49fa5e6c2a00f5ab9e5",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Workspace validation, source checking, requirement labels, and one-current-implementation search pass.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "93b8448603cd2071b7398a38b0f6759a33383d318a32f374f0057a59746644cb",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f627cc5616ed62c5f407a3b22298bbefdb54d5d9718e1132f13734704728c237",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "53228b231d3a3c8de0b0100f9c00a8ee24149a7bc67ab3cb582dc2645bc266c8",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "5127c2b87d7f6cfd2a5ef8bcf3337ce010bd9b5f0b43c49fa5e6c2a00f5ab9e5",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T03:20:40Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: verify Hook enforcement end to end",
+      "target": "validation evidence and checkpoint state"
+    },
+    "next": [],
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -p \"test_*.py\"",
+        "python3 scripts/manifest_tool.py validate docs/plan --plan hook-enforcement --check-sources",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan hook-enforcement",
+        "python3 -c \"from pathlib import Path; forbidden = [p for p in Path(\\\"scripts\\\").iterdir() if p.name.startswith((\\\"manifest_tool_\\\", \\\"hook_tool_\\\", \\\"hook_config_\\\"))]; raise SystemExit(1 if forbidden else 0)\""
+      ],
+      "paths": [
+        "README.md",
+        "SKILL.md",
+        "references/state-files.md",
+        "scripts/install.py",
+        "scripts/manifest_tool.py",
+        "scripts/hook_config.py",
+        "scripts/hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_tool.py",
+        "docs/plan/hook-enforcement/Requirements.md",
+        "docs/plan/hook-enforcement/Evidence.md",
+        "docs/plan/hook-enforcement/Validation.md",
+        "docs/plan/hook-enforcement/Architecture.md"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T03:20:40Z",
+        "contract_digest": "e97734c61ca7430169fa15d1e6245d2d308ee9289424d7af99d73f7553cda62d",
+        "content_fingerprint": "81473651ce158bf16e8f0fc44f06eb4c4a613641519d5f49b77f098007b7d273"
+      }
+    }
+  }
+]

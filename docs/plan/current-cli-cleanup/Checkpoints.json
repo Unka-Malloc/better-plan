@@ -1,0 +1,335 @@
+[
+  {
+    "id": "1751728f-3dfe-400a-9f12-a83c9fc983cb",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Remove the permanent test for deleted criterion-append syntax.",
+    "description": "Scope: Closure: module - current edit-node CLI test cleanup; tests/test_manifest_tool_cli.py. Context: post-final static audit found one permanent negative test naming a deleted criterion-append interface. Target: retain repeated --criterion replacement and atomic invalidation coverage while removing the deleted syntax gate, then verify obsolete vocabulary once in this Node only. Design Considerations: current replacement behavior is covered by adjacent tests; an ephemeral text scan is sufficient migration evidence. Design Value: the active suite describes only the current edit-node contract. Constraints & Risks: no parser alias, compatibility path, production change, historical Plan rewrite, absolute path, full regression, or persisted runtime output.",
+    "requirements": [
+      "REQ-001"
+    ],
+    "design": {
+      "artifact": "docs/plan/current-cli-cleanup/Architecture.md",
+      "owned_paths": [
+        "tests/test_manifest_tool_cli.py"
+      ],
+      "scaffold_paths": [
+        "tests/test_manifest_tool_cli.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/current-cli-cleanup/Validation.md"
+      ],
+      "symbols": [
+        {
+          "path": "tests/test_manifest_tool_cli.py",
+          "kind": "function",
+          "name": "test_edit_node_rejects_legacy_add_criterion",
+          "operation": "remove",
+          "signature": "test_edit_node_rejects_legacy_add_criterion(self) -> None"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "current_edit_node_criterion_test_contract",
+          "producer": "tests/test_manifest_tool_cli.py",
+          "consumers": [
+            "scripts/manifest_tool.py"
+          ],
+          "inputs": "repeated current criterion replacement arguments",
+          "outputs": "complete replacement with proof invalidation",
+          "errors": [
+            "atomic rejection of malformed current edits"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "tests/test_manifest_tool_cli.py",
+          "to": "scripts/manifest_tool.py",
+          "reason": "durable tests cover only the current replacement interface"
+        }
+      ],
+      "decisions": {
+        "composition": "delete one obsolete negative test and retain adjacent current tests",
+        "algorithms": "no production algorithm change; one ephemeral linear text scan",
+        "data_structures": "current repeated criterion list only",
+        "state": "completed Plan history remains immutable; active tests retain no deleted syntax",
+        "isolation": "one test file is owned and no production file changes",
+        "concurrency": "single-symbol deletion with no parallel writer"
+      },
+      "test_seams": [
+        "current repeated criterion replacement",
+        "atomic rejected-edit behavior",
+        "one-time active-surface scan"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Current edit-node CLI tests cover complete criterion replacement and atomic proof invalidation without a permanent deleted-syntax gate.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "8ae06c1bc84a5cad7fdf21e35fc1a7e58ec8bc7e29c8f3b5315e9803c7fc9f45",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:46:04Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "940c5cf6c61f8faca1b42f0668faecfb41ea7997a04bb9d3a9f9a37efc211f34",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:46:04Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A one-time active-surface scan confirms the deleted criterion-append syntax name is absent from current documentation, source, and tests.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "8ae06c1bc84a5cad7fdf21e35fc1a7e58ec8bc7e29c8f3b5315e9803c7fc9f45",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:46:04Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "940c5cf6c61f8faca1b42f0668faecfb41ea7997a04bb9d3a9f9a37efc211f34",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:46:04Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: remove obsolete criterion syntax gate",
+      "target": "current manifest CLI tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli -v",
+        "python3 -c \"from pathlib import Path; name=\\\"--add-\\\"+\\\"criterion\\\"; roots=[Path(\\\"README.md\\\"),Path(\\\"SKILL.md\\\"),Path(\\\"references\\\"),Path(\\\"scripts\\\"),Path(\\\"tests\\\")]; files=[]; [files.append(p) for root in roots for p in ([root] if root.is_file() else root.rglob(\\\"*\\\")) if p.is_file() and p.suffix in {\\\".md\\\",\\\".py\\\"}]; raise SystemExit(1 if any(name in p.read_text(encoding=\\\"utf-8\\\") for p in files) else 0)\""
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "docs/plan/current-cli-cleanup/Validation.md",
+        "tests/test_manifest_tool_cli.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T09:46:04Z",
+        "contract_digest": "354e3e9d0b225d6800e2deb39b92582ae91b7c172d52af91bf266abeda94d498",
+        "content_fingerprint": "afdfe5489f50153fce7c05505d564785d4462a93dfe7f7a9b1167b4584f9e8cb"
+      }
+    },
+    "next": [
+      "d73d32b3-2965-427a-b900-fc9bc9c152af"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T09:47:32Z",
+        "contract_digest": "354e3e9d0b225d6800e2deb39b92582ae91b7c172d52af91bf266abeda94d498",
+        "content_fingerprint": "afdfe5489f50153fce7c05505d564785d4462a93dfe7f7a9b1167b4584f9e8cb"
+      },
+      "design_digest": "903bd59d27960c8fe191f4441261a7a9afb722f98694203adcb1dc891b5467b8",
+      "acceptance_fingerprint": "56efc68058894ad94021e30f97ef13a7452979334cd95ce22659ed12ba769ddd"
+    }
+  },
+  {
+    "id": "d73d32b3-2965-427a-b900-fc9bc9c152af",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "1751728f-3dfe-400a-9f12-a83c9fc983cb"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Revalidate the current-only CLI surface on a fresh repository fingerprint.",
+    "description": "Scope: Closure: scenario - final validation of the obsolete CLI-test cleanup; complete repository suite and current Plan metadata. Context: the implementation Node removes the final permanent deleted-syntax gate after earlier Plans reached terminal history. Target: record one full current receipt, validate source paths and REQ-001 labels, then complete only after a fresh audit. Design Considerations: do not repeat the one-time migration scan; bind all durable commands to one content fingerprint. Design Value: preserves historical receipts while proving the new active surface independently. Constraints & Risks: no implementation change, manual criterion check, self-approval, repeated full run, absolute path, external Hook mutation, or raw output persistence.",
+    "requirements": [
+      "REQ-001"
+    ],
+    "design": {
+      "artifact": "docs/plan/current-cli-cleanup/Architecture.md",
+      "owned_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/current-cli-cleanup/Validation.md",
+        "tests/test_manifest_tool_cli.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "module",
+          "name": "current_cli_final_validation",
+          "operation": "modify",
+          "signature": "full receipt plus current Plan source/label validation"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "current_cli_final_acceptance",
+          "producer": "scripts/manifest_tool.py",
+          "consumers": [
+            "tests/test_manifest_tool_cli.py"
+          ],
+          "inputs": "reviewed final contract and implementation receipt",
+          "outputs": "bounded full receipt and auditor action",
+          "errors": [
+            "repair_plan_required for regression or audit failure"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "tests/test_manifest_tool_cli.py",
+          "to": "scripts/manifest_tool.py",
+          "reason": "the full suite exercises the current edit-node criterion contract"
+        }
+      ],
+      "decisions": {
+        "composition": "one full suite, workspace validation, label check, and thin audit",
+        "algorithms": "streaming fingerprints with constant-time phase routing",
+        "data_structures": "bounded command receipts and immutable prior Plan history",
+        "state": "this final Node owns only its current acceptance snapshot",
+        "isolation": "the prior one-time scan is not repeated and external Hook state is out of scope",
+        "concurrency": "one final attempt per reviewed fingerprint"
+      },
+      "test_seams": [
+        "full suite receipt",
+        "workspace source validation",
+        "REQ-001 label check",
+        "fresh audit"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The complete unit suite passes exactly once for the reviewed current repository fingerprint.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "67cb4f2e043306072eb06c51418461d5c162ece0b944eb598878e6451b0729af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The Better Plan workspace validates current source paths and REQ-001 labels while durable CLI tests cover only complete criterion replacement and atomic proof invalidation.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "67cb4f2e043306072eb06c51418461d5c162ece0b944eb598878e6451b0729af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:53:28Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: validate current-only CLI cleanup",
+      "target": "fresh cleanup acceptance evidence"
+    },
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -v",
+        "python3 scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan current-cli-cleanup"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "README.md",
+        "SKILL.md",
+        "references/state-files.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/executor.md",
+        "references/auditor.md",
+        "scripts/acceptance_machine.py",
+        "scripts/design_contract.py",
+        "scripts/manifest_tool.py",
+        "scripts/role_contracts.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_design_contract.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_role_contracts.py",
+        "tests/test_orchestration_workflow.py",
+        "docs/plan/current-cli-cleanup/Validation.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T09:53:28Z",
+        "contract_digest": "36a1adae912f5b8a953f7893a6f916318bcdd46eca1c5093c8b495e77dff0ab0",
+        "content_fingerprint": "70b6351fa54adbc9203aead3bda4cd656d0901e72470fdf48bf5cd8871cb7cb1"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 0,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T09:56:15Z",
+        "contract_digest": "36a1adae912f5b8a953f7893a6f916318bcdd46eca1c5093c8b495e77dff0ab0",
+        "content_fingerprint": "70b6351fa54adbc9203aead3bda4cd656d0901e72470fdf48bf5cd8871cb7cb1"
+      },
+      "design_digest": "824e609ce42114b04536510a3533eb28c538078152dc4e243258605e97218fa3",
+      "scaffold_fingerprint": "622099132c67ecbb392e5f1bbb34e6cc6b779dece05e4d13e0d7b077d2678697",
+      "acceptance_fingerprint": "926970c8c7aac07c72acfa89cb90de88d1620447952fb85b2e4973e01741e515"
+    }
+  }
+]

@@ -1,0 +1,304 @@
+[
+  {
+    "id": "e00d3796-c5d7-42d0-9da7-95419547c693",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Make one user-visible capability run one lightweight, risk-based Better Plan lifecycle.",
+    "description": "Scope: Closure: capability - generic lightweight Better Plan lifecycle. Context: per-Node mandatory category coverage and automatic acceptance redispatch can amplify one user request into repeated design/review cycles and adjacent capabilities. Target: use the selected Node as the sole lifecycle identity, keep acceptance proportional to real risks, return rejection or drift to the native main, stop after completion, and recommend quiet framework-owned waiting. Design Considerations: reuse the Node UUID and current acceptance mapping; change only next-action semantics and generic role guidance; preserve deterministic executor regression and thin audit. Design Value: Better Plan remains useful for design and verification without replacing the main agent's scope judgment. Constraints & Risks: no project/provider/platform special cases, timers, retry caps, new compatibility fields, automatic next-Node selection, broad regression, absolute paths, or runtime data.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007"
+    ],
+    "design": {
+      "artifact": "docs/plan/lightweight-capability-lifecycle/Architecture.md",
+      "owned_paths": [
+        "SKILL.md",
+        "agents/openai.yaml",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/state-files.md",
+        "scripts/better_plan/domain/transitions.py",
+        "scripts/better_plan/domain/roles.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/hooks/context.py"
+      ],
+      "scaffold_paths": [
+        "SKILL.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "scripts/better_plan/domain/transitions.py",
+        "scripts/better_plan/application/workflow.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/lightweight-capability-lifecycle/Validation.md",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_role_contracts.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_hook_tool.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/domain/transitions.py",
+          "kind": "function",
+          "name": "next_action",
+          "operation": "modify",
+          "signature": "next_action(phase: str, role: str) -> str"
+        },
+        {
+          "path": "scripts/better_plan/application/workflow.py",
+          "kind": "function",
+          "name": "refresh_preparation",
+          "operation": "modify",
+          "signature": "refresh_preparation(location: NodeLocation, node: dict[str, Any]) -> dict[str, Any]"
+        },
+        {
+          "path": "scripts/better_plan/application/workflow.py",
+          "kind": "function",
+          "name": "invalidate_preparation_after_plan_edit",
+          "operation": "modify",
+          "signature": "invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None"
+        },
+        {
+          "path": "scripts/better_plan/hooks/context.py",
+          "kind": "type",
+          "name": "INTENT_GUIDANCE",
+          "operation": "modify",
+          "signature": "bounded generic lifecycle guidance string"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "capability_lifecycle_boundary",
+          "producer": "SKILL.md",
+          "consumers": [
+            "references/orchestration-main.md",
+            "scripts/better_plan/hooks/context.py"
+          ],
+          "inputs": "latest explicit user implementation request and one selected Node",
+          "outputs": "one bounded lifecycle that stops after the selected capability resolves",
+          "errors": [
+            "new or adjacent scope returns to native-main judgment"
+          ]
+        },
+        {
+          "name": "acceptance_revision_routing",
+          "producer": "scripts/better_plan/domain/transitions.py",
+          "consumers": [
+            "scripts/better_plan/application/workflow.py",
+            "scripts/manifest_tool.py"
+          ],
+          "inputs": "acceptance rejection or stale enrolled preparation",
+          "outputs": "main_acceptance_decision without automatic leaf selection",
+          "errors": [
+            "invalid phase or role remains a bounded transition error"
+          ]
+        },
+        {
+          "name": "risk_based_acceptance",
+          "producer": "references/acceptance-designer.md",
+          "consumers": [
+            "references/acceptance-reviewer.md"
+          ],
+          "inputs": "observable requirements and material risks",
+          "outputs": "only applicable executable acceptance cases",
+          "errors": [
+            "concrete proof gaps return findings without scope expansion"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/application/workflow.py",
+          "to": "scripts/better_plan/domain/transitions.py",
+          "reason": "the effectful workflow uses the pure main-decision next action"
+        },
+        {
+          "from": "scripts/better_plan/hooks/context.py",
+          "to": "SKILL.md",
+          "reason": "bounded Hook guidance mirrors the generic lifecycle entry contract"
+        }
+      ],
+      "decisions": {
+        "composition": "reuse the current Node lifecycle and separate role references; add no new scheduler abstraction",
+        "algorithms": "constant-time next-action lookup and existing bounded fingerprint comparison",
+        "data_structures": "existing Node UUID and acceptance mapping; no duplicate lifecycle registry",
+        "state": "rejection and enrolled preparation drift park the same Node for native-main judgment",
+        "isolation": "role contracts stay separate and contain no provider or project policy",
+        "concurrency": "one selected lifecycle remains serialized; agent lifetime stays host-owned"
+      },
+      "test_seams": [
+        "pure next-action lookup",
+        "stale enrolled preparation refresh",
+        "main versus leaf role reference routing",
+        "generic Hook guidance",
+        "risk-based acceptance prose contract"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "One selected implementation Node is documented and exercised as the complete lifecycle boundary; completion and adjacent findings never select another Node automatically.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "57a6fa18088400c4ecaff4e157942ef9794428d7d36702b8c54158cd18615e37",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "4d4c704a8ff1852085497fbbe2f7c4d5391c845d07953b2a441b17c0a53d628a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Acceptance rejection and stale enrolled preparation return main_acceptance_decision while explicit revision remains possible inside the same Node lifecycle.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "57a6fa18088400c4ecaff4e157942ef9794428d7d36702b8c54158cd18615e37",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "4d4c704a8ff1852085497fbbe2f7c4d5391c845d07953b2a441b17c0a53d628a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Acceptance design and review select only requirement- and risk-relevant dimensions and never require all candidate categories mechanically.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "57a6fa18088400c4ecaff4e157942ef9794428d7d36702b8c54158cd18615e37",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "4d4c704a8ff1852085497fbbe2f7c4d5391c845d07953b2a441b17c0a53d628a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Waiting guidance is quiet and heuristic, automation remains bounded to objective within-lifecycle events, and all contracts stay generic and privacy-safe.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "57a6fa18088400c4ecaff4e157942ef9794428d7d36702b8c54158cd18615e37",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "4d4c704a8ff1852085497fbbe2f7c4d5391c845d07953b2a441b17c0a53d628a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T15:17:56Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: keep Better Plan lifecycle lightweight",
+      "target": "generic capability lifecycle"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_acceptance_state_machine tests.test_manifest_tool_cli tests.test_role_contracts tests.test_orchestration_workflow tests.test_hook_tool -v",
+        "python3 scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan lightweight-capability-lifecycle"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "SKILL.md",
+        "agents/openai.yaml",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/state-files.md",
+        "scripts/better_plan/domain/transitions.py",
+        "scripts/better_plan/domain/roles.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/hooks/context.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_role_contracts.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_hook_tool.py",
+        "docs/plan/lightweight-capability-lifecycle/Validation.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-19T15:17:56Z",
+        "contract_digest": "9907acd877aea233803334ff58f4fa8bec1d558ce9aa17560dc71eede71f94a0",
+        "content_fingerprint": "3557bbd7ceb8708ff23738696e1efd977da72c0c576d5c234cac97eaaedc6faa"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-19T15:22:45Z",
+        "contract_digest": "9907acd877aea233803334ff58f4fa8bec1d558ce9aa17560dc71eede71f94a0",
+        "content_fingerprint": "3557bbd7ceb8708ff23738696e1efd977da72c0c576d5c234cac97eaaedc6faa"
+      },
+      "design_digest": "d09866871937084dccb76bb319bc48d72f0828f7baba3ed508278ae71dad7486",
+      "acceptance_fingerprint": "d4ae23bf820449d5be6732288b054e6cea68c10d2e80d56d9921b8ab20844dd9"
+    }
+  }
+]

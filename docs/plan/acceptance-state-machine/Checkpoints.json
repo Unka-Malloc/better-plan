@@ -1,0 +1,2127 @@
+[
+  {
+    "id": "ed8a5a8c-5d49-44a6-93bf-c880ed7ac2eb",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Define the product contract for deterministic acceptance-driven delivery.",
+    "description": "Scope: Requirements.md and the current user workflow. Context: the completed orchestration plan still leaves regression invocation and residual acceptance checks to agents. Target: define test-first acceptance, automatic post-executor regression, repair routing, independent audit, and automatic completion. Design Considerations: preserve terminal history, relative paths, privacy, and native parent-agent delegation. Design Value: a stable product contract prevents implementation from redefining acceptance. Constraints & Risks: do not add tool-use interception or machine-specific state.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements define the complete test-first executor, regression, repair, audit, and completion loop.",
+        "evidence": "Current requirements record the accepted workflow and privacy boundaries."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define acceptance state machine",
+      "target": "acceptance state requirements"
+    },
+    "next": [
+      "12cf25cd-5659-41de-a5a6-0f1aee0648a3"
+    ]
+  },
+  {
+    "id": "12cf25cd-5659-41de-a5a6-0f1aee0648a3",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "ed8a5a8c-5d49-44a6-93bf-c880ed7ac2eb"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Ground the acceptance state machine in repository behavior and mature workflow engines.",
+    "description": "Scope: Evidence.md, current manifest and Hook behavior, and public primary framework sources. Context: the requested loop needs deterministic transitions, retries, idempotency, and durable receipt guards. Target: record concrete gaps and transferable practices from finite-state and workflow systems. Design Considerations: separate pure transitions from side effects and bind approval to immutable fingerprints. Design Value: established patterns reduce accidental branching and repeated work. Constraints & Risks: persist public links and deductions only; no external runtime data.",
+    "requirements": [
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence identifies current code gaps and compares deterministic transition, retry, and replay practices.",
+        "evidence": "Repository evidence and public primary sources support the selected state model."
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: ground automated acceptance design",
+      "target": "acceptance state evidence"
+    },
+    "next": [
+      "47f23e0c-2473-4ea2-b029-abcf617eff91"
+    ]
+  },
+  {
+    "id": "47f23e0c-2473-4ea2-b029-abcf617eff91",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "ed8a5a8c-5d49-44a6-93bf-c880ed7ac2eb",
+      "12cf25cd-5659-41de-a5a6-0f1aee0648a3"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Predesign executable acceptance tests before production implementation.",
+    "description": "Scope: Validation.md and tests/test_acceptance_state_machine.py, plus focused additions to manifest CLI/state tests when required. Context: the user wants a sufficiently capable fresh agent to predict desired behavior before any production code is written. Target: map every requirement to objective red-first tests for the pure transition table, dispatch correlation, automatic regression routing, repair loops, audit freshness, automatic completion, privacy, and idempotency. Design Considerations: test public behavior rather than implementation details; keep production modules untouched. Design Value: executable tests become the acceptance oracle instead of an implementer's judgment. Constraints & Risks: no production edits, Node transitions, audit verdicts, recursive delegation, full regression, or raw output persistence.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Validation.md maps every requirement to focused executable proof, audit proof, and failure routing.",
+        "evidence": "Requirement matrix covers every deterministic acceptance route.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Validation.md",
+            "sha256": "c8f5f78e3c6a96febaf0a99cc41c2465cc647220a4902c195a58a4018b95598e",
+            "recorded_at": "2026-07-17T11:31:54Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Test-first files define the expected public state-machine and CLI behavior without production implementation.",
+        "evidence": "Red-first public tests were authored independently of production implementation.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "tests/test_acceptance_state_machine.py",
+            "sha256": "21a86afb1c1046b574deff10a9d6eaeb807a25aeb03bd0de231db916515ff580",
+            "recorded_at": "2026-07-17T11:31:54Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The focused acceptance test target is red only because the production capability is not implemented, not because the tests are malformed.",
+        "evidence": "The focused target is structurally valid and fails only at the absent state-machine module and CLI commands.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "6423d096e7368ff8d812d40eddb3fa1dc4b854dbdf2cafa543666388265dccfc",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T11:31:54Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: predesign acceptance transitions",
+      "target": "validation matrix and red-first tests"
+    },
+    "next": [
+      "99da3d68-c0f1-4012-9f2d-3c8a0f3ab318"
+    ]
+  },
+  {
+    "id": "99da3d68-c0f1-4012-9f2d-3c8a0f3ab318",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "47f23e0c-2473-4ea2-b029-abcf617eff91"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Finalize the pure-domain and manifest-adapter boundary around the accepted tests.",
+    "description": "Scope: Architecture.md and the public interfaces consumed by the prewritten tests. Context: a draft state model exists, but the acceptance agent may expose ambiguities before implementation. Target: finalize phases, events, guards, next actions, module ownership, effect boundaries, and retry semantics. Design Considerations: use a pure deterministic transition table and keep subprocess, persistence, clock, UUID, and host effects in the manifest adapter. Design Value: dependency inversion makes state selection exhaustively testable and prevents Hook or agent logic from owning acceptance. Constraints & Risks: do not weaken accepted tests or add production behavior in this Node.",
+    "requirements": [
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture defines one responsibility per module, dependency direction, public contracts, phases, events, and guards.",
+        "evidence": "Architecture fixes pure-domain, manifest-adapter, host, and role boundaries.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Architecture.md",
+            "sha256": "c162c0d8c2870255c042351ef8b379e494bfef0a4bd467218b265c6e39becb64",
+            "recorded_at": "2026-07-17T11:34:19Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The design resolves every acceptance-agent gap without changing the test-first product target.",
+        "evidence": "Public commands and guards align with the independently authored acceptance contract.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Validation.md",
+            "sha256": "c8f5f78e3c6a96febaf0a99cc41c2465cc647220a4902c195a58a4018b95598e",
+            "recorded_at": "2026-07-17T11:34:19Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_acceptance_state_machine.py",
+            "sha256": "21a86afb1c1046b574deff10a9d6eaeb807a25aeb03bd0de231db916515ff580",
+            "recorded_at": "2026-07-17T11:34:19Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: finalize acceptance state architecture",
+      "target": "acceptance state architecture"
+    },
+    "next": [
+      "ee05929b-f321-427e-a0f5-fd9827da2cd6"
+    ]
+  },
+  {
+    "id": "ee05929b-f321-427e-a0f5-fd9827da2cd6",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "99da3d68-c0f1-4012-9f2d-3c8a0f3ab318"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Implement deterministic acceptance phases and event-driven manifest transitions.",
+    "description": "Scope: Closure: module - acceptance state engine; own scripts/acceptance_machine.py, manifest state validation and commands in scripts/manifest_tool.py, and focused manifest tests; treat tests/test_acceptance_state_machine.py as a frozen read-only acceptance contract. Context: current delivery status and regression receipts do not represent executor/auditor attempts or automatic repair routing. Target: add pure transition selection, dispatch and advance commands, automatic post-executor regression, bounded failure persistence, fingerprint-bound audit receipt, idempotency, and automatic completion. Design Considerations: O(1) enum/map transition lookup, immutable transition definitions, no duplicated state, validated writes, and lazy enrollment of pending delivery Nodes through the public event API. Design Value: agents become workers and judges while code owns every acceptance edge. Constraints & Risks: no edits to the independent acceptance test, raw output, absolute paths, agent identity, model launch, Hook behavior, manual criterion mutation for enrolled Nodes, retained old active implementation branch, or full regression in this Node.",
+    "requirements": [
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Pure state tests prove deterministic phases, events, guards, next actions, and invalid-event rejection.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "854ddf5b291d3e79e00731bba733b7ea489ea2002b4ac07227d139b472f1f796",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T13:38:19Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "CLI tests prove executor exit automatically runs focused regression and routes failure to repair or success to audit.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "854ddf5b291d3e79e00731bba733b7ea489ea2002b4ac07227d139b472f1f796",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T13:38:19Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "CLI tests prove audit failure retries, current audit PASS automatically completes, stale or duplicate events do not.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "854ddf5b291d3e79e00731bba733b7ea489ea2002b4ac07227d139b472f1f796",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T13:38:19Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Persisted attempt and audit evidence is bounded, relative, digest-only, and never contains command output or host identity.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "854ddf5b291d3e79e00731bba733b7ea489ea2002b4ac07227d139b472f1f796",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T13:38:19Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: automate acceptance transitions",
+      "target": "acceptance domain and manifest adapter"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_acceptance_state_machine tests.test_manifest_tool_cli tests.test_manifest_tool_state_machine -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "scripts/acceptance_machine.py",
+        "scripts/manifest_tool.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T13:38:19Z",
+        "contract_digest": "484aad4e95051efb0c05b3e0418aa5a292e08c6a385731a656d316ace6fed570",
+        "content_fingerprint": "cbdc1cf6c0c4c6199f101254a0ef3924b8546995c248fdea139e4bbfa531860d"
+      }
+    },
+    "next": [
+      "98cabf6b-7e2f-4755-b0a2-721b6a50896e"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 3,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-17T13:49:48Z",
+        "contract_digest": "484aad4e95051efb0c05b3e0418aa5a292e08c6a385731a656d316ace6fed570",
+        "content_fingerprint": "cbdc1cf6c0c4c6199f101254a0ef3924b8546995c248fdea139e4bbfa531860d"
+      }
+    }
+  },
+  {
+    "id": "98cabf6b-7e2f-4755-b0a2-721b6a50896e",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "ee05929b-f321-427e-a0f5-fd9827da2cd6"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Make role handoffs and lifecycle guidance follow state-machine next actions.",
+    "description": "Scope: Closure: capability - acceptance-driven agent orchestration; own SKILL.md, README.md, references/agent-orchestration.md, references/state-files.md, scripts/hook_context.py, and scripts/hook_tool.py; treat tests/test_hook_tool.py and tests/test_orchestration_workflow.py as frozen read-only acceptance contracts. Context: existing prompts still assign regression/check/complete to executors and Stop may run focused regression. Target: make the test designer own executable acceptance, executors code-only, native parent submit exit events, state tool select repair/audit/completion, and Stop report the bounded next action without mutation. Design Considerations: native parent delegation is the only agent dispatcher; lifecycle Hooks stay read-only, advisory, scoped, and fail open. Design Value: one documented protocol matches the executable state engine and prevents self-approval. Constraints & Risks: no test edits, tool-use Hook, Cursor lifecycle adapter, model process, Stop regression, pre-full/manual acceptance path, old executor-owned acceptance wording, installer changes, or unrelated files.",
+    "requirements": [
+      "REQ-001",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-008",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Skill and role contracts require test design before production, code-only execution, immediate exit-event regression, and machine-selected retries.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "fe9bd52bd2586d54a365b38342548d1e1c666f7dfb32a7825bcc323aae9f1f0d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T14:44:43Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Stop reports the current deterministic next action and never runs regression or completion.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "fe9bd52bd2586d54a365b38342548d1e1c666f7dfb32a7825bcc323aae9f1f0d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T14:44:43Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Documentation removes executor-owned check/complete and the pre-full/manual acceptance path while preserving host and privacy boundaries.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "fe9bd52bd2586d54a365b38342548d1e1c666f7dfb32a7825bcc323aae9f1f0d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-17T14:44:43Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: drive orchestration from acceptance state",
+      "target": "agent protocol and lifecycle guidance"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "SKILL.md",
+        "README.md",
+        "references/agent-orchestration.md",
+        "references/state-files.md",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-17T14:44:43Z",
+        "contract_digest": "d276ee113d3141cc60d6e703baa7728cfd5a2cb153fe657cfb580f4836551b0e",
+        "content_fingerprint": "4735eb2d7fba07e2e3d4d89c0d7b417fadd0ee796628d436c0d405c7796bc670"
+      }
+    },
+    "next": [
+      "4a60cc6e-7c61-4aef-83ea-f74797058701"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-17T14:51:44Z",
+        "contract_digest": "d276ee113d3141cc60d6e703baa7728cfd5a2cb153fe657cfb580f4836551b0e",
+        "content_fingerprint": "4735eb2d7fba07e2e3d4d89c0d7b417fadd0ee796628d436c0d405c7796bc670"
+      }
+    }
+  },
+  {
+    "id": "4a60cc6e-7c61-4aef-83ea-f74797058701",
+    "status": "completed",
+    "role": "product_requirements",
+    "prerequisites": [
+      "98cabf6b-7e2f-4755-b0a2-721b6a50896e"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Define design-first planning, isolated role context, and early acceptance review as product requirements.",
+    "description": "Scope: revise the nonterminal delivery contract around design ownership and context isolation. Context: combined role guidance and late audit detail consume context while acceptance cases lack an independent validity gate. Target: Requirements.md defines the main agent as plan and framework designer, architecture before test design, a separate acceptance reviewer, role-specific context loading, a code-only executor, automatic regression, and a thin final auditor. Design Considerations: preserve completed history, add canonical labels, distinguish design approval from code acceptance, and keep unsupported hosts fail-open. Design Value: execution becomes safe because the upstream contract is precise rather than because the downstream auditor is verbose. Constraints & Risks: no role prompt co-injection, no executor design freedom outside the frozen contract, no self-approval, and no machine or runtime data.",
+    "requirements": [
+      "REQ-010",
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-014",
+      "REQ-015"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Requirements.md states the design-first stage order, role ownership, and the independent acceptance-case review gate.",
+        "evidence": "Design-first stage and ownership contract recorded.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Requirements.md",
+            "sha256": "957598204ff1d25ae9c282814d1e54c8fa842631444d123cc2a528443ef0ee03",
+            "recorded_at": "2026-07-18T03:44:11Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Requirements.md makes role-specific context isolation and minimal final audit explicit.",
+        "evidence": "Role isolation and thin-audit requirements recorded.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Requirements.md",
+            "sha256": "957598204ff1d25ae9c282814d1e54c8fa842631444d123cc2a528443ef0ee03",
+            "recorded_at": "2026-07-18T03:44:11Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Every new requirement has an objective downstream validation target and preserves existing accepted requirements.",
+        "evidence": "Requirement labels and downstream targets cross-checked.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "38ca6784bd82c3fc94a245b2a74cab2dfb610c2a2113644aef83cc54406f3595",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T03:44:11Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Requirements.md",
+            "sha256": "957598204ff1d25ae9c282814d1e54c8fa842631444d123cc2a528443ef0ee03",
+            "recorded_at": "2026-07-18T03:44:11Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: define design-first orchestration requirements",
+      "target": "design-first product contract"
+    },
+    "next": [
+      "b9521df0-14f9-4d63-be18-01be4f6a25d4"
+    ]
+  },
+  {
+    "id": "b9521df0-14f9-4d63-be18-01be4f6a25d4",
+    "status": "completed",
+    "role": "evidence",
+    "prerequisites": [
+      "4a60cc6e-7c61-4aef-83ea-f74797058701"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Ground the design-first flow in current context, state, and validation failure evidence.",
+    "description": "Scope: analyze the active skill, Hook context, combined role reference, state phases, final audit findings, and the user's corrected workflow. Context: the existing implementation proves post-execution automation but does not prove that design or acceptance cases were valid before code execution. Target: Evidence.md identifies the exact context leakage, missing design schema, missing acceptance-review state, over-specified audit, and fingerprint gaps, then justifies progressive disclosure and early gates from observed files. Design Considerations: distinguish direct evidence from inference, compare the current pure transition-table architecture with the proposed preparation states, and record why composition remains simpler than inheritance. Design Value: architecture decisions remain traceable to observed failure rather than agent preference. Constraints & Risks: no external product claim without a source, no private local path, no raw prompt, and no terminal-history rewrite.",
+    "requirements": [
+      "REQ-010",
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-014",
+      "REQ-015"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Evidence.md maps each new requirement to current source behavior or the user's stated workflow correction.",
+        "evidence": "New requirements mapped to observed repository and user evidence.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Evidence.md",
+            "sha256": "08ac06adae95866e2501ee9f3dbd45521f5c68dc90ff47cb23322362b578db47",
+            "recorded_at": "2026-07-18T03:46:04Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Evidence.md distinguishes combined main-context injection from role-specific child handoffs and identifies the remaining isolation risk.",
+        "evidence": "Combined main injection and role-reference isolation gap distinguished.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Evidence.md",
+            "sha256": "08ac06adae95866e2501ee9f3dbd45521f5c68dc90ff47cb23322362b578db47",
+            "recorded_at": "2026-07-18T03:46:04Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Evidence.md records why early design and acceptance review reduce reliance on verbose final audit.",
+        "evidence": "Early design and acceptance review rationale recorded.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Evidence.md",
+            "sha256": "08ac06adae95866e2501ee9f3dbd45521f5c68dc90ff47cb23322362b578db47",
+            "recorded_at": "2026-07-18T03:46:04Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: ground design-first orchestration",
+      "target": "design-first evidence"
+    },
+    "next": [
+      "072ed585-7a7d-4d9b-8bec-5fa3055e0245"
+    ]
+  },
+  {
+    "id": "072ed585-7a7d-4d9b-8bec-5fa3055e0245",
+    "status": "completed",
+    "role": "architecture_scaffold",
+    "prerequisites": [
+      "b9521df0-14f9-4d63-be18-01be4f6a25d4"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Freeze the file, symbol, interface, algorithm, isolation, and concurrency design before acceptance tests.",
+    "description": "Scope: design and scaffold the preparation pipeline before any delegated test or code work. Context: later agents currently infer architecture from prose and share one combined role reference. Target: Architecture.md and scaffolds define scripts/design_contract.py as a pure design-schema validator, acceptance_machine.py preparation phases and actions, manifest_tool.py correlated preparation events and fingerprints, hook_context.py bounded main-only injection, and one reference file per role. Design Considerations: specify every added or modified function signature, data shape, error contract, dependency direction, composition choice, SHA-256 binding, path-overlap algorithm, serial per-Plan state ownership, parallelism boundary, cancellation, replay, and privacy behavior; precreate module and reference skeletons without implementing delivery behavior. Design Value: acceptance designers and executors receive a frozen, inspectable contract rather than design discretion. Constraints & Risks: pure domain code performs no I/O, adapters own effects, role templates never import each other, paths remain repository-relative, and no inheritance hierarchy is introduced without a real polymorphic need.",
+    "requirements": [
+      "REQ-010",
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-014",
+      "REQ-015"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Architecture.md contains a complete file map and symbol-level add/modify/remove inventory with signatures and ownership.",
+        "evidence": "File map and symbol-level inventory frozen by the main designer.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Architecture.md",
+            "sha256": "1995ec4dbb73a3b0d66985ebd39ae3a96ef9265c7a3ebf7ffc6f26dc37bb4787",
+            "recorded_at": "2026-07-18T03:52:12Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Architecture.md specifies interfaces, dependency direction, errors, fingerprints, algorithms, data structures, isolation, and concurrency decisions with rationale.",
+        "evidence": "Interfaces, dependency direction, fingerprints, algorithms, isolation, and concurrency recorded.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Architecture.md",
+            "sha256": "1995ec4dbb73a3b0d66985ebd39ae3a96ef9265c7a3ebf7ffc6f26dc37bb4787",
+            "recorded_at": "2026-07-18T03:52:12Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The main agent precreates independently testable module and role-reference scaffolds matching the frozen design without implementing executor work.",
+        "evidence": "Pure module and separated role-reference scaffolds precreated and syntax checked.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a8c16512e56857758abeea91110044c6de11f4ecbeb15f37baf293db48f39aba",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "scripts/design_contract.py",
+            "sha256": "65b2865fd156c1115f13977f3dda49968d0339dec977872b9cd9bab5fd0d4c5c",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "scripts/role_contracts.py",
+            "sha256": "c4f21b383728609a70109e5828e2f0080a29b646f8edd6ea235ffe78cb40ef1f",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "references/orchestration-main.md",
+            "sha256": "4308e4283523656cb23fb8494b0587e0c5650d95ffe84d95968364a661a49f73",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "references/acceptance-designer.md",
+            "sha256": "9ce886d9fd0e6e615d61cca64574e13cda2a66380ccbddd6da4e6e38003e04a6",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "references/acceptance-reviewer.md",
+            "sha256": "8e62bf48c5b8559b2b3feaed94a0e33e0d4bc89cc3b2330f0ae9a2aecfedc11d",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "references/executor.md",
+            "sha256": "d2c0100dc6eb180d2890fa0d62910dbb7f29bffac00f256d65a74dd849c4fb62",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          },
+          {
+            "type": "file",
+            "path": "references/auditor.md",
+            "sha256": "04b123783ba853aa0e45fc87e57002378b7364f587ff87ebaafd01ea2883f6ec",
+            "recorded_at": "2026-07-18T03:52:13Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "design: freeze design-first orchestration interfaces",
+      "target": "architecture and interface scaffolds"
+    },
+    "next": [
+      "41ad0dc4-1102-405d-b16f-ff98d0008e28"
+    ]
+  },
+  {
+    "id": "41ad0dc4-1102-405d-b16f-ff98d0008e28",
+    "status": "completed",
+    "role": "validation_matrix",
+    "prerequisites": [
+      "072ed585-7a7d-4d9b-8bec-5fa3055e0245"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Design and independently review acceptance cases against the frozen architecture before execution.",
+    "description": "Scope: author the acceptance matrix and executable tests only after the design contract and scaffolds exist. Context: the previous test designer could define an over-claiming final criterion and no early reviewer judged oracle quality or coverage. Target: Validation.md maps each requirement and design symbol to focused tests, failure oracles, false-positive resistance, boundary cases, and final proof; a fresh acceptance reviewer must approve the current design/test fingerprints before executor dispatch. Design Considerations: separate command-provable criteria from audit verdicts, require at least one negative case per state guard, bind reviewer approval to design and test content, and reject tests that only mirror implementation internals. Design Value: execution begins from reviewed evidence rather than depending on late audit recovery. Constraints & Risks: test designer owns only declared test paths, reviewer is read-only, neither sees another role template, and any design or test change invalidates approval.",
+    "requirements": [
+      "REQ-010",
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-014",
+      "REQ-015"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Validation.md maps requirements, design symbols, states, guards, and interfaces to objective focused and final checks.",
+        "evidence": "Validation maps the frozen requirements, design states, guards, symbols, and public interfaces to objective checks.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Validation.md",
+            "sha256": "658e3c5121f8360ac27ee036ae024f39d18af751361fba533ffcecac81139bbb",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Architecture.md",
+            "sha256": "1995ec4dbb73a3b0d66985ebd39ae3a96ef9265c7a3ebf7ffc6f26dc37bb4787",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Executable tests include valid oracles, negative and replay cases, context-isolation assertions, and fingerprint invalidation.",
+        "evidence": "Frozen acceptance tests contain behavioral oracles, negative paths, replay checks, role isolation, and fingerprint invalidation.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "8c44099068ea9c8eb28fb1247085498ae727ebf50ccc6e824267672efbb6f29a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_design_contract.py",
+            "sha256": "453868c1984bfc8530a130bd803de78601f464ad3cea97c5d253f267645cebdb",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_acceptance_state_machine.py",
+            "sha256": "94086fbbdffdeb70fe48c5d719ebd457a5c8baa83b37759880fee11fabb28153",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_manifest_tool_cli.py",
+            "sha256": "215999f0bbb23a9c188e9fc0f7c1c7de4e779b36680de2d7182ee7bc9ff68295",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_hook_tool.py",
+            "sha256": "95bd1c2a6b43fd77d88d347aeb683759a13685d3f2134beaab944a534d8ce595",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A different fresh acceptance reviewer approves the current design/test fingerprint before any code executor is dispatched.",
+        "evidence": "A separate fresh acceptance reviewer returned PASS for the current frozen design and acceptance artifacts.",
+        "evidence_refs": [
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Architecture.md",
+            "sha256": "1995ec4dbb73a3b0d66985ebd39ae3a96ef9265c7a3ebf7ffc6f26dc37bb4787",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "docs/plan/acceptance-state-machine/Validation.md",
+            "sha256": "658e3c5121f8360ac27ee036ae024f39d18af751361fba533ffcecac81139bbb",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_acceptance_state_machine.py",
+            "sha256": "94086fbbdffdeb70fe48c5d719ebd457a5c8baa83b37759880fee11fabb28153",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          },
+          {
+            "type": "file",
+            "path": "tests/test_manifest_tool_cli.py",
+            "sha256": "215999f0bbb23a9c188e9fc0f7c1c7de4e779b36680de2d7182ee7bc9ff68295",
+            "recorded_at": "2026-07-18T04:58:31Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: design reviewed acceptance contracts",
+      "target": "design-first validation matrix and tests"
+    },
+    "next": [
+      "61212049-e950-4479-8aa4-b4dd3d396eee"
+    ]
+  },
+  {
+    "id": "61212049-e950-4479-8aa4-b4dd3d396eee",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "41ad0dc4-1102-405d-b16f-ff98d0008e28"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Enforce design contracts and reviewed acceptance preparation before executor dispatch.",
+    "description": "Scope: Closure: module - design and acceptance preparation state. Context: scripts/acceptance_machine.py currently begins at awaiting_executor and scripts/manifest_tool.py cannot bind design/test review before code execution. Target: implement scripts/design_contract.py validation; extend acceptance_machine.py with awaiting_acceptance_design, acceptance_designer_running, awaiting_acceptance_review, acceptance_reviewer_running, acceptance_revision_required, and awaiting_executor; extend manifest_tool.py dispatch and advance for acceptance-designer-exited, acceptance-approved, and acceptance-rejected with design/test fingerprints. Design Considerations: pure MappingProxyType transition tables and schema validators; SHA-256 over canonical design data and declared stable paths; O(n log n) normalized ownership overlap checks; atomic adapter writes; serialized mutation per Checkpoints file; idempotent opaque correlations; invalidation on design, scaffold, or test change. Design Value: executor freedom is bounded by a reviewed plan and executable oracle. Constraints & Risks: owns only scripts/design_contract.py, scripts/acceptance_machine.py, scripts/manifest_tool.py; consumes frozen tests read-only; no Hook/docs edits; no raw prompts, findings, paths outside repository scope, output, or agent identity in state.",
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "scripts/design_contract.py",
+        "scripts/acceptance_machine.py",
+        "scripts/manifest_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/design_contract.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_design_contract.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/design_contract.py",
+          "kind": "module",
+          "name": "design_contract",
+          "operation": "add",
+          "signature": "pure design validation, digest, and ownership functions"
+        },
+        {
+          "path": "scripts/acceptance_machine.py",
+          "kind": "function",
+          "name": "transition",
+          "operation": "modify",
+          "signature": "transition(phase: str, event: str, role: str) -> str"
+        },
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "function",
+          "name": "preparation_fingerprints",
+          "operation": "add",
+          "signature": "preparation_fingerprints(location: NodeLocation) -> dict[str, str]"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "validated_design_contract",
+          "producer": "scripts/manifest_tool.py",
+          "consumers": [
+            "scripts/manifest_tool.py"
+          ],
+          "inputs": "one nonterminal delivery Node and repository-relative design artifacts",
+          "outputs": "validated design plus bounded preparation fingerprints",
+          "errors": [
+            "ToolError for invalid schema, missing artifact, symlink, overlap, or stale correlation"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/manifest_tool.py",
+          "to": "scripts/design_contract.py",
+          "reason": "the state adapter delegates pure schema and ownership decisions"
+        },
+        {
+          "from": "scripts/manifest_tool.py",
+          "to": "scripts/acceptance_machine.py",
+          "reason": "the state adapter delegates pure phase selection"
+        }
+      ],
+      "decisions": {
+        "composition": "compose pure domain functions behind one effectful state adapter; no subtype hierarchy",
+        "algorithms": "constant-time transition lookup, streaming SHA-256, and normalized ownership comparison",
+        "data_structures": "immutable transition maps, normalized path tuples, adjacency sets, and bounded snapshots",
+        "state": "Checkpoints.json is mutated atomically by manifest_tool only",
+        "isolation": "acceptance authors own tests, executors own implementation paths, and reviewers are read-only",
+        "concurrency": "serialize mutations within one Plan and permit only disjoint Plans to progress independently"
+      },
+      "test_seams": [
+        "pure design validation",
+        "pure transition selection",
+        "public CLI correlation and atomic-write boundary"
+      ]
+    },
+    "requirements": [
+      "REQ-010",
+      "REQ-012",
+      "REQ-014",
+      "REQ-015"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Every pending delivery Node has a valid machine-readable design contract before acceptance design can be dispatched.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "67feea537b68e25032a5fb0487a3cfd3d46794a8f9c47bfa65c862a9e7ffd9ad",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T06:40:47Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A fresh acceptance designer exit and a different fingerprint-bound acceptance reviewer verdict are required before dispatch_executor.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "67feea537b68e25032a5fb0487a3cfd3d46794a8f9c47bfa65c862a9e7ffd9ad",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T06:40:47Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Before executor dispatch, design, scaffold, or declared acceptance drift invalidates approval; after dispatch, implementation and scaffold edits remain valid while design or acceptance drift returns to acceptance design.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "67feea537b68e25032a5fb0487a3cfd3d46794a8f9c47bfa65c862a9e7ffd9ad",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T06:40:47Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Preparation dispatches are replay-safe, privacy-safe, atomically persisted, and serialized per Plan.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "67feea537b68e25032a5fb0487a3cfd3d46794a8f9c47bfa65c862a9e7ffd9ad",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T06:40:47Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "feat: gate execution on reviewed design acceptance",
+      "target": "design contract and preparation state machine"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_design_contract tests.test_acceptance_state_machine tests.test_manifest_tool_cli tests.test_manifest_tool_state_machine -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "scripts/design_contract.py",
+        "scripts/acceptance_machine.py",
+        "scripts/manifest_tool.py",
+        "tests/test_design_contract.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T06:40:47Z",
+        "contract_digest": "f67dc7f7f2036ace5d613ecb584c0b4e60dc3f863baa3c9e3582283de5544bc3",
+        "content_fingerprint": "e833ba6e1a335b061f8f166524976ff3673c92d281ebd81b79b74a68cd0082be"
+      }
+    },
+    "next": [
+      "fc105550-34f9-445a-84e0-ae17bfd6a6e4"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 4,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T06:43:19Z",
+        "contract_digest": "f67dc7f7f2036ace5d613ecb584c0b4e60dc3f863baa3c9e3582283de5544bc3",
+        "content_fingerprint": "e833ba6e1a335b061f8f166524976ff3673c92d281ebd81b79b74a68cd0082be"
+      },
+      "design_digest": "16a57eb025ea9005d90cbbf7e25982d971c163438ad7f253e0e5783c276cf7ac",
+      "acceptance_fingerprint": "683f4e754bb9b87668fd9724536917764e824630b9c47fd3de5a8d3fc49436a3"
+    }
+  },
+  {
+    "id": "fc105550-34f9-445a-84e0-ae17bfd6a6e4",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "61212049-e950-4479-8aa4-b4dd3d396eee"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Isolate main orchestration and each delegated role into separately loaded context contracts.",
+    "description": "Scope: Closure: capability - role-context isolation. Context: references/agent-orchestration.md co-locates all role prompts and hook_context.py injects a combined standing contract even when only one stage matters. Target: add scripts/role_contracts.py with reference_for_action(action) and bounded_main_obligation(node_id, phase, action); split the combined reference into orchestration-main.md, acceptance-designer.md, acceptance-reviewer.md, executor.md, and auditor.md; update hook_context.py, hook_tool.py, SKILL.md, and README.md so Hooks inject only main workspace/phase/action context and a single repository-relative reference pointer. Design Considerations: static immutable action-to-reference mapping, role files never cross-reference or embed other role prompts, child handoffs load exactly one role file plus declared Plan artifacts, and auditor instructions stay minimal because modern agents already support read-only review. Design Value: each agent receives only its responsibility while design and acceptance receive the context budget. Constraints & Risks: owns the role-contract, Hook, skill-entry, README, and role-reference files only; no state-engine or installer changes; no tool interception, model launch, raw prompts, Plan prose, absolute paths, machine data, runtime output, or combined-role fallback.",
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "SKILL.md",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/executor.md",
+        "references/auditor.md",
+        "scripts/role_contracts.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/role_contracts.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_role_contracts.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/role_contracts.py",
+          "kind": "function",
+          "name": "reference_for_action",
+          "operation": "add",
+          "signature": "reference_for_action(action: str) -> str | None"
+        },
+        {
+          "path": "scripts/role_contracts.py",
+          "kind": "function",
+          "name": "bounded_main_obligation",
+          "operation": "add",
+          "signature": "bounded_main_obligation(node_id: str, phase: str, action: str) -> str"
+        },
+        {
+          "path": "scripts/hook_tool.py",
+          "kind": "function",
+          "name": "next_action_response",
+          "operation": "modify",
+          "signature": "next_action_response(state: dict[str, object]) -> dict[str, object]"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "role_reference_router",
+          "producer": "scripts/role_contracts.py",
+          "consumers": [
+            "scripts/hook_context.py",
+            "scripts/hook_tool.py"
+          ],
+          "inputs": "one bounded current action",
+          "outputs": "zero or one repository-relative role-reference path",
+          "errors": [
+            "unknown delegating actions return no fallback reference"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/hook_tool.py",
+          "to": "scripts/role_contracts.py",
+          "reason": "Stop reports exactly one role contract for the current action"
+        },
+        {
+          "from": "scripts/hook_context.py",
+          "to": "references/orchestration-main.md",
+          "reason": "session and prompt context point only to the native main contract"
+        }
+      ],
+      "decisions": {
+        "composition": "compose immutable routing with separate leaf-role documents; no role inheritance",
+        "algorithms": "constant-time action lookup and bounded inventory formatting",
+        "data_structures": "MappingProxyType action map and one-reference payload",
+        "state": "Hooks read state but never write Plan files or run lifecycle effects",
+        "isolation": "each delegated action loads one leaf role and declared artifacts only",
+        "concurrency": "Hook reads are independent while Plan writes remain serialized by the native parent"
+      },
+      "test_seams": [
+        "immutable role lookup",
+        "bounded Hook context",
+        "read-only Stop response"
+      ]
+    },
+    "requirements": [
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-015",
+      "REQ-016"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The combined role-prompt file is removed and every delegated action resolves to exactly one standalone role reference.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "000139ca3a592f6016c3d201653641af33583c7db0754c9f8b6459c4fc43299a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T07:52:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Session and prompt Hooks inject only a bounded main-orchestrator locator; Stop reports phase, next action, and one role-reference pointer without loading role content.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "000139ca3a592f6016c3d201653641af33583c7db0754c9f8b6459c4fc43299a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T07:52:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The acceptance designer and reviewer contracts receive frozen design/test paths, while the executor receives exact ownership and the auditor contract stays minimal.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "000139ca3a592f6016c3d201653641af33583c7db0754c9f8b6459c4fc43299a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T07:52:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Cursor remains skill-only and every unsupported, ambiguous, invalid, or mismatched Hook path fails open without state or output leakage.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "000139ca3a592f6016c3d201653641af33583c7db0754c9f8b6459c4fc43299a",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T07:52:09Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: isolate orchestration role context",
+      "target": "role contracts and lifecycle context"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_role_contracts tests.test_hook_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "SKILL.md",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/executor.md",
+        "references/auditor.md",
+        "scripts/role_contracts.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "tests/test_role_contracts.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T07:52:09Z",
+        "contract_digest": "5d57ac5d56d56e547e0829446ae2413df36186cd98800771ab38ba76602a14c7",
+        "content_fingerprint": "bf041c8d1c2546dc2b6484998e40dcc6d304f2105903c1dd93bd976c0e57b9a4"
+      }
+    },
+    "next": [
+      "9bb16090-f87a-4ee8-93ad-86c8f62dfaff"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 3,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T07:53:26Z",
+        "contract_digest": "5d57ac5d56d56e547e0829446ae2413df36186cd98800771ab38ba76602a14c7",
+        "content_fingerprint": "bf041c8d1c2546dc2b6484998e40dcc6d304f2105903c1dd93bd976c0e57b9a4"
+      },
+      "design_digest": "4c84102aab763163d61ef113d43ebbb5c982f51556b89c3fff3b467094c299ab",
+      "acceptance_fingerprint": "e699a14a055fbfff80c3aedb20767b888dd1ba484d78c098c25b405f2cafd062"
+    }
+  },
+  {
+    "id": "9bb16090-f87a-4ee8-93ad-86c8f62dfaff",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "fc105550-34f9-445a-84e0-ae17bfd6a6e4"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Replace malformed nonterminal acceptance criteria through validated tooling.",
+    "description": "Scope: Closure: module - acceptance-contract repair. Context: the final audit found that an audit-only statement was incorrectly mapped to command regression and the current graph editor cannot replace it without hand-editing state. Target: add a validated nonterminal criterion-replacement operation that clears obsolete proof while preserving terminal history. Design Considerations: reuse atomic edit-node validation, require at least one criterion, reset mapped receipt evidence, and keep delivery acceptance enrolled in its safe base phase. Design Value: semantic acceptance errors become repairable through the same deterministic state interface. Constraints & Risks: no terminal rewrite, no direct status mutation, no compatibility alias, and no raw evidence retention.",
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "function",
+          "name": "edit_node_command",
+          "operation": "modify",
+          "signature": "edit_node_command(args: argparse.Namespace) -> int"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "criterion_replacement",
+          "producer": "scripts/manifest_tool.py",
+          "consumers": [
+            "scripts/manifest_tool.py"
+          ],
+          "inputs": "one or more repeated --criterion values for a nonterminal Node",
+          "outputs": "one complete unchecked criterion set with downstream proof cleared",
+          "errors": [
+            "ToolError for terminal edits, empty replacement, invalid mapping, or invalid resulting state"
+          ]
+        }
+      ],
+      "dependencies": [],
+      "decisions": {
+        "composition": "reuse the current atomic edit-node validation path without an alias",
+        "algorithms": "linear replacement and bounded proof clearing",
+        "data_structures": "ordered criterion array and regression criterion index array",
+        "state": "validate the copied checkpoint snapshot before atomic replacement",
+        "isolation": "only the selected pending Node and derived Plan status may change",
+        "concurrency": "serialize the edit with all other writes to the same Checkpoints file"
+      },
+      "test_seams": [
+        "public edit-node replacement",
+        "legacy parser rejection",
+        "atomic invalid-edit rollback"
+      ]
+    },
+    "requirements": [
+      "REQ-005",
+      "REQ-007",
+      "REQ-009"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "A nonterminal Node can replace its complete acceptance-criterion set through edit-node, with obsolete regression and audit proof cleared atomically.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "228cd10a999d3242d320193db5c654867aac3562b786206e3c22d9e3e9052303",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:04:55Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: make acceptance criteria safely replaceable",
+      "target": "manifest acceptance contract editing"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_manifest_tool_cli tests.test_manifest_tool_state_machine -v"
+      ],
+      "criteria": [
+        0
+      ],
+      "paths": [
+        "scripts/manifest_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T08:04:55Z",
+        "contract_digest": "86a31caedd687a27b415c3efe8f116996528ac3933cbfc6f8d09159b3eae3498",
+        "content_fingerprint": "97f603aa1e2beded10318886cac31625fdb872acbc6849c785d59b84f6332066"
+      }
+    },
+    "next": [
+      "6b31f8a4-76c4-4c18-89ca-8fdd47144507"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T08:07:38Z",
+        "contract_digest": "86a31caedd687a27b415c3efe8f116996528ac3933cbfc6f8d09159b3eae3498",
+        "content_fingerprint": "97f603aa1e2beded10318886cac31625fdb872acbc6849c785d59b84f6332066"
+      },
+      "design_digest": "bae53a5e22558efb3d38d07a09e023a8a03654ec6ac8b16b42e124722cd63e21",
+      "acceptance_fingerprint": "343671bd5e41bbdff45a5e0736c4ae2a564db1b2697e9059400ebcc40ae95841"
+    }
+  },
+  {
+    "id": "6b31f8a4-76c4-4c18-89ca-8fdd47144507",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "9bb16090-f87a-4ee8-93ad-86c8f62dfaff"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Make the installed skill inventory current and expose a Hook-only uninstall surface.",
+    "description": "Scope: Closure: module - installer and lifecycle hygiene. Context: role isolation added new modules and role files, while installation diagnosis still accepts incomplete payloads, Stop has an excessive timeout, and uninstall removes skills together with Hooks. Target: require the current payload, reject removed artifacts, bound lifecycle handlers, and add uninstall-hooks that preserves skills and unrelated configuration. Design Considerations: immutable current/removed inventories, one managed-handler removal path, no Cursor adapter, and atomic JSON preservation. Design Value: local Hook removal is safe and updates cannot silently validate stale skill copies. Constraints & Risks: no tool-use events, compatibility aliases, raw configuration output, absolute persisted paths, skill deletion, unrelated Hook mutation, or full regression.",
+    "requirements": [
+      "REQ-017"
+    ],
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "README.md",
+        "references/state-files.md",
+        "scripts/hook_config.py",
+        "scripts/install.py"
+      ],
+      "scaffold_paths": [
+        "scripts/hook_config.py",
+        "scripts/install.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_install_tool.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/install.py",
+          "kind": "type",
+          "name": "CURRENT_SKILL_FILES",
+          "operation": "add",
+          "signature": "CURRENT_SKILL_FILES: tuple[str, ...]"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "type",
+          "name": "REMOVED_SKILL_FILES",
+          "operation": "add",
+          "signature": "REMOVED_SKILL_FILES: tuple[str, ...]"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "function",
+          "name": "uninstall_hooks",
+          "operation": "add",
+          "signature": "uninstall_hooks(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "function",
+          "name": "uninstall_hooks_command",
+          "operation": "add",
+          "signature": "uninstall_hooks_command(args: argparse.Namespace) -> int"
+        },
+        {
+          "path": "scripts/hook_config.py",
+          "kind": "type",
+          "name": "HOOK_TIMEOUT_SECONDS",
+          "operation": "add",
+          "signature": "HOOK_TIMEOUT_SECONDS: int"
+        },
+        {
+          "path": "scripts/hook_config.py",
+          "kind": "function",
+          "name": "nested_handlers",
+          "operation": "modify",
+          "signature": "nested_handlers(agent: str) -> dict[str, list[dict[str, Any]]]"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "current_skill_inventory",
+          "producer": "scripts/install.py",
+          "consumers": [
+            "scripts/install.py"
+          ],
+          "inputs": "one source or installed skill root",
+          "outputs": "complete current-file and removed-file verdict",
+          "errors": [
+            "InstallError for a missing current artifact or present removed artifact"
+          ]
+        },
+        {
+          "name": "hook_only_uninstall",
+          "producer": "scripts/install.py",
+          "consumers": [
+            "scripts/install.py"
+          ],
+          "inputs": "selected agent names and dry-run flag",
+          "outputs": "bounded removal summaries without paths",
+          "errors": [
+            "InstallError when managed configuration cannot be preserved"
+          ]
+        },
+        {
+          "name": "bounded_lifecycle_handlers",
+          "producer": "scripts/hook_config.py",
+          "consumers": [
+            "scripts/install.py"
+          ],
+          "inputs": "supported lifecycle agent",
+          "outputs": "SessionStart, UserPromptSubmit, and Stop handlers with one bounded timeout",
+          "errors": [
+            "HookConfigError for unsupported agents or invalid configuration"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/install.py",
+          "to": "scripts/hook_config.py",
+          "reason": "the installer delegates managed lifecycle entry removal and validation to the configuration boundary"
+        }
+      ],
+      "decisions": {
+        "composition": "compose immutable file inventories with the existing managed-handler remover; no inheritance or adapter alias",
+        "algorithms": "single linear inventory scan and single linear managed-handler filter, O(files + handlers)",
+        "data_structures": "immutable tuples for file inventory and normalized JSON mappings for configuration",
+        "state": "installed skill trees and agent JSON remain external state; only managed Hook entries are mutable",
+        "isolation": "Hook-only removal preserves skill trees, unrelated settings, and unrelated handlers",
+        "concurrency": "atomic sibling JSON replacement serializes each configuration write; no shared runtime cache"
+      },
+      "test_seams": [
+        "temporary source and installed skill roots",
+        "mixed managed and unrelated Hook configuration",
+        "CLI dry-run and real Hook-only removal"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Source and installed-tree validation require every current module and separated role file and reject every removed artifact.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:33:23Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The public uninstall-hooks command removes only managed Codex and Claude lifecycle handlers while preserving skills and unrelated configuration; Cursor stays skill-only.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:33:23Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Managed lifecycle configuration contains only SessionStart, UserPromptSubmit, and Stop with a timeout no greater than 30 seconds and no tool-use event.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "2451d17949b2819621a4c837164ee27185ac688a6a24d9f8fc2093a3ebb89755",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:33:23Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: make installer and Hook removal current",
+      "target": "installer and lifecycle configuration"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool -v"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "README.md",
+        "references/state-files.md",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_install_tool.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T08:33:23Z",
+        "contract_digest": "40bb4ddb04658e7c5b46290cddf287daa65ba5a623953553779fc783c89dc2fd",
+        "content_fingerprint": "5d3df06fbdeff03e8175d7c594e3fd0fb030b6dd822f4a016738614ee857b291"
+      }
+    },
+    "next": [
+      "6a60d7ec-a506-4895-af34-65195f3896ca"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T08:34:47Z",
+        "contract_digest": "40bb4ddb04658e7c5b46290cddf287daa65ba5a623953553779fc783c89dc2fd",
+        "content_fingerprint": "5d3df06fbdeff03e8175d7c594e3fd0fb030b6dd822f4a016738614ee857b291"
+      },
+      "design_digest": "08fdef787314af0f03eb1500f249611fd341d76b62705fb7a38716ce9d2107e6",
+      "acceptance_fingerprint": "fd24b9b1f5de6ba053489f53351fdcd63fce56d0607ed384740c082ebaa89b6d"
+    }
+  },
+  {
+    "id": "6a60d7ec-a506-4895-af34-65195f3896ca",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "6b31f8a4-76c4-4c18-89ca-8fdd47144507"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Remove permanent legacy-name gates after one-time obsolete-artifact verification.",
+    "description": "Scope: Closure: module - current-interface cleanup; scripts/install.py, README.md, and focused installer/role/orchestration tests. Context: the installer hygiene repair introduced a removed-file constant and permanent tests naming deleted artifacts, which conflicts with the repository rule that completed migrations use a one-time verification rather than long-lived compatibility gates. Target: retain only current payload validation, delete legacy-name tests and documentation interfaces, and execute one bounded removal scan in this Node. Design Considerations: atomic replacement already prevents stale installed trees, so current-file inventory is the durable invariant and the obsolete-name scan is ephemeral evidence. Design Value: future maintenance follows current contracts without carrying deleted interface vocabulary or recurring legacy cost. Constraints & Risks: no compatibility alias, renamed legacy gate, new permanent removal test, terminal-history rewrite, full regression, absolute path, or runtime-data output.",
+    "requirements": [
+      "REQ-017"
+    ],
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "README.md",
+        "scripts/install.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_role_contracts.py"
+      ],
+      "scaffold_paths": [
+        "scripts/install.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/install.py",
+          "kind": "type",
+          "name": "REMOVED_SKILL_FILES",
+          "operation": "remove",
+          "signature": "REMOVED_SKILL_FILES"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "function",
+          "name": "validate_source_tree",
+          "operation": "modify",
+          "signature": "validate_source_tree(repo_root: Path) -> None"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "function",
+          "name": "check_skill_tree",
+          "operation": "modify",
+          "signature": "check_skill_tree(target: str, root: Path) -> Check"
+        },
+        {
+          "path": "tests/test_install_tool.py",
+          "kind": "function",
+          "name": "test_installed_skill_inventory_requires_current_files_and_rejects_removed_files",
+          "operation": "modify",
+          "signature": "test_installed_skill_inventory_requires_every_current_file(self) -> None"
+        },
+        {
+          "path": "tests/test_orchestration_workflow.py",
+          "kind": "function",
+          "name": "test_legacy_combined_reference_is_removed",
+          "operation": "remove",
+          "signature": "test_legacy_combined_reference_is_removed(self) -> None"
+        },
+        {
+          "path": "tests/test_role_contracts.py",
+          "kind": "function",
+          "name": "test_unknown_delegating_style_does_not_fallback_to_combined_file",
+          "operation": "remove",
+          "signature": "test_unknown_delegating_style_does_not_fallback_to_combined_file(self) -> None"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "current_only_skill_inventory",
+          "producer": "scripts/install.py",
+          "consumers": [
+            "scripts/install.py",
+            "tests/test_install_tool.py"
+          ],
+          "inputs": "one source or installed skill root",
+          "outputs": "missing current-file verdict only",
+          "errors": [
+            "InstallError or Check FAIL with repository-relative current file names"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "tests/test_install_tool.py",
+          "to": "scripts/install.py",
+          "reason": "current inventory tests consume only the current file contract"
+        }
+      ],
+      "decisions": {
+        "composition": "delete obsolete branches and tests; retain one current inventory without aliases",
+        "algorithms": "linear current-file scan O(files) and one ephemeral linear text scan O(bytes)",
+        "data_structures": "one immutable tuple of current repository-relative paths",
+        "state": "no legacy state is retained; terminal Plan history remains immutable evidence",
+        "isolation": "cleanup touches only active public surfaces and focused tests, not historical Plan snapshots",
+        "concurrency": "single Node owns all affected active files; no cache or parallel mutation"
+      },
+      "test_seams": [
+        "current-file subtests",
+        "one-time active-surface scan",
+        "focused current orchestration and role tests"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Current payload validation and focused tests reference only current interfaces and contain no permanent legacy-name gate.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "d3a1deafc3b44f58e34f4f39b017526ab3b945c82790d1b8518b783324aa62b4",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:48:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "081ab7fad7ec02402c5cd7836b9c7a66aa3aec18027098922b49b24f4b7e1d35",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:48:01Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "A one-time active-surface scan confirms obsolete artifacts and active references are absent without creating a recurring test or compatibility path.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "d3a1deafc3b44f58e34f4f39b017526ab3b945c82790d1b8518b783324aa62b4",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:48:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "081ab7fad7ec02402c5cd7836b9c7a66aa3aec18027098922b49b24f4b7e1d35",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T08:48:01Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: remove permanent legacy gates",
+      "target": "current installer and role test surface"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool tests.test_role_contracts tests.test_orchestration_workflow -v",
+        "python3 -c \"from pathlib import Path; names=(\\\"references/\\\"+\\\"agent-orchestration.md\\\",\\\"scripts/\\\"+\\\"update.py\\\"); roots=[Path(\\\"README.md\\\"),Path(\\\"SKILL.md\\\"),Path(\\\"references\\\"),Path(\\\"scripts\\\"),Path(\\\"tests\\\")]; files=[]; [files.append(p) for root in roots for p in ([root] if root.is_file() else root.rglob(\\\"*\\\")) if p.is_file() and p.suffix in {\\\".md\\\",\\\".py\\\"}]; hits=[(p,n) for p in files for n in names if n in p.read_text(encoding=\\\"utf-8\\\")]; missing=[n for n in names if Path(n).exists()]; raise SystemExit(1 if hits or missing else 0)\""
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "README.md",
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "scripts/install.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_role_contracts.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T08:48:01Z",
+        "contract_digest": "e76bc17c4686b7b6223bf41526c83634ff11d239377cc96b94b56bdd82e7e436",
+        "content_fingerprint": "91e67eb2573bc8c771cda059b738053f9a66cab46f31ede41d38283e8787aeab"
+      }
+    },
+    "next": [
+      "e9a66791-d24d-400a-be08-b4a5134ac1df"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T08:53:03Z",
+        "contract_digest": "e76bc17c4686b7b6223bf41526c83634ff11d239377cc96b94b56bdd82e7e436",
+        "content_fingerprint": "91e67eb2573bc8c771cda059b738053f9a66cab46f31ede41d38283e8787aeab"
+      },
+      "design_digest": "8469c1e193e59e7b6d210411346e34fe4ec18118c6bdb57dd9eb4419b98929f4",
+      "acceptance_fingerprint": "cd15fe8900961f290dab0e7a0fec1ff7ba0778d607641f4e36cf85633a4e7e04"
+    }
+  },
+  {
+    "id": "18c99375-a545-4320-907c-a1330862e073",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "6a60d7ec-a506-4895-af34-65195f3896ca"
+    ],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Remove permanent deleted tool-event vocabulary while preserving current lifecycle behavior coverage.",
+    "description": "Scope: Closure: module - current lifecycle test cleanup; tests/test_hook_tool.py and tests/test_install_tool.py. Context: final static audit found permanent tests naming deleted tool-call Hook interfaces even though production exposes only lifecycle Hooks. Target: replace deleted-name gates with one generic unknown-event rejection and exact current lifecycle-key assertions. Design Considerations: current allowed-set equality is the durable invariant; deleted vocabulary is verified once by this Node regression only. Design Value: tests describe only the current public surface without weakening unsupported-event or timeout coverage. Constraints & Risks: no production change, alias, compatibility path, terminal-history rewrite, full regression, absolute path, or persisted runtime output.",
+    "requirements": [
+      "REQ-017"
+    ],
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py"
+      ],
+      "scaffold_paths": [
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md"
+      ],
+      "symbols": [
+        {
+          "path": "tests/test_hook_tool.py",
+          "kind": "function",
+          "name": "test_hook_cli_rejects_tool_use_events_and_keeps_stdout_empty",
+          "operation": "modify",
+          "signature": "test_hook_cli_rejects_unknown_event_and_keeps_stdout_empty(self) -> None"
+        },
+        {
+          "path": "tests/test_install_tool.py",
+          "kind": "function",
+          "name": "test_managed_lifecycle_inventory_is_bounded_and_has_no_tool_events",
+          "operation": "modify",
+          "signature": "test_managed_lifecycle_inventory_is_exact_and_bounded(self) -> None"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "current_lifecycle_test_contract",
+          "producer": "tests/test_hook_tool.py",
+          "consumers": [
+            "scripts/hook_tool.py",
+            "scripts/hook_config.py",
+            "scripts/install.py"
+          ],
+          "inputs": "one generic unknown stage plus the exact current lifecycle key set",
+          "outputs": "unknown-stage rejection and exact lifecycle inventory verdicts",
+          "errors": [
+            "focused regression failure"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "tests/test_hook_tool.py",
+          "to": "scripts/hook_tool.py",
+          "reason": "exercise generic unsupported-event rejection"
+        },
+        {
+          "from": "tests/test_install_tool.py",
+          "to": "scripts/hook_config.py",
+          "reason": "assert the exact current lifecycle handler set and bounded timeout"
+        }
+      ],
+      "decisions": {
+        "composition": "replace two deleted-name gates with current allowed-set and generic unknown-input coverage",
+        "algorithms": "constant-size set equality and one generic CLI rejection",
+        "data_structures": "immutable expected lifecycle event set",
+        "state": "tests retain no deleted interface vocabulary",
+        "isolation": "only the two test files change; production and terminal Plan history remain untouched",
+        "concurrency": "one repair Node owns both test symbols"
+      },
+      "test_seams": [
+        "generic unknown stage",
+        "exact lifecycle handler keys",
+        "one-time active-surface text scan"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Hook CLI rejects a generic unknown stage while all current lifecycle behavior coverage remains intact, without naming deleted tool-call interfaces.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b0c10fa53f2654286bfac5dc3f2162b0144f2e4a9cca487d3f8b05b322d00008",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:12:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "a9c331c1e9693a9b525ea5355c47c372a9f2fad2d0324913da6f39df54f371ac",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:12:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Installer Hook tests assert exactly SessionStart, UserPromptSubmit, and Stop with bounded timeouts, and a one-time scan finds no deleted tool-event vocabulary in active surfaces.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b0c10fa53f2654286bfac5dc3f2162b0144f2e4a9cca487d3f8b05b322d00008",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:12:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "a9c331c1e9693a9b525ea5355c47c372a9f2fad2d0324913da6f39df54f371ac",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:12:56Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: keep lifecycle coverage current-only",
+      "target": "current Hook lifecycle tests"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_install_tool -v",
+        "python3 -c \"from pathlib import Path; names=(\\\"Pre\\\"+\\\"ToolUse\\\",\\\"Post\\\"+\\\"ToolUse\\\",\\\"pre-\\\"+\\\"tool-use\\\",\\\"post-\\\"+\\\"tool-use\\\"); roots=[Path(\\\"README.md\\\"),Path(\\\"SKILL.md\\\"),Path(\\\"references\\\"),Path(\\\"scripts\\\"),Path(\\\"tests\\\")]; files=[]; [files.append(p) for root in roots for p in ([root] if root.is_file() else root.rglob(\\\"*\\\")) if p.is_file() and p.suffix in {\\\".md\\\",\\\".py\\\"}]; raise SystemExit(1 if any(n in p.read_text(encoding=\\\"utf-8\\\") for p in files for n in names) else 0)\""
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T09:12:56Z",
+        "contract_digest": "3c2ae643a29916655f437cde1ed2806f1dd6e5a74d2004d5335cbbb383a00da3",
+        "content_fingerprint": "3ba8e6f8724c2e3ec40780eefa6847607b14d958b6cee908a07e3775c85f929c"
+      }
+    },
+    "next": [
+      "e9a66791-d24d-400a-be08-b4a5134ac1df"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T09:14:24Z",
+        "contract_digest": "3c2ae643a29916655f437cde1ed2806f1dd6e5a74d2004d5335cbbb383a00da3",
+        "content_fingerprint": "3ba8e6f8724c2e3ec40780eefa6847607b14d958b6cee908a07e3775c85f929c"
+      },
+      "design_digest": "683cd781fed6a084cd76de1fad13802ce7e2ea0565c4a91b37db69436a7155f2",
+      "acceptance_fingerprint": "73c355aff1552692d1c4970e4c64d69131b0ddf9d0b01f313b4627e1196b4269"
+    }
+  },
+  {
+    "id": "e9a66791-d24d-400a-be08-b4a5134ac1df",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "ee05929b-f321-427e-a0f5-fd9827da2cd6",
+      "6a60d7ec-a506-4895-af34-65195f3896ca",
+      "18c99375-a545-4320-907c-a1330862e073"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Prove the test-first acceptance loop and close it through its own automated audit gate.",
+    "description": "Scope: final validation of the pure transition table, manifest effects, orchestration protocol, privacy, idempotency, host boundary, and completed Plan state. Context: focused Nodes prove their modules and every implementation Node now audits before completion. Target: run the complete suite once through the final-validation acceptance phase, dispatch a fresh fingerprint-bound auditor, and let audit PASS complete automatically. Design Considerations: current receipt reuse, no repeated full run, and no manual criterion or completion mutation. Design Value: the new mechanism proves itself end to end without self-approval. Constraints & Risks: any finding becomes a new repair Node; no reopening terminal history, raw output persistence, Hook installation, or repeated full regression.",
+    "design": {
+      "artifact": "docs/plan/acceptance-state-machine/Architecture.md",
+      "owned_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/acceptance-state-machine/Validation.md",
+        "tests/test_design_contract.py",
+        "tests/test_role_contracts.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "module",
+          "name": "final_validation_contract",
+          "operation": "modify",
+          "signature": "full regression receipt plus fingerprint-bound audit completion"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "final_acceptance",
+          "producer": "scripts/manifest_tool.py",
+          "consumers": [
+            "scripts/hook_tool.py"
+          ],
+          "inputs": "reviewed final-validation design and the declared full regression contract",
+          "outputs": "one current full receipt and a bounded audit action",
+          "errors": [
+            "repair_plan_required for regression or audit failure"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/hook_tool.py",
+          "to": "scripts/manifest_tool.py",
+          "reason": "the host reads the next final-validation action without running it"
+        }
+      ],
+      "decisions": {
+        "composition": "compose the approved preparation gate, one full regression attempt, and one thin audit",
+        "algorithms": "streaming fingerprints and constant-time phase selection",
+        "data_structures": "bounded receipts, opaque correlations, and immutable completed history",
+        "state": "final validation is the only current Node and completion is atomic after audit PASS",
+        "isolation": "the final auditor receives only changed paths, current fingerprints, and PASS/findings output",
+        "concurrency": "run one full attempt at a time and route every failure through one ordered repair Node"
+      },
+      "test_seams": [
+        "full-suite command receipt",
+        "stale fingerprint rejection",
+        "automatic final audit completion"
+      ]
+    },
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006",
+      "REQ-007",
+      "REQ-008",
+      "REQ-009",
+      "REQ-010",
+      "REQ-011",
+      "REQ-012",
+      "REQ-013",
+      "REQ-014",
+      "REQ-015",
+      "REQ-016",
+      "REQ-017"
+    ],
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The complete unit suite passes exactly once for the final declared content fingerprint.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0263f7327df5350909b12e7977f4f019c8c7c924706fc93538c3b08cfbfd92ae",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The Better Plan workspace validates all current source paths and canonical requirement labels after the suite.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0263f7327df5350909b12e7977f4f019c8c7c924706fc93538c3b08cfbfd92ae",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The passing suite proves generic unknown-stage rejection with nonzero exit and empty stdout, an exact SessionStart/UserPromptSubmit/Stop inventory with at most 30-second handlers, current-only installer payloads, repository-relative managed Hook commands, runtime-data redaction, isolated role contracts, and the acceptance state machine.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0263f7327df5350909b12e7977f4f019c8c7c924706fc93538c3b08cfbfd92ae",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T09:25:57Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: validate automated acceptance workflow",
+      "target": "acceptance state final evidence"
+    },
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -v",
+        "python3 scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan acceptance-state-machine"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "SKILL.md",
+        "README.md",
+        "references/state-files.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/acceptance-reviewer.md",
+        "references/executor.md",
+        "references/auditor.md",
+        "scripts/acceptance_machine.py",
+        "scripts/design_contract.py",
+        "scripts/manifest_tool.py",
+        "scripts/role_contracts.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_config.py",
+        "scripts/install.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_design_contract.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_role_contracts.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T09:25:57Z",
+        "contract_digest": "911efe4f3fc4e70a7b6e636e2246cc87a1216f863db1113d548b6ad86c4d088d",
+        "content_fingerprint": "ce0483c348f4f1cfcff010de8cce4f0124634dae80cebcb047fb1e705bfa2bbe"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 0,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T09:32:21Z",
+        "contract_digest": "911efe4f3fc4e70a7b6e636e2246cc87a1216f863db1113d548b6ad86c4d088d",
+        "content_fingerprint": "ce0483c348f4f1cfcff010de8cce4f0124634dae80cebcb047fb1e705bfa2bbe"
+      },
+      "design_digest": "98a1cc8bb8499c186e72e53a4ff2103c0a2550ff61307d5be24fb1efa5641a36",
+      "scaffold_fingerprint": "d164b0a1b2d36ca6291445abff114b0f6405f1270563427e5df9ac3d96cfae75",
+      "acceptance_fingerprint": "12558c3233ec4eb30c0e6adcb145095881eb38eee80148dbdec9f59d03539c61"
+    }
+  }
+]

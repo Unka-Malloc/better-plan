@@ -1,0 +1,1011 @@
+[
+  {
+    "id": "858bb16b-1e7e-4812-b980-0d970f459cee",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Split manifest validation, persistence, regression, acceptance orchestration, and CLI into canonical package layers.",
+    "description": "Scope: Closure: module - workflow core architecture; scripts/better_plan domain, infrastructure, application, and manifest adapter plus the thin manifest_tool entrypoint. Context: the current workflow command is a 4448-line monolith and top-level domain modules use fallback imports. Target: one canonical package dependency direction with no workflow business logic in the entrypoint and no old top-level domain implementations. Design Considerations: preserve the current CLI path and JSON schema; keep pure transition/design code filesystem-free; isolate state writes and subprocess regression; update tests once to canonical imports. Design Value: Hook and installer consumers can depend on narrow layers rather than the complete CLI. Constraints & Risks: complete migration only, no compatibility re-export, no behavior or state-schema drift, no absolute paths, no raw runtime output, and no full regression in this Node.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-005"
+    ],
+    "design": {
+      "artifact": "docs/plan/architecture-split/Architecture.md",
+      "owned_paths": [
+        "scripts/__init__.py",
+        "scripts/better_plan/__init__.py",
+        "scripts/better_plan/domain/__init__.py",
+        "scripts/better_plan/domain/models.py",
+        "scripts/better_plan/domain/transitions.py",
+        "scripts/better_plan/domain/design.py",
+        "scripts/better_plan/domain/roles.py",
+        "scripts/better_plan/domain/validation.py",
+        "scripts/better_plan/infrastructure/__init__.py",
+        "scripts/better_plan/infrastructure/workspace.py",
+        "scripts/better_plan/infrastructure/regression.py",
+        "scripts/better_plan/application/__init__.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/adapters/__init__.py",
+        "scripts/better_plan/adapters/manifest_cli.py",
+        "scripts/manifest_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_tool.py",
+        "scripts/acceptance_machine.py",
+        "scripts/_legacy_acceptance_machine.py",
+        "scripts/_legacy_design_contract.py",
+        "scripts/_legacy_manifest_tool.py",
+        "scripts/_legacy_role_contracts.py",
+        "scripts/design_contract.py",
+        "scripts/role_contracts.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_design_contract.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_role_contracts.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/domain/models.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/adapters/manifest_cli.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "tests/test_architecture_layers.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/domain/models.py",
+          "kind": "class",
+          "name": "WorkflowStateMachine",
+          "operation": "add",
+          "signature": "WorkflowStateMachine(statuses, transitions, terminal_statuses)"
+        },
+        {
+          "path": "scripts/better_plan/domain/transitions.py",
+          "kind": "function",
+          "name": "transition",
+          "operation": "add",
+          "signature": "transition(phase: str, event: str, role: str) -> str"
+        },
+        {
+          "path": "scripts/better_plan/domain/design.py",
+          "kind": "function",
+          "name": "validate_design_contract",
+          "operation": "add",
+          "signature": "validate_design_contract(design: Mapping[str, object]) -> tuple[str, ...]"
+        },
+        {
+          "path": "scripts/better_plan/domain/roles.py",
+          "kind": "function",
+          "name": "reference_for_action",
+          "operation": "add",
+          "signature": "reference_for_action(action: str) -> str | None"
+        },
+        {
+          "path": "scripts/better_plan/domain/validation.py",
+          "kind": "function",
+          "name": "validate_checkpoints_data",
+          "operation": "add",
+          "signature": "validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Issue]]"
+        },
+        {
+          "path": "scripts/better_plan/infrastructure/workspace.py",
+          "kind": "class",
+          "name": "NodeLocation",
+          "operation": "add",
+          "signature": "NodeLocation(manifest, manifest_data, plan_index, checkpoints_path, checkpoints_data, node_index)"
+        },
+        {
+          "path": "scripts/better_plan/infrastructure/regression.py",
+          "kind": "function",
+          "name": "run_regression_at_location",
+          "operation": "add",
+          "signature": "run_regression_at_location(location: NodeLocation, *, persist: bool = True) -> list[str]"
+        },
+        {
+          "path": "scripts/better_plan/application/workflow.py",
+          "kind": "function",
+          "name": "advance_command",
+          "operation": "add",
+          "signature": "advance_command(args: argparse.Namespace) -> int"
+        },
+        {
+          "path": "scripts/better_plan/adapters/manifest_cli.py",
+          "kind": "function",
+          "name": "main",
+          "operation": "add",
+          "signature": "main() -> int"
+        },
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "module",
+          "name": "manifest_tool_entrypoint",
+          "operation": "modify",
+          "signature": "thin adapter main only"
+        },
+        {
+          "path": "scripts/acceptance_machine.py",
+          "kind": "module",
+          "name": "acceptance_machine",
+          "operation": "remove",
+          "signature": "acceptance_machine"
+        },
+        {
+          "path": "scripts/design_contract.py",
+          "kind": "module",
+          "name": "design_contract",
+          "operation": "remove",
+          "signature": "design_contract"
+        },
+        {
+          "path": "scripts/role_contracts.py",
+          "kind": "module",
+          "name": "role_contracts",
+          "operation": "remove",
+          "signature": "role_contracts"
+        },
+        {
+          "path": "scripts/_legacy_acceptance_machine.py",
+          "kind": "module",
+          "name": "legacy_acceptance_machine",
+          "operation": "remove",
+          "signature": "legacy_acceptance_machine"
+        },
+        {
+          "path": "scripts/_legacy_design_contract.py",
+          "kind": "module",
+          "name": "legacy_design_contract",
+          "operation": "remove",
+          "signature": "legacy_design_contract"
+        },
+        {
+          "path": "scripts/_legacy_manifest_tool.py",
+          "kind": "module",
+          "name": "legacy_manifest_tool",
+          "operation": "remove",
+          "signature": "legacy_manifest_tool"
+        },
+        {
+          "path": "scripts/_legacy_role_contracts.py",
+          "kind": "module",
+          "name": "legacy_role_contracts",
+          "operation": "remove",
+          "signature": "legacy_role_contracts"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "manifest_cli",
+          "producer": "scripts/better_plan/adapters/manifest_cli.py",
+          "consumers": [
+            "scripts/manifest_tool.py"
+          ],
+          "inputs": "validated argv",
+          "outputs": "bounded stdout/stderr and exit status",
+          "errors": [
+            "safe ToolError message"
+          ]
+        },
+        {
+          "name": "workspace_state",
+          "producer": "scripts/better_plan/infrastructure/workspace.py",
+          "consumers": [
+            "scripts/better_plan/application/workflow.py"
+          ],
+          "inputs": "repository-relative workspace selector",
+          "outputs": "validated NodeLocation and atomic state mutation",
+          "errors": [
+            "ToolError without machine data"
+          ]
+        },
+        {
+          "name": "regression_receipt",
+          "producer": "scripts/better_plan/infrastructure/regression.py",
+          "consumers": [
+            "scripts/better_plan/application/workflow.py"
+          ],
+          "inputs": "declared command and relative fingerprint paths",
+          "outputs": "digest-only receipt",
+          "errors": [
+            "bounded failure classification"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/manifest_tool.py",
+          "to": "scripts/better_plan/adapters/manifest_cli.py",
+          "reason": "legitimate executable delegates to one adapter"
+        },
+        {
+          "from": "scripts/better_plan/adapters/manifest_cli.py",
+          "to": "scripts/better_plan/application/workflow.py",
+          "reason": "CLI invokes application use cases"
+        },
+        {
+          "from": "scripts/better_plan/application/workflow.py",
+          "to": "scripts/better_plan/domain/validation.py",
+          "reason": "use cases enforce domain rules"
+        },
+        {
+          "from": "scripts/better_plan/application/workflow.py",
+          "to": "scripts/better_plan/infrastructure/workspace.py",
+          "reason": "use cases load and atomically persist state"
+        },
+        {
+          "from": "scripts/better_plan/application/workflow.py",
+          "to": "scripts/better_plan/infrastructure/regression.py",
+          "reason": "use cases request bounded regression receipts"
+        }
+      ],
+      "decisions": {
+        "composition": "thin entrypoint plus domain, infrastructure, application, and adapter modules",
+        "algorithms": "preserve mapping lookup, adjacency traversal, and streaming fingerprints",
+        "data_structures": "typed value objects at boundaries with JSON mappings inside persistence",
+        "state": "workspace infrastructure exclusively writes Manifest and Checkpoints",
+        "isolation": "domain has no filesystem/subprocess imports; CLI has no business logic",
+        "concurrency": "state writes and regression commands remain serialized"
+      },
+      "test_seams": [
+        "canonical import test",
+        "thin entrypoint AST test",
+        "dependency-direction AST test",
+        "existing manifest and acceptance suites"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The manifest entrypoint is thin, all workflow consumers use one canonical package path, and the three old top-level domain implementations are absent.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3ecda112865e3deed48663422106ad40459297d98fedb60652d4daa364f0e913",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T12:40:57Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Focused workflow, design, acceptance, and CLI suites pass while architecture tests enforce dependency direction and bounded module sizes.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3ecda112865e3deed48663422106ad40459297d98fedb60652d4daa364f0e913",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T12:40:57Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: split workflow architecture",
+      "target": "canonical Better Plan workflow package"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_architecture_layers tests.test_design_contract tests.test_manifest_tool_state_machine tests.test_manifest_tool_cli tests.test_acceptance_state_machine tests.test_role_contracts tests.test_hook_scope tests.test_hook_tool -v"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "scripts/manifest_tool.py",
+        "scripts/better_plan",
+        "tests/test_architecture_layers.py",
+        "tests/test_design_contract.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_role_contracts.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T12:40:57Z",
+        "contract_digest": "3f6c22fcb17e1209245de0b4d3ec77172917d377d71cb7455474d96035378dca",
+        "content_fingerprint": "b5db2cd033d6a796a9f1a32c6d52241286d1cd3d16b2800157afe7d1fa057390"
+      }
+    },
+    "next": [
+      "0dab8120-d974-4107-8bea-e42b8c2c964a"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 3,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T12:43:26Z",
+        "contract_digest": "3f6c22fcb17e1209245de0b4d3ec77172917d377d71cb7455474d96035378dca",
+        "content_fingerprint": "b5db2cd033d6a796a9f1a32c6d52241286d1cd3d16b2800157afe7d1fa057390"
+      },
+      "design_digest": "286d6d95be998902a46d973df8d97569c804fc7768321d0c2743d7b25cc6c288",
+      "acceptance_fingerprint": "092b0fb4754a437b7177682a8ad2316fe88281f54fbcd3734b1cfe4ee0e874a4"
+    }
+  },
+  {
+    "id": "0dab8120-d974-4107-8bea-e42b8c2c964a",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "858bb16b-1e7e-4812-b980-0d970f459cee"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Move lifecycle activation and Agent-completion reduction behind typed application and Hook adapter boundaries.",
+    "description": "Scope: Closure: module - lifecycle and Agent-completion boundaries; application reducer, Hook package, and thin hook_tool entrypoint. Context: lifecycle helpers currently depend on the workflow monolith. Target: Hooks depend on narrow workspace APIs and reduce only correlated Agent-completion events after the native host reports return. Design Considerations: structural workspace detection remains fail-open; the native framework exclusively owns Agent lifetime and cancellation. Design Value: host orchestration becomes testable without embedding a platform runtime. Constraints & Risks: no Agent polling, timing, interruption, replacement, direct state writes from Hooks, background process, compatibility helper modules, or full regression.",
+    "requirements": [
+      "REQ-001",
+      "REQ-004",
+      "REQ-005"
+    ],
+    "design": {
+      "artifact": "docs/plan/architecture-split/Architecture.md",
+      "owned_paths": [
+        "scripts/better_plan/application/agent_completion.py",
+        "scripts/better_plan/hooks/__init__.py",
+        "scripts/better_plan/hooks/scope.py",
+        "scripts/better_plan/hooks/context.py",
+        "scripts/better_plan/hooks/runtime.py",
+        "scripts/hook_tool.py",
+        "scripts/hook_scope.py",
+        "scripts/hook_context.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/application/agent_completion.py",
+        "scripts/better_plan/hooks/runtime.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "tests/test_agent_completion.py",
+        "tests/test_hook_architecture.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/application/agent_completion.py",
+          "kind": "function",
+          "name": "reduce_agent_completion",
+          "operation": "add",
+          "signature": "reduce_agent_completion(manifest: Path) -> AgentCompletionDirective | None"
+        },
+        {
+          "path": "scripts/better_plan/hooks/scope.py",
+          "kind": "function",
+          "name": "detect_event_workspace",
+          "operation": "add",
+          "signature": "detect_event_workspace(payload: dict[str, Any]) -> Path | None"
+        },
+        {
+          "path": "scripts/better_plan/hooks/runtime.py",
+          "kind": "function",
+          "name": "safe_handle_event",
+          "operation": "add",
+          "signature": "safe_handle_event(agent: str, event: str, payload: dict[str, Any]) -> dict[str, Any]"
+        },
+        {
+          "path": "scripts/hook_tool.py",
+          "kind": "module",
+          "name": "hook_tool_entrypoint",
+          "operation": "modify",
+          "signature": "thin adapter main only"
+        },
+        {
+          "path": "scripts/hook_scope.py",
+          "kind": "module",
+          "name": "hook_scope",
+          "operation": "remove",
+          "signature": "hook_scope"
+        },
+        {
+          "path": "scripts/hook_context.py",
+          "kind": "module",
+          "name": "hook_context",
+          "operation": "remove",
+          "signature": "hook_context"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "agent_completion_reducer",
+          "producer": "scripts/better_plan/application/agent_completion.py",
+          "consumers": [
+            "scripts/better_plan/hooks/runtime.py"
+          ],
+          "inputs": "current workflow after the native host reports a correlated Agent return",
+          "outputs": "one bounded parent directive or no action",
+          "errors": [
+            "invalid or ambiguous workflow state returns no action"
+          ]
+        },
+        {
+          "name": "lifecycle_runtime",
+          "producer": "scripts/better_plan/hooks/runtime.py",
+          "consumers": [
+            "scripts/hook_tool.py"
+          ],
+          "inputs": "one supported lifecycle payload",
+          "outputs": "bounded context or next-action response",
+          "errors": [
+            "safe empty response"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/hook_tool.py",
+          "to": "scripts/better_plan/hooks/runtime.py",
+          "reason": "thin executable delegates lifecycle translation"
+        },
+        {
+          "from": "scripts/better_plan/hooks/runtime.py",
+          "to": "scripts/better_plan/hooks/scope.py",
+          "reason": "every lifecycle event is structurally gated"
+        },
+        {
+          "from": "scripts/better_plan/hooks/runtime.py",
+          "to": "scripts/better_plan/application/agent_completion.py",
+          "reason": "Agent-only completion events invoke the correlated reducer"
+        }
+      ],
+      "decisions": {
+        "composition": "event-driven Agent-completion reducer and isolated Hook adapter modules",
+        "algorithms": "bounded current-state and role lookup after a correlated completion event",
+        "data_structures": "frozen directive value and existing workflow snapshots",
+        "state": "the reducer advances only objective role exits; Hooks do not supervise Agent lifetime",
+        "isolation": "one leaf role and one role reference per dispatch",
+        "concurrency": "one correlated dispatch at a time; the native host exclusively owns waiting and cancellation"
+      },
+      "test_seams": [
+        "correlated Agent completion",
+        "focused regression routing",
+        "main-thread audit decision",
+        "non-workspace Hook no-op"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Agent-completion reduction runs only after the native host reports a correlated role return and never polls, times, interrupts, or replaces a running Agent.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "15181f547572aaee1418ab2a864e625fea28f8de359c8db4774d109671c952b6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:02:09Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The Hook entrypoint is thin, lifecycle code uses canonical package imports, and the old top-level scope/context implementations are absent while existing Hook behavior passes.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "15181f547572aaee1418ab2a864e625fea28f8de359c8db4774d109671c952b6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:02:09Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: isolate hooks and Agent-completion reduction",
+      "target": "typed host and lifecycle boundaries"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_agent_completion tests.test_hook_architecture tests.test_hook_scope tests.test_hook_tool tests.test_orchestration_workflow tests.test_architecture_layers -v"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "scripts/hook_tool.py",
+        "scripts/better_plan/application/agent_completion.py",
+        "scripts/better_plan/hooks",
+        "tests/test_agent_completion.py",
+        "tests/test_hook_architecture.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_architecture_layers.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T13:02:09Z",
+        "contract_digest": "2ab9754569a1ab2223285ea6bda49bce65d52d25b70aa89b85a58d922f3d9909",
+        "content_fingerprint": "2a7dca1cec62dad38dd789c12c28f94641b5b77d1b02e511dc69bd79b8e9fed6"
+      }
+    },
+    "next": [
+      "022f78bb-4f99-4c0d-8e2e-0db2226b0eb5"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T13:04:03Z",
+        "contract_digest": "2ab9754569a1ab2223285ea6bda49bce65d52d25b70aa89b85a58d922f3d9909",
+        "content_fingerprint": "2a7dca1cec62dad38dd789c12c28f94641b5b77d1b02e511dc69bd79b8e9fed6"
+      },
+      "design_digest": "72c9791fc03e220458688ef563aaffb7261fc8a4dc6df97709d652a444795e57",
+      "acceptance_fingerprint": "2fe0308015892ce5ad58a2349895d8f5783fde4f078f08996f803af706dd14b6"
+    }
+  },
+  {
+    "id": "022f78bb-4f99-4c0d-8e2e-0db2226b0eb5",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [
+      "0dab8120-d974-4107-8bea-e42b8c2c964a"
+    ],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Split installation models, skill operations, targets, verification, and CLI while updating the installed skill contract.",
+    "description": "Scope: Closure: module - installer architecture; installation package, Hook configuration package, thin install entrypoint, skill metadata, and installer tests. Context: install.py combines 1057 lines of data, filesystem, platform, WSL, doctor, and parser responsibilities. Target: explicit installation modules with one service composition root and no old top-level hook_config implementation. Design Considerations: preserve every current target and Hook-only uninstall behavior; keep platform probes in targets, verification in doctor, and atomic skill copies in skills; update payload inventory and skill metadata once. Design Value: platform changes stop perturbing core workflow or CLI parsing. Constraints & Risks: no target removal, no Hook installation during tests, no compatibility re-export, no absolute persisted command, no runtime-data output, and no full regression in this Node.",
+    "requirements": [
+      "REQ-001",
+      "REQ-003",
+      "REQ-005",
+      "REQ-006"
+    ],
+    "design": {
+      "artifact": "docs/plan/architecture-split/Architecture.md",
+      "owned_paths": [
+        "scripts/better_plan/hooks/config.py",
+        "scripts/better_plan/installation/__init__.py",
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/installation/skills.py",
+        "scripts/better_plan/installation/targets.py",
+        "scripts/better_plan/installation/doctor.py",
+        "scripts/better_plan/installation/service.py",
+        "scripts/better_plan/adapters/install_cli.py",
+        "scripts/install.py",
+        "scripts/hook_config.py",
+        "README.md",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "references/state-files.md",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/installation/service.py",
+        "scripts/better_plan/adapters/install_cli.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "tests/test_architecture_layers.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/installation/models.py",
+          "kind": "class",
+          "name": "InstallPaths",
+          "operation": "add",
+          "signature": "InstallPaths(repo_root, client homes, target paths)"
+        },
+        {
+          "path": "scripts/better_plan/installation/skills.py",
+          "kind": "function",
+          "name": "copy_skill_tree",
+          "operation": "add",
+          "signature": "copy_skill_tree(source: Path, target: Path, *, dry_run: bool) -> None"
+        },
+        {
+          "path": "scripts/better_plan/installation/targets.py",
+          "kind": "function",
+          "name": "install_target",
+          "operation": "add",
+          "signature": "install_target(paths: InstallPaths, target: str, *, dry_run: bool) -> list[str]"
+        },
+        {
+          "path": "scripts/better_plan/installation/doctor.py",
+          "kind": "function",
+          "name": "doctor",
+          "operation": "add",
+          "signature": "doctor(paths: InstallPaths, agents: list[str]) -> list[Check]"
+        },
+        {
+          "path": "scripts/better_plan/installation/service.py",
+          "kind": "function",
+          "name": "install_agents",
+          "operation": "add",
+          "signature": "install_agents(paths: InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]"
+        },
+        {
+          "path": "scripts/better_plan/adapters/install_cli.py",
+          "kind": "function",
+          "name": "main",
+          "operation": "add",
+          "signature": "main(argv: list[str] | None = None) -> int"
+        },
+        {
+          "path": "scripts/install.py",
+          "kind": "module",
+          "name": "install_entrypoint",
+          "operation": "modify",
+          "signature": "thin adapter main only"
+        },
+        {
+          "path": "scripts/better_plan/hooks/config.py",
+          "kind": "function",
+          "name": "install_hook_config",
+          "operation": "add",
+          "signature": "install_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool"
+        },
+        {
+          "path": "scripts/hook_config.py",
+          "kind": "module",
+          "name": "hook_config",
+          "operation": "remove",
+          "signature": "hook_config"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "installation_service",
+          "producer": "scripts/better_plan/installation/service.py",
+          "consumers": [
+            "scripts/better_plan/adapters/install_cli.py"
+          ],
+          "inputs": "validated InstallPaths, target set, and dry-run flag",
+          "outputs": "bounded target summaries",
+          "errors": [
+            "InstallError without concrete machine path"
+          ]
+        },
+        {
+          "name": "skill_tree",
+          "producer": "scripts/better_plan/installation/skills.py",
+          "consumers": [
+            "scripts/better_plan/installation/service.py"
+          ],
+          "inputs": "current immutable payload inventory",
+          "outputs": "atomically replaced skill tree",
+          "errors": [
+            "missing current repository-relative file"
+          ]
+        },
+        {
+          "name": "target_adapter",
+          "producer": "scripts/better_plan/installation/targets.py",
+          "consumers": [
+            "scripts/better_plan/installation/service.py",
+            "scripts/better_plan/installation/doctor.py"
+          ],
+          "inputs": "one normalized target",
+          "outputs": "install/uninstall/probe result",
+          "errors": [
+            "bounded unavailable/failure classification"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/install.py",
+          "to": "scripts/better_plan/adapters/install_cli.py",
+          "reason": "legitimate executable delegates to installer CLI"
+        },
+        {
+          "from": "scripts/better_plan/adapters/install_cli.py",
+          "to": "scripts/better_plan/installation/service.py",
+          "reason": "adapter invokes installation use cases"
+        },
+        {
+          "from": "scripts/better_plan/installation/service.py",
+          "to": "scripts/better_plan/installation/skills.py",
+          "reason": "service composes atomic payload updates"
+        },
+        {
+          "from": "scripts/better_plan/installation/service.py",
+          "to": "scripts/better_plan/installation/targets.py",
+          "reason": "service delegates platform-specific behavior"
+        },
+        {
+          "from": "scripts/better_plan/installation/doctor.py",
+          "to": "scripts/better_plan/installation/targets.py",
+          "reason": "verification uses target probes"
+        }
+      ],
+      "decisions": {
+        "composition": "models, skill operations, target adapters, doctor, service, and thin CLI",
+        "algorithms": "linear immutable inventory checks and set-based shared target deduplication",
+        "data_structures": "frozen path/check/runtime dataclasses, tuples, and target sets",
+        "state": "skills and JSON configs use atomic replacement; service owns sequencing",
+        "isolation": "platform probes never enter domain/workflow modules",
+        "concurrency": "target writes remain serialized and WSL probes are bounded"
+      },
+      "test_seams": [
+        "dry-run target composition",
+        "Hook-only uninstall",
+        "shared skill deduplication",
+        "WSL target probe",
+        "doctor classifications",
+        "skill metadata validation"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The install entrypoint is thin; models, skill operations, targets, verification, service, and Hook configuration have separate canonical modules; the old top-level hook_config implementation is absent.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "6286e6a2236088aa3cd7ea389ba3cb7ef967d752d3c1238ba3f8a7800b1c8a24",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:40:43Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Installer, Hook-only uninstall, WSL, doctor, payload inventory, architecture, and skill metadata tests pass without installing live Hooks.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "6286e6a2236088aa3cd7ea389ba3cb7ef967d752d3c1238ba3f8a7800b1c8a24",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:40:43Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: split installer architecture",
+      "target": "layered Better Plan installation package"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool tests.test_orchestration_workflow tests.test_architecture_layers -v"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "README.md",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "references/state-files.md",
+        "scripts/install.py",
+        "scripts/better_plan/hooks/config.py",
+        "scripts/better_plan/installation",
+        "scripts/better_plan/adapters/install_cli.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_architecture_layers.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T13:40:43Z",
+        "contract_digest": "febf5ff15726b4d3496467d564c7edd0c30f42095974be2c60415384d84809d8",
+        "content_fingerprint": "bc73cdf45e52e6e15da8e02e696fc4b9ef75886ebf9e8f2d021653c81fbcb373"
+      }
+    },
+    "next": [
+      "51e94d7c-7725-4881-bdc9-747da5d609f7"
+    ],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T13:41:48Z",
+        "contract_digest": "febf5ff15726b4d3496467d564c7edd0c30f42095974be2c60415384d84809d8",
+        "content_fingerprint": "bc73cdf45e52e6e15da8e02e696fc4b9ef75886ebf9e8f2d021653c81fbcb373"
+      },
+      "design_digest": "741e615bd5eb4d4988ab276f292cddb894029305d8a983f15140791006f7765a",
+      "acceptance_fingerprint": "3d2826af98b48538c2f5257de53eba860646459b4569d227731b72d61e52aa27"
+    }
+  },
+  {
+    "id": "51e94d7c-7725-4881-bdc9-747da5d609f7",
+    "status": "completed",
+    "role": "final_validation",
+    "prerequisites": [
+      "022f78bb-4f99-4c0d-8e2e-0db2226b0eb5"
+    ],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Prove the layered package, thin entrypoints, Agent-completion routing, installer, Hooks, and skill metadata on one final fingerprint.",
+    "description": "Scope: Closure: scenario - final architecture validation; complete suite, workspace schema/source graph, requirement labels, and current active-interface audit. Context: three implementation Nodes replace all monolithic and old helper implementations with canonical layers. Target: run one full suite after all focused receipts, validate the Plan and sources, then require a fresh auditor before completion. Design Considerations: bind receipts to every current package and entrypoint; static architecture tests enforce dependency direction and module ceilings; do not rerun full regression during implementation. Design Value: the architecture claim is executable rather than descriptive. Constraints & Risks: failures create a bounded repair Node, no terminal-history rewrite, no live Hook installation, no local path persistence, and no self-approval.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006"
+    ],
+    "design": {
+      "artifact": "docs/plan/architecture-split/Architecture.md",
+      "owned_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "scaffold_paths": [
+        "scripts/manifest_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/architecture-split/Validation.md",
+        "tests/test_architecture_layers.py",
+        "tests/test_agent_completion.py",
+        "tests/test_hook_architecture.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/manifest_tool.py",
+          "kind": "module",
+          "name": "layered_architecture_final_validation",
+          "operation": "modify",
+          "signature": "full receipt plus source, label, architecture, and skill integrity validation"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "architecture_final_acceptance",
+          "producer": "scripts/manifest_tool.py",
+          "consumers": [
+            "tests/test_architecture_layers.py"
+          ],
+          "inputs": "reviewed final regression contract",
+          "outputs": "bounded receipts and one auditor action",
+          "errors": [
+            "repair_plan_required for regression or audit failure"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "tests/test_architecture_layers.py",
+          "to": "scripts/manifest_tool.py",
+          "reason": "final tests verify the legitimate entrypoint and package boundaries"
+        }
+      ],
+      "decisions": {
+        "composition": "complete suite, workspace/source validation, label check, and thin audit",
+        "algorithms": "single deterministic command sequence bound to content fingerprint",
+        "data_structures": "bounded receipts and immutable terminal history",
+        "state": "only current final acceptance snapshot mutates",
+        "isolation": "no installer or Hook writes during final validation",
+        "concurrency": "one full attempt per reviewed fingerprint"
+      },
+      "test_seams": [
+        "complete unit discovery",
+        "source graph validation",
+        "requirement traceability",
+        "architecture dependency scan",
+        "skill metadata scan"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "The complete suite passes once on the reviewed final fingerprint, including workflow, Agent completion, Hook, installer, architecture, and skill metadata coverage.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ca5ea84181b82ad1a9faaf01a206e6076bb52ea10fba46f0e8c1fb0d3b08c5c6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Workspace source validation and all six architecture requirement labels pass with thin entrypoints, canonical imports, module ceilings, and no removed implementation files.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a66b8f178d020ef6bfbcc8acf88c601828ddceb38cdd22c61aef2bdb2aa0d57c",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ca5ea84181b82ad1a9faaf01a206e6076bb52ea10fba46f0e8c1fb0d3b08c5c6",
+            "exit_code": 0,
+            "recorded_at": "2026-07-18T13:52:06Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: validate layered Better Plan architecture",
+      "target": "final architecture evidence"
+    },
+    "regression": {
+      "scope": "full",
+      "commands": [
+        "python3 -m unittest discover -s tests -v",
+        "python3 scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan architecture-split"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "README.md",
+        "SKILL.md",
+        "agents/openai.yaml",
+        "references",
+        "scripts/manifest_tool.py",
+        "scripts/install.py",
+        "scripts/hook_tool.py",
+        "scripts/better_plan",
+        "tests/test_architecture_layers.py",
+        "tests/test_agent_completion.py",
+        "tests/test_hook_architecture.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_design_contract.py",
+        "tests/test_hook_scope.py",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_orchestration_workflow.py",
+        "tests/test_role_contracts.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-18T13:52:06Z",
+        "contract_digest": "edb9597854349da84f8019e3e1f81cd50cc3b78cba2d54fba2a0ec69ddd017ae",
+        "content_fingerprint": "c1b1481d671c0aa082e19811778198ba7d76440470667bf02d5683569c8a39db"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 0,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-18T13:54:39Z",
+        "contract_digest": "edb9597854349da84f8019e3e1f81cd50cc3b78cba2d54fba2a0ec69ddd017ae",
+        "content_fingerprint": "c1b1481d671c0aa082e19811778198ba7d76440470667bf02d5683569c8a39db"
+      },
+      "design_digest": "fcd5994a224b1ce1fdd7a101e3f1f4bd031bd284ecb363583879942b8ab102eb",
+      "scaffold_fingerprint": "a28e3150245c9b46b1b7218209c77f26c37ffb63a99893cd2f7ee1846dcc930c",
+      "acceptance_fingerprint": "c62d359d84681de6c3acf3247252e7dbe091c07b21b5471f970720bc30008261"
+    }
+  }
+]
