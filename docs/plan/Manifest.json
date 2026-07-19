@@ -226,5 +226,21 @@
     "goal": "Run one bounded Better Plan lifecycle for one user-visible capability while keeping acceptance selection and waiting behavior risk-based and main-controlled.",
     "description": "A generic lightweight workflow correction that prevents automatic capability expansion, removes mechanical acceptance-category coverage, and returns every revision or new-scope decision to the native main.",
     "checkpoints": "lightweight-capability-lifecycle/Checkpoints.json"
+  },
+  {
+    "id": "12d7c232-d6d3-451e-b0a0-3633ae5695b4",
+    "status": "completed",
+    "title": "Keep the test suite portable on Windows",
+    "directory": "windows-test-portability",
+    "source_files": [
+      ".github/workflows/ci.yml",
+      "tests/test_acceptance_state_machine.py",
+      "tests/test_agent_completion.py",
+      "tests/test_architecture_layers.py",
+      "tests/test_install_tool.py"
+    ],
+    "goal": "Make the complete Better Plan regression suite deterministic on Windows with Python 3.10 without weakening the documented CLI contract.",
+    "description": "A bounded portability correction for test argument ordering, version-gated AST nodes, external executable isolation, and Windows CI coverage.",
+    "checkpoints": "windows-test-portability/Checkpoints.json"
   }
 ]

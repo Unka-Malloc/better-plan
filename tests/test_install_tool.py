@@ -20,10 +20,14 @@ from scripts.better_plan.installation import targets as install_targets
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_TOOL_PATH = REPO_ROOT / "scripts" / "install.py"
 
-def run_command(*args: str | Path) -> subprocess.CompletedProcess[str]:
+def run_command(
+    *args: str | Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(arg) for arg in args],
         cwd=REPO_ROOT,
+        env=env,
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -47,6 +51,11 @@ def make_paths(root: Path) -> object:
 
 
 class InstallToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        wsl_discovery = mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[])
+        wsl_discovery.start()
+        self.addCleanup(wsl_discovery.stop)
+
     def test_parse_running_wsl_distros(self) -> None:
         output = "\ufeff  NAME                   STATE           VERSION\r\n* Debian                 Running         2\r\n  Ubuntu                 Stopped         2\r\n  docker-desktop         Running         2\r\n"
 
@@ -136,7 +145,7 @@ class InstallToolTests(unittest.TestCase):
             env["CODEX_HOME"] = str(paths.codex_home)
             env["CLAUDE_HOME"] = str(paths.claude_home)
             env["CURSOR_HOME"] = str(paths.cursor_home)
-            env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
+            env["PATH"] = str(Path(sys.executable).parent)
             for command in managed_commands:
                 result = subprocess.run(
                     command,
@@ -825,6 +834,8 @@ class InstallToolTests(unittest.TestCase):
             cursor_home = home / ".cursor"
             copilot_home = home / ".copilot"
             gemini_home = home / ".gemini"
+            isolated_env = os.environ.copy()
+            isolated_env["PATH"] = ""
 
             install_result = run_command(
                 sys.executable,
@@ -843,6 +854,7 @@ class InstallToolTests(unittest.TestCase):
                 gemini_home,
                 "--gemini-scope",
                 "*",
+                env=isolated_env,
             )
             self.assertEqual(install_result.returncode, 0, install_result.stderr)
             self.assertIn("shared: updated", install_result.stdout)
@@ -867,6 +879,7 @@ class InstallToolTests(unittest.TestCase):
                 copilot_home,
                 "--gemini-home",
                 gemini_home,
+                env=isolated_env,
             )
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
             self.assertIn("OK: codex:", doctor_result.stdout)

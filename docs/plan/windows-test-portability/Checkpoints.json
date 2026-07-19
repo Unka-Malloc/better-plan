@@ -1,0 +1,282 @@
+[
+  {
+    "id": "d0f5ce77-b725-4922-aebf-5531cecc7028",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "windows",
+    "difficulty": "high",
+    "goal": "Make Windows and Python 3.10 regression execution deterministic without changing the production CLI contract.",
+    "description": "Scope: Closure: scenario - Windows test portability across CLI subprocess helpers, architecture analysis, installer isolation, and CI. Context: the nightly suite exposed argument-ordering mistakes, a Python 3.11-only AST reference, and inherited host tool discovery. Target: all 204 tests pass on Windows Python 3.10 and CI preserves that coverage. Design Considerations: keep the strict CLI grammar, use version-aware AST node tuples, isolate PATH and WSL probes at test boundaries, and use a bounded OS/Python matrix. Design Value: failures represent repository behavior rather than the developer workstation. Constraints & Risks: no production parser fallback, no removal of optional-client runtime verification, no host CLI execution from tests, and no persistence of machine-specific output.",
+    "requirements": [
+      "REQ-WIN-001",
+      "REQ-WIN-002",
+      "REQ-WIN-003",
+      "REQ-WIN-004"
+    ],
+    "design": {
+      "artifact": "docs/plan/windows-test-portability/Architecture.md",
+      "owned_paths": [
+        ".github/workflows/ci.yml",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_agent_completion.py",
+        "tests/test_architecture_layers.py",
+        "tests/test_install_tool.py"
+      ],
+      "scaffold_paths": [
+        "tests/test_architecture_layers.py",
+        "tests/test_install_tool.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/windows-test-portability/Validation.md"
+      ],
+      "symbols": [
+        {
+          "path": "tests/test_architecture_layers.py",
+          "kind": "type",
+          "name": "TRY_NODE_TYPES",
+          "operation": "add",
+          "signature": "tuple[type[ast.AST], ...]"
+        },
+        {
+          "path": "tests/test_install_tool.py",
+          "kind": "function",
+          "name": "run_command",
+          "operation": "modify",
+          "signature": "run_command(*args: str | Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "portable_test_runtime",
+          "producer": "tests/test_install_tool.py",
+          "consumers": [
+            "scripts/better_plan/installation/doctor.py",
+            "scripts/better_plan/installation/targets.py"
+          ],
+          "inputs": "controlled executable search path and mocked WSL discovery",
+          "outputs": "deterministic installer and doctor results",
+          "errors": [
+            "unexpected host CLI execution",
+            "unexpected WSL mutation"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": ".github/workflows/ci.yml",
+          "to": "tests",
+          "reason": "the Windows Python 3.10 job enforces the portability floor"
+        }
+      ],
+      "decisions": {
+        "composition": "correct test call sites and isolate external discovery at subprocess boundaries",
+        "algorithms": "constant-size AST type selection and direct positional argument insertion",
+        "data_structures": "immutable AST type tuple and copied subprocess environment mappings",
+        "state": "production CLI and installer behavior remain unchanged",
+        "isolation": "host PATH and WSL discovery are unavailable except in explicit integration fixtures",
+        "concurrency": "independent CI jobs share one test contract and no mutable runtime state"
+      },
+      "test_seams": [
+        "node command positional ordering",
+        "Python 3.10 AST analysis",
+        "optional CLI absence",
+        "controlled WSL discovery",
+        "Windows CI matrix"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "State-machine and Agent-completion subprocess tests use the documented workspace position and pass with Windows paths.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "ff9589960e74f51a5cc9c4734f3d88062b11f378e66f0311d66ca513f800d2c3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f29bb020c0c27f7936bfce3d7141e2494a8e15aa181a16f5d1672cab993f93af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "412e3b1e30c8590235083e1bcada695d5fb60aadc042bca971876ac2af04c207",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0e7cd9b0daf4b7237c277b3bfe83599935dc9e29a9a0c86202f871d40a1c0f2e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "131663727d6452489c5a545d5a279cff32a4c7a11cc1014f8a91d549d4d5b23d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Architecture analysis passes on Python 3.10 while retaining try-star coverage on newer Python versions.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "ff9589960e74f51a5cc9c4734f3d88062b11f378e66f0311d66ca513f800d2c3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f29bb020c0c27f7936bfce3d7141e2494a8e15aa181a16f5d1672cab993f93af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "412e3b1e30c8590235083e1bcada695d5fb60aadc042bca971876ac2af04c207",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0e7cd9b0daf4b7237c277b3bfe83599935dc9e29a9a0c86202f871d40a1c0f2e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "131663727d6452489c5a545d5a279cff32a4c7a11cc1014f8a91d549d4d5b23d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Installer tests cannot discover optional host CLIs or WSL runtimes outside explicit controlled fixtures.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "ff9589960e74f51a5cc9c4734f3d88062b11f378e66f0311d66ca513f800d2c3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f29bb020c0c27f7936bfce3d7141e2494a8e15aa181a16f5d1672cab993f93af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "412e3b1e30c8590235083e1bcada695d5fb60aadc042bca971876ac2af04c207",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0e7cd9b0daf4b7237c277b3bfe83599935dc9e29a9a0c86202f871d40a1c0f2e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "131663727d6452489c5a545d5a279cff32a4c7a11cc1014f8a91d549d4d5b23d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The complete suite, workspace validation, label checks, and Codex doctor pass after local installation.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "ff9589960e74f51a5cc9c4734f3d88062b11f378e66f0311d66ca513f800d2c3",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "f29bb020c0c27f7936bfce3d7141e2494a8e15aa181a16f5d1672cab993f93af",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "412e3b1e30c8590235083e1bcada695d5fb60aadc042bca971876ac2af04c207",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "0e7cd9b0daf4b7237c277b3bfe83599935dc9e29a9a0c86202f871d40a1c0f2e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "131663727d6452489c5a545d5a279cff32a4c7a11cc1014f8a91d549d4d5b23d",
+            "exit_code": 0,
+            "recorded_at": "2026-07-19T16:36:01Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "test: harden Windows compatibility coverage",
+      "target": "Windows-portable regression suite and CI"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python -m unittest discover -s tests -v",
+        "python scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python scripts/manifest_tool.py check-labels docs/plan --plan windows-test-portability",
+        "python scripts/install.py update --agents codex",
+        "python scripts/install.py doctor --agents codex"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        ".github/workflows/ci.yml",
+        "docs/plan/windows-test-portability/Validation.md",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_agent_completion.py",
+        "tests/test_architecture_layers.py",
+        "tests/test_install_tool.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-19T16:36:01Z",
+        "contract_digest": "3e356c5e04992c09d3a442f9ed903132f0d61eb281d218c996b45fafed6bd8e0",
+        "content_fingerprint": "fc6f2643e6387c66da7894a798a1c778f014548d00f4ebdebfb4af125f83399a"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 3,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-19T16:36:48Z",
+        "contract_digest": "3e356c5e04992c09d3a442f9ed903132f0d61eb281d218c996b45fafed6bd8e0",
+        "content_fingerprint": "fc6f2643e6387c66da7894a798a1c778f014548d00f4ebdebfb4af125f83399a"
+      },
+      "design_digest": "5a130c25005ea68a3dfda32c91bebfb72b625bbbb25b15ec6d00282baade9de0",
+      "acceptance_fingerprint": "7f1e01219af5aa6c0851af6e0a9a4043008701f4e817bd3a4ef2de57e6c5f2e7"
+    }
+  }
+]
