@@ -1,0 +1,180 @@
+[
+  {
+    "id": "3ff9702a-cad5-40d6-af73-4dc8af8587b1",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Replace Gemini maintenance with Antigravity, Pi, and Craft Agent installation.",
+    "description": "Scope: Closure: capability - supported local-agent matrix migration. Context: Gemini is no longer maintained and the installer must support Antigravity, Pi, and Craft Agents through their current native skill surfaces. Target: remove the Gemini target completely, add atomic Antigravity plugin installation with a first-invocation Hook, use shared skill discovery for Pi, and update every configured Craft workspace. Design Considerations: reuse the canonical skill copier and bounded Hook runtime; enumerate only valid Craft workspaces. Design Value: one explicit target matrix prevents drifting legacy adapters. Constraints & Risks: do not create Craft workspaces, intercept tools, force agent continuation, retain Gemini compatibility, or expose local paths.",
+    "requirements": [
+      "REQ-001"
+    ],
+    "design": {
+      "artifact": "docs/plan/agent-target-matrix/Architecture.md",
+      "owned_paths": [
+        "README.md",
+        "scripts/better_plan/adapters/install_cli.py",
+        "scripts/better_plan/hooks/config.py",
+        "scripts/better_plan/hooks/protocols.py",
+        "scripts/better_plan/hooks/runtime.py",
+        "scripts/better_plan/hooks/scope.py",
+        "scripts/better_plan/installation/doctor.py",
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/installation/service.py",
+        "scripts/better_plan/installation/skills.py",
+        "scripts/better_plan/installation/targets.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/installation/targets.py",
+        "scripts/better_plan/installation/doctor.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/agent-target-matrix/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/installation/models.py",
+          "kind": "type",
+          "name": "AGENTS",
+          "operation": "modify",
+          "signature": "AGENTS: tuple[str, ...]"
+        },
+        {
+          "path": "scripts/better_plan/installation/targets.py",
+          "kind": "function",
+          "name": "install_antigravity_plugin",
+          "operation": "add",
+          "signature": "install_antigravity_plugin(paths: InstallPaths, *, dry_run: bool) -> None"
+        },
+        {
+          "path": "scripts/better_plan/installation/targets.py",
+          "kind": "function",
+          "name": "install_craft_skills",
+          "operation": "add",
+          "signature": "install_craft_skills(paths: InstallPaths, *, dry_run: bool) -> int"
+        },
+        {
+          "path": "scripts/better_plan/hooks/protocols.py",
+          "kind": "function",
+          "name": "context_response",
+          "operation": "modify",
+          "signature": "context_response(agent: str, event: str, value: str) -> dict[str, Any]"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "supported agent target selection",
+          "producer": "scripts/better_plan/installation/models.py",
+          "consumers": [
+            "scripts/better_plan/adapters/install_cli.py",
+            "scripts/better_plan/installation/doctor.py",
+            "scripts/better_plan/installation/service.py"
+          ],
+          "inputs": "normalized agent names and configured home roots",
+          "outputs": "current target-specific installation and diagnosis",
+          "errors": [
+            "InstallError for an unknown target or unsafe configuration"
+          ]
+        },
+        {
+          "name": "Antigravity first invocation guidance",
+          "producer": "scripts/better_plan/hooks/protocols.py",
+          "consumers": [
+            "scripts/better_plan/installation/targets.py"
+          ],
+          "inputs": "one detected workspace and invocation zero",
+          "outputs": "one ephemeral guidance step",
+          "errors": [
+            "safe empty object for invalid or unrelated contexts"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/installation/targets.py",
+          "to": "scripts/better_plan/installation/skills.py",
+          "reason": "reuse atomic canonical skill copying"
+        },
+        {
+          "from": "scripts/better_plan/installation/targets.py",
+          "to": "scripts/better_plan/hooks/config.py",
+          "reason": "generate one portable Antigravity Hook command"
+        }
+      ],
+      "decisions": {
+        "composition": "target-specific adapters behind one installer service",
+        "algorithms": "one pass over supported targets and configured Craft workspaces",
+        "data_structures": "immutable target tuples and deterministic workspace path tuples",
+        "state": "atomic replacement per plugin or skill tree",
+        "isolation": "Antigravity plugin, Pi shared skill, and Craft workspace skills remain separate",
+        "concurrency": "atomic directory swaps avoid partially installed skill trees"
+      },
+      "test_seams": [
+        "temporary home trees",
+        "host Hook protocol encoding",
+        "CLI target parsing"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Gemini is absent from selectable targets while Antigravity, Pi, and every configured Craft workspace install, diagnose, and uninstall through their current native contracts.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "b8cd1b72ce791f9ba0991e06ec9dda5f00d05d04891266f5b291ca72e1dcedde",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T15:03:51Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "replace Gemini with current agent adapters",
+      "target": "supported local-agent installer matrix"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool tests.test_hook_tool tests.test_orchestration_workflow -v"
+      ],
+      "criteria": [
+        0
+      ],
+      "paths": [
+        "README.md",
+        "scripts/better_plan/adapters/install_cli.py",
+        "scripts/better_plan/hooks",
+        "scripts/better_plan/installation",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-23T15:03:51Z",
+        "contract_digest": "f7f52d17fda538a89a34826440937ec32201b6447571af51f455a0f5809a8771",
+        "content_fingerprint": "84df5c839a9a7e2242c647214d52af06fd8035159d3bdaed2f90aa664652ab0a"
+      }
+    },
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-23T15:04:17Z",
+        "contract_digest": "f7f52d17fda538a89a34826440937ec32201b6447571af51f455a0f5809a8771",
+        "content_fingerprint": "84df5c839a9a7e2242c647214d52af06fd8035159d3bdaed2f90aa664652ab0a"
+      },
+      "design_digest": "5e463aa637b6b34eb26d5c71a2d1d617f6a11397aced4b7b3de360e9a291c2b2",
+      "acceptance_fingerprint": "80166358647bd4c740ecd141ad7f57678a2032fca93dd40ec057aeff97c7f763"
+    },
+    "next": []
+  }
+]

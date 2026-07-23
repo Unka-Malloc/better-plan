@@ -28,22 +28,36 @@ python3 scripts/install.py update
 
 The installer is idempotent and installs:
 
-- A configured shared or client-native skill source for Codex, Cursor, Copilot, and adapter clients
+- A configured shared or client-native skill source for Codex, Cursor, Copilot, Pi, Kimi Code, and adapter clients
 - A Claude Code skills-dir plugin
 - An OpenCode primary agent
-- A Gemini/Antigravity extension with a relative enablement scope
-- Managed detector-gated lifecycle handlers for Codex, Claude Code, and Cursor:
+- An Antigravity plugin containing the Better Plan skill and a first-invocation lifecycle Hook
+- The Better Plan skill in every configured Craft Agents workspace
+- Managed detector-gated lifecycle handlers for Codex, Claude Code, Cursor, and Kimi Code:
   - Codex and Claude Code receive nested `SessionStart`, `UserPromptSubmit`, and an Agent-only `PostToolUse` hook.
   - Cursor receives flat version 1 hooks: `sessionStart`, `beforeSubmitPrompt`, and Agent/Task-only `postToolUse`.
+  - Kimi Code receives TOML `SessionStart`, `UserPromptSubmit`, and `SubagentStop` hooks.
+- A plugin-owned Antigravity `PreInvocation` handler that injects guidance only on invocation zero.
 - Managed Hook handlers are attached only through these supported events.
 
-Nested Codex and Claude command handlers use one bounded timeout, `HOOK_TIMEOUT_SECONDS` (currently 30 seconds), for the Hook command process itself. It does not observe, limit, interrupt, or replace an Agent: Agent completion has already occurred before the completion Hook starts. If automatic regression outlives that outer Hook window, the host may terminate the Hook before its directive or final state update is returned; the native main remains running and can inspect progress. Cursor handlers use the host's flat version 1 command shape without adding undocumented handler fields.
+Nested Codex and Claude command handlers and Kimi Code TOML handlers use one bounded timeout, `HOOK_TIMEOUT_SECONDS` (currently 30 seconds), for the Hook command process itself. It does not observe, limit, interrupt, or replace an Agent: Agent completion has already occurred before the completion Hook starts. If automatic regression outlives that outer Hook window, the host may terminate the Hook before its directive or final state update is returned; the native main remains running and can inspect progress. Cursor handlers use the host's flat version 1 command shape without adding undocumented handler fields.
 
 Better Plan does not poll or time delegated Agents. Dispatch lifetime, cancellation, and host-level timeout behavior belong exclusively to the native agent framework. Better Plan reacts only after the correlated Agent-completion event is delivered.
 
-Codex, Cursor, and Copilot can scan the configured shared skill directory, but each client resolves its install target independently. A clean install uses the shared target. If only a client's native target already has Better Plan, update keeps that target as the source of truth. If both shared and native copies exist for the same client, shared wins and the duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
+Codex, Cursor, Copilot, Pi, and Kimi Code can scan the configured shared skill directory, but each client resolves its install target independently. A clean install uses the shared target. If only a client's native target already has Better Plan, update keeps that target as the source of truth. If both shared and native copies exist for the same client, shared wins and the duplicate is removed so only one current implementation remains. When `scripts/install.py` sees an existing Better Plan install, it switches to the same update flow automatically.
+
+Antigravity uses its documented global plugin location. Its plugin owns one `PreInvocation` Hook
+that injects Better Plan guidance only for the first model invocation in a structurally detected
+workspace. It does not install `PreToolUse`, `PostToolUse`, `PostInvocation`, or `Stop` handlers.
+Craft Agents isolates skills by workspace, so installation updates each existing workspace that has
+a `config.json`; if no workspace exists, installation reports that fact without creating a fake one.
 
 Selecting Cursor through `--agents` installs both its Better Plan skill surface and its managed lifecycle handlers.
+Selecting Kimi through `--agents` installs its discoverable skill surface and manages only Better Plan-owned
+`[[hooks]]` tables in `config.toml`. Kimi's `UserPromptSubmit` carries the short intent guidance;
+`SessionStart` performs detector-gated observation, and `SubagentStop` reduces a correlated lifecycle after
+the child succeeds. Kimi documents the latter two events as observation-only, so Better Plan never treats
+their stdout as a main-thread control channel.
 
 On Windows, installation and update also discover each running WSL distribution with OpenCode and run the same installer inside that distribution. This creates its WSL shared skill source and OpenCode primary agent, rather than leaving WSL to use a Windows-only adapter. The Better Plan source must be reachable from that distribution through `wslpath`.
 
@@ -69,10 +83,12 @@ python3 scripts/install.py doctor
 - Codex: `SessionStart`, `UserPromptSubmit`, `PostToolUse` matched only to `Agent`
 - Claude Code: `SessionStart`, `UserPromptSubmit`, `PostToolUse` matched only to `Agent`
 - Cursor: `sessionStart`, `beforeSubmitPrompt`, `postToolUse` matched only to `Agent` or `Task`
+- Antigravity: plugin-owned `PreInvocation` only
+- Kimi Code: `SessionStart`, `UserPromptSubmit`, `SubagentStop`
 
-When a native CLI is available, it additionally checks Cursor and Copilot can run, validates and lists the Gemini extension, validates the Claude plugin, and confirms OpenCode lists the Better Plan agent. On Windows it performs the OpenCode agent-list check inside every detected WSL distribution as well. Missing optional client CLIs produce a warning instead of a failed structural install.
+When a native CLI is available, it additionally checks Cursor, Copilot, and Kimi Code can run, validates the Claude plugin, and confirms OpenCode lists the Better Plan agent. It structurally validates the Antigravity plugin and every configured Craft workspace. On Windows it performs the OpenCode agent-list check inside every detected WSL distribution as well. Missing optional client CLIs produce a warning instead of a failed structural install.
 
-Codex, Claude Code, and Cursor Hook installation preserves unrelated settings and handlers. Repeated install/update replaces only handlers carrying the Better Plan ownership marker; full `uninstall` removes installed adapters and their managed handlers, while hook-only uninstallation is done with `uninstall-hooks`. Managed commands contain no concrete machine path and locate the skill through client environment roots plus relative path segments. Every invocation runs the dedicated project detector first and returns a safe no-op when no structured Better Plan workspace exists.
+Codex, Claude Code, Cursor, and Kimi Code Hook installation preserves unrelated settings and handlers. Antigravity's Hook is isolated inside the Better Plan plugin. Repeated install/update replaces only Better Plan-owned handlers or plugin files; full `uninstall` removes installed adapters and their managed handlers, while hook-only uninstallation is done with `uninstall-hooks`. Managed commands contain no concrete machine path and locate the skill through client environment roots plus relative path segments. Every invocation runs the dedicated project detector first and returns a safe no-op when no structured Better Plan workspace exists.
 
 Every invocation first detects exactly one valid Better Plan workspace. If there is no workspace, ambiguity, malformed structure, or conflicting repository root, callbacks exit successfully with no action.
 
@@ -82,19 +98,19 @@ Install a subset of agents:
 
 ```sh
 python3 scripts/install.py --agents codex,claude
-python3 scripts/install.py update --agents opencode cursor copilot gemini
+python3 scripts/install.py update --agents opencode cursor copilot antigravity pi craft kimi
 ```
 
 Remove installed adapters:
 
 ```sh
 python3 scripts/install.py uninstall
-python3 scripts/install.py uninstall-hooks --agents codex,claude,cursor
+python3 scripts/install.py uninstall-hooks --agents codex,claude,cursor,antigravity,kimi
 ```
 
 Hook-only removal is idempotent and affects only managed handlers; it does not remove installed skills or unrelated settings.
 
-The current implementation uses `CURRENT_SKILL_FILES` above as the canonical payload inventory for each resolved target. OpenCode and Gemini/Antigravity discover the installed skill by logical name instead of persisting a concrete local path. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer manages are updated in place without creating Better Plan backup copies.
+The current implementation uses `CURRENT_SKILL_FILES` above as the canonical payload inventory for each resolved target. OpenCode discovers the installed skill by logical name, Antigravity receives a plugin-owned skill tree, and Craft receives one tree per configured workspace. Claude receives a skills-dir plugin because it expects a plugin-shaped install. Existing user config files that the installer manages are updated in place without creating Better Plan backup copies.
 
 ## Commands
 
@@ -184,7 +200,7 @@ Read-only verdicts remain main-thread decisions. Approval may continue the same 
 
 Waiting cadence is a communication heuristic. While delegated state is unchanged, the native main uses the host waiting facility without repeating status reports. Better Plan does not time, poll, interrupt, replace, or decide the lifetime of a delegated agent, and waiting is never an execution, completion, or failure gate.
 
-Codex and Claude receive only the short intent guidance at prompt submit; no Plan list, Plan prose, active Node, workspace label, or role contract is injected ahead of the main agent's judgment.
+Codex, Claude, and Kimi Code receive only the short intent guidance at prompt submit; no Plan list, Plan prose, active Node, workspace label, or role contract is injected ahead of the main agent's judgment.
 - Cursor `sessionStart` supplies `additional_context`. Its `beforeSubmitPrompt` callback returns only `continue: true`; the standing session duty therefore carries intent-alignment responsibility without denying the prompt.
 - Session and prompt duties share one short instruction: prioritize the user's request, and consider Better Plan only after an explicit implementation request.
 - Recognized Codex and Claude subagent lifecycle callbacks are no-ops to prevent orchestration recursion without misclassifying ordinary named main sessions.

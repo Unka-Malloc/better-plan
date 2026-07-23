@@ -1,0 +1,172 @@
+[
+  {
+    "id": "d464e8ff-23f0-4a99-93e9-0c051e6021e5",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "medium",
+    "goal": "Add complete Kimi Code Skill and lifecycle Hook support.",
+    "description": "Scope: Closure: capability - Kimi Code Better Plan integration. Context: Kimi Code supports standard Agent Skills and native lifecycle Hooks but Better Plan has no selectable or managed Kimi target. Target: install one discoverable Skill, manage only three detector-gated lifecycle Hook tables, translate native payloads and stdout, diagnose the target, and remove it cleanly. Design Considerations: extend the existing target inventory, shared Skill resolver, protocol adapter, TOML ownership boundary, and Doctor. Design Value: one native adapter reuses the canonical workflow without project-specific policy. Constraints & Risks: no tool interception, stop continuation, blocking response, absolute generated path, provider-config parsing, legacy Kimi path, or unrelated config rewrite.",
+    "requirements": [
+      "REQ-001"
+    ],
+    "design": {
+      "artifact": "docs/plan/kimi-code-support/Architecture.md",
+      "owned_paths": [
+        "README.md",
+        "scripts/better_plan/adapters/install_cli.py",
+        "scripts/better_plan/hooks/config.py",
+        "scripts/better_plan/hooks/protocols.py",
+        "scripts/better_plan/hooks/runtime.py",
+        "scripts/better_plan/installation/doctor.py",
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/installation/service.py",
+        "scripts/better_plan/installation/skills.py",
+        "scripts/better_plan/installation/targets.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/installation/models.py",
+        "scripts/better_plan/hooks/config.py",
+        "scripts/better_plan/hooks/protocols.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/kimi-code-support/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/installation/models.py",
+          "kind": "type",
+          "name": "AGENTS",
+          "operation": "modify",
+          "signature": "AGENTS: tuple[str, ...]"
+        },
+        {
+          "path": "scripts/better_plan/hooks/config.py",
+          "kind": "function",
+          "name": "merged_kimi_config",
+          "operation": "add",
+          "signature": "merged_kimi_config(current: str) -> str"
+        },
+        {
+          "path": "scripts/better_plan/hooks/protocols.py",
+          "kind": "function",
+          "name": "context_response",
+          "operation": "modify",
+          "signature": "context_response(agent: str, event: str, value: str) -> dict[str, Any] | str"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "Kimi target lifecycle",
+          "producer": "scripts/better_plan/installation/service.py",
+          "consumers": [
+            "scripts/better_plan/adapters/install_cli.py",
+            "scripts/better_plan/installation/doctor.py"
+          ],
+          "inputs": "normalized Kimi target and configured home root",
+          "outputs": "installed Skill plus owned lifecycle Hook tables",
+          "errors": [
+            "InstallError when configuration cannot be updated safely"
+          ]
+        },
+        {
+          "name": "Kimi lifecycle protocol",
+          "producer": "scripts/better_plan/hooks/protocols.py",
+          "consumers": [
+            "scripts/better_plan/hooks/runtime.py",
+            "scripts/better_plan/hooks/config.py"
+          ],
+          "inputs": "native event payload and normalized lifecycle event",
+          "outputs": "plain guidance text, state reduction, or silent no-op",
+          "errors": [
+            "safe no-op for invalid or unrelated contexts"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/installation/targets.py",
+          "to": "scripts/better_plan/hooks/config.py",
+          "reason": "manage only canonical Kimi lifecycle Hook tables"
+        },
+        {
+          "from": "scripts/better_plan/hooks/runtime.py",
+          "to": "scripts/better_plan/application/agent_completion.py",
+          "reason": "reuse the correlated completion reducer after SubagentStop"
+        }
+      ],
+      "decisions": {
+        "composition": "one target adapter over the existing installer and Hook layers",
+        "algorithms": "single-pass owned TOML table replacement and constant event mapping",
+        "data_structures": "immutable target inventory and ordered Hook event mapping",
+        "state": "Kimi config owns unrelated state; Better Plan owns only marked Hook tables",
+        "isolation": "portable commands discover the installed Skill without embedding a machine path",
+        "concurrency": "atomic config replacement prevents partial Hook installation"
+      },
+      "test_seams": [
+        "temporary Kimi home",
+        "plain-text Hook subprocess boundary",
+        "Doctor with optional CLI absent"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Kimi Code installs, detects, advances, diagnoses, and uninstalls Better Plan through its current native Skill and Hook contracts while preserving unrelated configuration and remaining non-blocking.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "9a2203efa5b1a1ec605198ed961341c034c356c126c7465aea32a7495dc5820b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T18:02:44Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "add complete Kimi Code support",
+      "target": "Kimi Code Better Plan adapter"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_install_tool tests.test_hook_tool tests.test_orchestration_workflow tests.test_agent_completion -v"
+      ],
+      "criteria": [
+        0
+      ],
+      "paths": [
+        "README.md",
+        "scripts/better_plan/adapters/install_cli.py",
+        "scripts/better_plan/hooks",
+        "scripts/better_plan/installation",
+        "tests/test_hook_tool.py",
+        "tests/test_install_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-23T18:02:44Z",
+        "contract_digest": "406df941684c89575cbe1bc3f20809037d7e5a49b9fd16016c5ff4a918ee0350",
+        "content_fingerprint": "97443de47f240d8b5b43ac561907bf02003136af168aef7f152369866e556556"
+      }
+    },
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-23T18:03:37Z",
+        "contract_digest": "406df941684c89575cbe1bc3f20809037d7e5a49b9fd16016c5ff4a918ee0350",
+        "content_fingerprint": "97443de47f240d8b5b43ac561907bf02003136af168aef7f152369866e556556"
+      },
+      "design_digest": "76853f7c0e31a8f862e74dbf7efde577dfc8bb67706b43d71ae28b814bd7039e",
+      "acceptance_fingerprint": "ce46b3cbc93e8d21e58937c4c2cc6cf090936c7e9f8c0ac9e6cfa518b7f7158f"
+    },
+    "next": []
+  }
+]

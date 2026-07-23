@@ -167,12 +167,15 @@ class HookToolTests(unittest.TestCase):
                     event=event,
                 )
                 for event in ("session-start", "prompt-submit", "agent-complete")
-                for agent in ("codex", "claude", "cursor")
+                for agent in ("codex", "claude", "cursor", "antigravity", "kimi")
             ]
 
-        for result in results:
+        for index, result in enumerate(results):
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), {})
+            if index % 5 == 4:
+                self.assertEqual(result.stdout, "")
+            else:
+                self.assertEqual(json.loads(result.stdout), {})
 
     def test_session_start_injects_only_short_intent_guidance(self) -> None:
         for agent in ("codex", "claude"):
@@ -258,6 +261,26 @@ class HookToolTests(unittest.TestCase):
             context = response["additional_context"]
             self.assertEqual(context, hook_context.INTENT_GUIDANCE)
 
+    def test_antigravity_injects_guidance_only_on_first_invocation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = self.make_project(Path(tmpdir))
+            write_workspace(project, [active_node(NODE_A_ID)])
+            payload = {"workspacePaths": [str(project)], "invocationNum": 0}
+
+            first = run_hook("antigravity", payload, event="session-start")
+            later = run_hook(
+                "antigravity",
+                {**payload, "invocationNum": 1},
+                event="session-start",
+            )
+
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(
+                json.loads(first.stdout),
+                {"injectSteps": [{"ephemeralMessage": hook_context.INTENT_GUIDANCE}]},
+            )
+            self.assertEqual(json.loads(later.stdout), {})
+
     def test_cursor_prompt_submit_returns_continue_only(self) -> None:
         sentinel = "private-cursor-prompt"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -272,6 +295,30 @@ class HookToolTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {"continue": True})
+
+    def test_kimi_lifecycle_uses_native_plain_text_and_empty_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = self.make_project(Path(tmpdir))
+            write_workspace(project, [active_node(NODE_A_ID)])
+
+            session = run_hook("kimi", {"cwd": str(project)}, event="session-start")
+            prompt = run_hook(
+                "kimi",
+                {"cwd": str(project), "prompt": "implement the requested change"},
+                event="prompt-submit",
+            )
+            unrelated_completion = run_hook(
+                "kimi",
+                {"cwd": str(project)},
+                event="agent-complete",
+            )
+
+            self.assertEqual(session.returncode, 0, session.stderr)
+            self.assertEqual(session.stdout.strip(), hook_context.INTENT_GUIDANCE)
+            self.assertEqual(prompt.returncode, 0, prompt.stderr)
+            self.assertEqual(prompt.stdout.strip(), hook_context.INTENT_GUIDANCE)
+            self.assertEqual(unrelated_completion.returncode, 0, unrelated_completion.stderr)
+            self.assertEqual(unrelated_completion.stdout, "")
 
     def test_protocol_event_inventory_is_exact(self) -> None:
         self.assertEqual(
@@ -296,6 +343,14 @@ class HookToolTests(unittest.TestCase):
                 "sessionStart": "session-start",
                 "beforeSubmitPrompt": "prompt-submit",
                 "postToolUse": "agent-complete",
+            },
+        )
+        self.assertEqual(
+            dict(protocols.host_events("kimi")),
+            {
+                "SessionStart": "session-start",
+                "UserPromptSubmit": "prompt-submit",
+                "SubagentStop": "agent-complete",
             },
         )
 

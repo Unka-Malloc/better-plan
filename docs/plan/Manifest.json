@@ -239,5 +239,54 @@
     "goal": "Make the complete Better Plan regression suite deterministic on Windows with Python 3.10 without weakening the documented CLI contract.",
     "description": "A bounded portability correction for test argument ordering, version-gated AST nodes, external executable isolation, and Windows CI coverage.",
     "checkpoints": "windows-test-portability/Checkpoints.json"
+  },
+  {
+    "id": "eb528be7-d069-4976-a89f-77eb879a3b9e",
+    "status": "completed",
+    "title": "Maintain the current local-agent target matrix",
+    "directory": "agent-target-matrix",
+    "source_files": [
+      "README.md",
+      "scripts/better_plan/adapters/install_cli.py",
+      "scripts/better_plan/hooks/config.py",
+      "scripts/better_plan/hooks/protocols.py",
+      "scripts/better_plan/hooks/runtime.py",
+      "scripts/better_plan/hooks/scope.py",
+      "scripts/better_plan/installation/doctor.py",
+      "scripts/better_plan/installation/models.py",
+      "scripts/better_plan/installation/service.py",
+      "scripts/better_plan/installation/skills.py",
+      "scripts/better_plan/installation/targets.py",
+      "tests/test_hook_tool.py",
+      "tests/test_install_tool.py",
+      "tests/test_orchestration_workflow.py"
+    ],
+    "goal": "Replace retired Gemini maintenance with native Better Plan installation for Antigravity, Pi, and Craft Agents.",
+    "description": "One installer-matrix migration that removes the Gemini target completely and adds bounded, native integrations for Antigravity, Pi, and every configured Craft workspace.",
+    "checkpoints": "agent-target-matrix/Checkpoints.json"
+  },
+  {
+    "id": "48c11d80-d0b2-49d6-a8c5-c38144e37b33",
+    "status": "completed",
+    "title": "Support Better Plan in Kimi Code",
+    "directory": "kimi-code-support",
+    "source_files": [
+      "README.md",
+      "scripts/better_plan/adapters/install_cli.py",
+      "scripts/better_plan/hooks/config.py",
+      "scripts/better_plan/hooks/protocols.py",
+      "scripts/better_plan/hooks/runtime.py",
+      "scripts/better_plan/installation/doctor.py",
+      "scripts/better_plan/installation/models.py",
+      "scripts/better_plan/installation/service.py",
+      "scripts/better_plan/installation/skills.py",
+      "scripts/better_plan/installation/targets.py",
+      "tests/test_hook_tool.py",
+      "tests/test_install_tool.py",
+      "tests/test_orchestration_workflow.py"
+    ],
+    "goal": "Install, guide, advance, diagnose, and uninstall Better Plan through Kimi Code's native Skill and Hook contracts.",
+    "description": "One bounded agent-target integration using Kimi Code's current user Skill discovery and lifecycle Hook configuration without tool interception or forced continuation.",
+    "checkpoints": "kimi-code-support/Checkpoints.json"
   }
 ]
