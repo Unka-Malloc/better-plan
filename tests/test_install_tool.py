@@ -45,8 +45,10 @@ def make_paths(root: Path) -> object:
         opencode_config=home / ".config" / "opencode",
         cursor_home=home / ".cursor",
         copilot_home=home / ".copilot",
-        gemini_home=home / ".gemini",
-        gemini_scope="*",
+        antigravity_home=home / ".gemini" / "config",
+        pi_home=home / ".pi" / "agent",
+        craft_home=home / ".craft-agent",
+        kimi_home=home / ".kimi-code",
     )
 
 
@@ -61,6 +63,10 @@ class InstallToolTests(unittest.TestCase):
 
         self.assertEqual(install_targets.parse_running_wsl_distros(output), ["Debian", "docker-desktop"])
 
+    def test_retired_gemini_target_is_rejected(self) -> None:
+        with self.assertRaises(install_models.InstallError):
+            install_cli.parse_agents(["gemini"])
+
     def test_install_creates_all_current_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
@@ -68,6 +74,9 @@ class InstallToolTests(unittest.TestCase):
             (paths.cursor_skill / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
             paths.copilot_skill.mkdir(parents=True)
             (paths.copilot_skill / "SKILL.md").write_text("---\nname: better-plan\n---\n", encoding="utf-8")
+            craft_workspace = paths.craft_home / "workspaces" / "workspace"
+            craft_workspace.mkdir(parents=True)
+            (craft_workspace / "config.json").write_text("{}\n", encoding="utf-8")
 
             messages = install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
@@ -75,9 +84,12 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any("codex: using native skill" in message for message in messages), messages)
             self.assertTrue(any("cursor: using native skill" in message for message in messages), messages)
             self.assertTrue(any("copilot: using native skill" in message for message in messages), messages)
+            self.assertTrue(any("kimi: using native skill" in message for message in messages), messages)
             self.assertTrue((paths.codex_skill / "SKILL.md").is_file())
             self.assertTrue((paths.cursor_skill / "SKILL.md").is_file())
             self.assertTrue((paths.copilot_skill / "SKILL.md").is_file())
+            self.assertTrue((paths.pi_skill / "SKILL.md").is_file())
+            self.assertTrue((paths.kimi_skill / "SKILL.md").is_file())
             self.assertFalse(paths.shared_skill.exists())
             self.assertTrue((paths.claude_plugin / ".claude-plugin" / "plugin.json").is_file())
             self.assertTrue((paths.claude_skill / "SKILL.md").is_file())
@@ -94,20 +106,31 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
             self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
             self.assertTrue((paths.opencode_agent).is_file())
-            self.assertTrue((paths.gemini_extension / "gemini-extension.json").is_file())
+            self.assertTrue((paths.antigravity_plugin / "plugin.json").is_file())
+            self.assertTrue((paths.antigravity_plugin / "hooks.json").is_file())
+            self.assertTrue((craft_workspace / "skills" / "better-plan" / "SKILL.md").is_file())
+            kimi = paths.kimi_config.read_text(encoding="utf-8")
+            self.assertEqual(
+                [
+                    line.split("=", 1)[1].strip().strip('"')
+                    for line in kimi.splitlines()
+                    if line.startswith("event = ")
+                ],
+                ["SessionStart", "UserPromptSubmit", "SubagentStop"],
+            )
+            self.assertEqual(
+                paths.kimi_config.read_text(encoding="utf-8").count("--managed-by better-plan"),
+                3,
+            )
             opencode_text = paths.opencode_agent.read_text(encoding="utf-8")
-            gemini_text = (paths.gemini_extension / "GEMINI.md").read_text(encoding="utf-8")
             self.assertIn("installed `better-plan` skill", opencode_text)
-            self.assertIn("installed `better-plan` skill", gemini_text)
-            self.assertNotIn(str(Path(tmpdir)), opencode_text + gemini_text)
+            self.assertNotIn(str(Path(tmpdir)), opencode_text)
             self.assertFalse([message for message in messages if str(Path(tmpdir)) in message], messages)
 
             plugin = json.loads((paths.claude_plugin / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
             self.assertEqual(plugin["name"], "better-plan")
             self.assertEqual(plugin["version"], install_models.VERSION)
 
-            enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
-            self.assertEqual(enablement["better-plan"]["overrides"], [paths.gemini_scope])
             for event in ("sessionStart", "beforeSubmitPrompt", "postToolUse"):
                 self.assertIn(event, cursor["hooks"])
                 handlers = cursor["hooks"][event]
@@ -250,15 +273,6 @@ class InstallToolTests(unittest.TestCase):
             cursor_output = json.loads(cursor_result.stdout)
             self.assertEqual(set(cursor_output.keys()), {"additional_context"})
 
-
-    def test_gemini_scope_rejects_absolute_paths_without_echoing_them(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            value = str(Path(tmpdir) / "scope")
-            with self.assertRaises(install_models.InstallError) as raised:
-                install_targets.relative_scope(value)
-
-        self.assertNotIn(value, str(raised.exception))
-
     def test_doctor_accepts_installed_files_without_optional_clis(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
@@ -369,26 +383,15 @@ class InstallToolTests(unittest.TestCase):
             failure = install_doctor.check_optional_client_cli("copilot")
         self.assertEqual(failure.status, "FAIL")
 
-    def test_gemini_doctor_requires_extension_validation_and_loaded_listing(self) -> None:
+    def test_antigravity_doctor_requires_current_plugin_skill_and_hook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
-            install_service.install_agents(paths, ["gemini"], dry_run=False)
+            install_service.install_agents(paths, ["antigravity"], dry_run=False)
 
-            def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-                if command[1:3] == ["extensions", "validate"]:
-                    return subprocess.CompletedProcess(command, 0, stdout="valid\n", stderr="")
-                if command[1:3] == ["extensions", "list"]:
-                    return subprocess.CompletedProcess(command, 0, stdout="better-plan\n", stderr="")
-                raise AssertionError(f"unexpected command: {command}")
-
-            with (
-                mock.patch.object(install_doctor, "run_manifest_tool", return_value=True),
-                mock.patch.object(install_doctor.shutil, "which", return_value="gemini"),
-                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
-            ):
-                check = install_doctor.check_gemini(paths)
-
+            check = install_doctor.check_antigravity(paths)
             self.assertEqual(check.status, "OK")
+            hooks = json.loads((paths.antigravity_plugin / "hooks.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(hooks["better-plan"]), {"PreInvocation"})
 
     def test_installed_skill_inventory_requires_current_files(self) -> None:
         def build_complete_tree(root: Path) -> None:
@@ -424,9 +427,12 @@ class InstallToolTests(unittest.TestCase):
                     self.assertIn("missing", result.message.lower())
                     self.assertNotIn(sampledir, result.message)
 
-    def test_uninstall_removes_adapters_and_disables_gemini(self) -> None:
+    def test_uninstall_removes_all_current_adapters(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
+            craft_workspace = paths.craft_home / "workspaces" / "workspace"
+            craft_workspace.mkdir(parents=True)
+            (craft_workspace / "config.json").write_text("{}\n", encoding="utf-8")
             install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
             dry_run_messages = install_service.uninstall_agents(
@@ -451,13 +457,56 @@ class InstallToolTests(unittest.TestCase):
             self.assertFalse(paths.opencode_agent.exists())
             self.assertFalse(paths.cursor_skill.exists())
             self.assertFalse(paths.copilot_skill.exists())
-            self.assertFalse(paths.gemini_extension.exists())
+            self.assertFalse(paths.pi_skill.exists())
+            self.assertFalse(paths.antigravity_plugin.exists())
+            self.assertFalse(paths.kimi_skill.exists())
+            self.assertFalse((craft_workspace / "skills" / "better-plan").exists())
             self.assertNotIn("--managed-by better-plan", paths.codex_hooks.read_text(encoding="utf-8"))
             self.assertNotIn("--managed-by better-plan", paths.claude_settings.read_text(encoding="utf-8"))
             self.assertTrue((paths.cursor_home / "hooks.json").is_file())
             self.assertNotIn("--managed-by better-plan", (paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
-            enablement = json.loads(paths.gemini_enablement.read_text(encoding="utf-8"))
-            self.assertNotIn("better-plan", enablement)
+            self.assertNotIn("--managed-by better-plan", paths.kimi_config.read_text(encoding="utf-8"))
+
+    def test_kimi_hook_install_and_removal_preserve_unrelated_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            paths.kimi_config.parent.mkdir(parents=True)
+            original = """default_model = "local-model"
+
+[[hooks]]
+event = "Notification"
+matcher = 'task\\.completed'
+command = "notify"
+"""
+            paths.kimi_config.write_text(original, encoding="utf-8")
+
+            for _ in range(2):
+                install_service.install_agents(paths, ["kimi"], dry_run=False)
+
+            installed = paths.kimi_config.read_text(encoding="utf-8")
+            self.assertIn('default_model = "local-model"', installed)
+            self.assertEqual(installed.count("[[hooks]]"), 4)
+            self.assertEqual(
+                [
+                    line.split("=", 1)[1].strip().strip('"')
+                    for line in installed.splitlines()
+                    if line.startswith("event = ")
+                ][1:],
+                ["SessionStart", "UserPromptSubmit", "SubagentStop"],
+            )
+            self.assertEqual(installed.count("--managed-by better-plan"), 3)
+            self.assertTrue((paths.shared_skill / "SKILL.md").is_file())
+
+            messages = install_service.uninstall_hooks(paths, ["kimi"], dry_run=False)
+
+            self.assertTrue(any("removed managed handlers" in message for message in messages), messages)
+            removed = paths.kimi_config.read_text(encoding="utf-8")
+            self.assertIn('default_model = "local-model"', removed)
+            self.assertEqual(removed.count("[[hooks]]"), 1)
+            self.assertIn('event = "Notification"', removed)
+            self.assertIn("command = \"notify\"", removed)
+            self.assertTrue((paths.shared_skill / "SKILL.md").is_file())
+            self.assertNotIn("--managed-by better-plan", removed)
 
     def test_supported_hook_install_is_idempotent_and_cursor_config_is_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -833,7 +882,13 @@ class InstallToolTests(unittest.TestCase):
             shared_home = home / ".agents"
             cursor_home = home / ".cursor"
             copilot_home = home / ".copilot"
-            gemini_home = home / ".gemini"
+            antigravity_home = home / ".gemini" / "config"
+            pi_home = home / ".pi" / "agent"
+            craft_home = home / ".craft-agent"
+            kimi_home = home / ".kimi-code"
+            craft_workspace = craft_home / "workspaces" / "workspace"
+            craft_workspace.mkdir(parents=True)
+            (craft_workspace / "config.json").write_text("{}\n", encoding="utf-8")
             isolated_env = os.environ.copy()
             isolated_env["PATH"] = ""
 
@@ -841,7 +896,7 @@ class InstallToolTests(unittest.TestCase):
                 sys.executable,
                 INSTALL_TOOL_PATH,
                 "--agents",
-                "codex,cursor,copilot,gemini",
+                "codex,cursor,copilot,antigravity,pi,craft,kimi",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
@@ -850,10 +905,14 @@ class InstallToolTests(unittest.TestCase):
                 cursor_home,
                 "--copilot-home",
                 copilot_home,
-                "--gemini-home",
-                gemini_home,
-                "--gemini-scope",
-                "*",
+                "--antigravity-home",
+                antigravity_home,
+                "--pi-home",
+                pi_home,
+                "--craft-home",
+                craft_home,
+                "--kimi-home",
+                kimi_home,
                 env=isolated_env,
             )
             self.assertEqual(install_result.returncode, 0, install_result.stderr)
@@ -861,6 +920,11 @@ class InstallToolTests(unittest.TestCase):
             self.assertIn("codex: using shared skill", install_result.stdout)
             self.assertIn("cursor: using shared skill", install_result.stdout)
             self.assertIn("copilot: using shared skill", install_result.stdout)
+            self.assertIn("pi: using shared skill", install_result.stdout)
+            self.assertIn("kimi: using shared skill", install_result.stdout)
+            self.assertIn("kimi hooks: updated managed handlers", install_result.stdout)
+            self.assertIn("antigravity: updated plugin", install_result.stdout)
+            self.assertIn("craft: updated skill in 1 workspace(s)", install_result.stdout)
             self.assertNotIn(str(root), install_result.stdout + install_result.stderr)
 
             doctor_result = run_command(
@@ -868,7 +932,7 @@ class InstallToolTests(unittest.TestCase):
                 INSTALL_TOOL_PATH,
                 "doctor",
                 "--agents",
-                "codex,cursor,copilot,gemini",
+                "codex,cursor,copilot,antigravity,pi,craft,kimi",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
@@ -877,8 +941,14 @@ class InstallToolTests(unittest.TestCase):
                 cursor_home,
                 "--copilot-home",
                 copilot_home,
-                "--gemini-home",
-                gemini_home,
+                "--antigravity-home",
+                antigravity_home,
+                "--pi-home",
+                pi_home,
+                "--craft-home",
+                craft_home,
+                "--kimi-home",
+                kimi_home,
                 env=isolated_env,
             )
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
@@ -887,7 +957,11 @@ class InstallToolTests(unittest.TestCase):
             self.assertIn("WARN: cursor:", doctor_result.stdout)
             self.assertIn("OK: cursor hooks:", doctor_result.stdout)
             self.assertIn("copilot:", doctor_result.stdout)
-            self.assertIn("gemini:", doctor_result.stdout)
+            self.assertIn("OK: antigravity:", doctor_result.stdout)
+            self.assertIn("OK: pi:", doctor_result.stdout)
+            self.assertIn("OK: craft:", doctor_result.stdout)
+            self.assertIn("WARN: kimi:", doctor_result.stdout)
+            self.assertIn("OK: kimi hooks:", doctor_result.stdout)
             self.assertNotIn("FAIL:", doctor_result.stdout)
             self.assertNotIn(str(root), doctor_result.stdout + doctor_result.stderr)
 
@@ -980,13 +1054,10 @@ class InstallToolTests(unittest.TestCase):
             paths = make_paths(Path(tmpdir))
             paths.opencode_agent.parent.mkdir(parents=True)
             paths.opencode_agent.write_text("old\n", encoding="utf-8")
-            paths.gemini_extension.mkdir(parents=True)
-            (paths.gemini_extension / "GEMINI.md").write_text("old\n", encoding="utf-8")
-            (paths.gemini_extension / "gemini-extension.json").write_text("{}\n", encoding="utf-8")
-            paths.gemini_enablement.parent.mkdir(parents=True, exist_ok=True)
-            paths.gemini_enablement.write_text("{}\n", encoding="utf-8")
+            paths.antigravity_plugin.mkdir(parents=True)
+            (paths.antigravity_plugin / "plugin.json").write_text("{}\n", encoding="utf-8")
 
-            install_service.install_agents(paths, ["opencode", "gemini"], dry_run=False)
+            install_service.install_agents(paths, ["opencode", "antigravity"], dry_run=False)
 
             self.assertEqual([], list(Path(tmpdir).rglob("*bak-better-plan-*")))
 

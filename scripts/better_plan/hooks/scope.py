@@ -20,6 +20,8 @@ def event_directories(payload: dict[str, Any]) -> list[Path] | None:
         directories.append(Path(cwd.strip()))
 
     workspace_roots = payload.get("workspace_roots")
+    if workspace_roots is None:
+        workspace_roots = payload.get("workspacePaths")
     if workspace_roots is not None:
         if not isinstance(workspace_roots, list):
             return None

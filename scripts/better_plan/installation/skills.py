@@ -59,6 +59,10 @@ def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
         return paths.cursor_skill
     if agent == "copilot":
         return paths.copilot_skill
+    if agent == "pi":
+        return paths.pi_skill
+    if agent == "kimi":
+        return paths.kimi_skill
     raise _InstallError(f"{agent} does not have a native skill tree path")
 
 
@@ -153,6 +157,12 @@ def existing_install_paths(paths: _InstallPaths, agents: Iterable[str]) -> list[
         values.append(paths.cursor_skill)
     if "copilot" in selected:
         values.append(paths.copilot_skill)
-    if "gemini" in selected:
-        values.append(paths.gemini_extension)
+    if "antigravity" in selected:
+        values.append(paths.antigravity_plugin)
+    if "pi" in selected:
+        values.append(paths.pi_skill)
+    if "craft" in selected:
+        values.extend(paths.craft_skills)
+    if "kimi" in selected:
+        values.append(paths.kimi_skill)
     return [path for path in values if path.exists()]

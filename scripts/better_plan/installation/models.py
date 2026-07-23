@@ -8,12 +8,23 @@ from pathlib import Path
 
 SKILL_NAME = "better-plan"
 VERSION = "0.3.0"
-AGENTS = ("codex", "claude", "opencode", "cursor", "copilot", "gemini")
-SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot"})
-ADAPTER_SKILL_AGENTS = frozenset({"opencode", "gemini"})
+AGENTS = (
+    "codex",
+    "claude",
+    "opencode",
+    "cursor",
+    "copilot",
+    "antigravity",
+    "pi",
+    "craft",
+    "kimi",
+)
+SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot", "pi", "kimi"})
+ADAPTER_SKILL_AGENTS = frozenset({"opencode"})
 OPTIONAL_CLIENT_CLI_COMMANDS = {
     "cursor": ("cursor", "--version"),
     "copilot": ("copilot", "--version"),
+    "kimi": ("kimi", "--version"),
 }
 DESCRIPTION = "Design-first Better Plan orchestration with deterministic acceptance and regression."
 # This is the minimum executable payload, not a compatibility inventory. Removed
@@ -75,8 +86,10 @@ class InstallPaths:
     opencode_config: Path
     cursor_home: Path
     copilot_home: Path
-    gemini_home: Path
-    gemini_scope: str
+    antigravity_home: Path
+    pi_home: Path
+    craft_home: Path
+    kimi_home: Path
 
     @property
     def codex_skill(self) -> Path:
@@ -119,12 +132,39 @@ class InstallPaths:
         return self.copilot_home / "skills" / SKILL_NAME
 
     @property
-    def gemini_extension(self) -> Path:
-        return self.gemini_home / "extensions" / SKILL_NAME
+    def antigravity_plugin(self) -> Path:
+        return self.antigravity_home / "plugins" / SKILL_NAME
 
     @property
-    def gemini_enablement(self) -> Path:
-        return self.gemini_home / "extensions" / "extension-enablement.json"
+    def antigravity_skill(self) -> Path:
+        return self.antigravity_plugin / "skills" / SKILL_NAME
+
+    @property
+    def pi_skill(self) -> Path:
+        return self.pi_home / "skills" / SKILL_NAME
+
+    @property
+    def craft_workspaces(self) -> tuple[Path, ...]:
+        root = self.craft_home / "workspaces"
+        if not root.is_dir():
+            return ()
+        return tuple(
+            path
+            for path in sorted(root.iterdir(), key=lambda item: item.name)
+            if path.is_dir() and (path / "config.json").is_file()
+        )
+
+    @property
+    def craft_skills(self) -> tuple[Path, ...]:
+        return tuple(workspace / "skills" / SKILL_NAME for workspace in self.craft_workspaces)
+
+    @property
+    def kimi_skill(self) -> Path:
+        return self.kimi_home / "skills" / SKILL_NAME
+
+    @property
+    def kimi_config(self) -> Path:
+        return self.kimi_home / "config.toml"
 
 
 @dataclass(frozen=True)

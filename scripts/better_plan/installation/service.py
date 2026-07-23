@@ -9,7 +9,7 @@ from . import targets as _targets
 from .models import AGENTS, InstallPaths as _InstallPaths
 
 
-_MANAGED_HOOK_AGENTS = {"codex", "claude", "cursor"}
+_MANAGED_HOOK_AGENTS = {"codex", "claude", "cursor", "kimi"}
 
 
 def install_agents(paths: _InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]:
@@ -51,6 +51,16 @@ def uninstall_hooks(paths: _InstallPaths, agents: list[str], *, dry_run: bool) -
     """Remove only Better Plan-managed lifecycle handlers."""
     messages: list[str] = []
     for agent in agents:
+        if agent == "antigravity":
+            path = paths.antigravity_plugin / "hooks.json"
+            changed = path.exists()
+            if changed and not dry_run:
+                _skills.remove_path(path)
+            action = "would remove managed handlers" if dry_run else "removed managed handlers"
+            if not changed:
+                action = "no managed handlers found"
+            messages.append(f"{agent}: {action}")
+            continue
         if agent in _MANAGED_HOOK_AGENTS:
             _, changed = _targets.remove_agent_hooks(paths, agent, dry_run=dry_run)
             action = "would remove managed handlers" if dry_run else "removed managed handlers"
