@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
@@ -307,12 +308,29 @@ class InstallToolTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
                 raise AssertionError(f"unexpected command: {command}")
 
-            with (
-                mock.patch.object(install_targets.os, "name", "nt"),
-                mock.patch.object(install_targets, "wsl_executable", return_value="wsl.exe"),
-                mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[runtime]),
-                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
-            ):
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(install_targets.os, "name", "nt"))
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "wsl_executable",
+                        return_value="wsl.exe",
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "discover_wsl_opencode",
+                        return_value=[runtime],
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "run_text_command",
+                        side_effect=fake_run,
+                    )
+                )
                 messages = install_service.install_agents(paths, ["opencode"], dry_run=False)
 
             self.assertTrue(any("updated detected WSL runtime" in message for message in messages), messages)
@@ -342,13 +360,36 @@ class InstallToolTests(unittest.TestCase):
                     )
                 raise AssertionError(f"unexpected command: {command}")
 
-            with (
-                mock.patch.object(install_targets.os, "name", "nt"),
-                mock.patch.object(install_doctor.shutil, "which", side_effect=fake_which),
-                mock.patch.object(install_targets, "wsl_executable", return_value="wsl.exe"),
-                mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[runtime]),
-                mock.patch.object(install_targets, "run_text_command", side_effect=fake_run),
-            ):
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(install_targets.os, "name", "nt"))
+                stack.enter_context(
+                    mock.patch.object(
+                        install_doctor.shutil,
+                        "which",
+                        side_effect=fake_which,
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "wsl_executable",
+                        return_value="wsl.exe",
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "discover_wsl_opencode",
+                        return_value=[runtime],
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "run_text_command",
+                        side_effect=fake_run,
+                    )
+                )
                 checks = install_doctor.check_opencode(paths)
 
             self.assertTrue(any(check.target == "opencode" and check.status == "WARN" for check in checks), checks)
@@ -361,25 +402,49 @@ class InstallToolTests(unittest.TestCase):
             warning = install_doctor.check_optional_client_cli("cursor")
         self.assertEqual(warning.status, "WARN")
 
-        with (
-            mock.patch.object(install_doctor.shutil, "which", return_value="cursor"),
-            mock.patch.object(
-                install_targets,
-                "run_text_command",
-                return_value=subprocess.CompletedProcess(["cursor", "--version"], 0, stdout="1.0\n", stderr=""),
-            ),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(
+                    install_doctor.shutil,
+                    "which",
+                    return_value="cursor",
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    install_targets,
+                    "run_text_command",
+                    return_value=subprocess.CompletedProcess(
+                        ["cursor", "--version"],
+                        0,
+                        stdout="1.0\n",
+                        stderr="",
+                    ),
+                )
+            )
             success = install_doctor.check_optional_client_cli("cursor")
         self.assertEqual(success.status, "OK")
 
-        with (
-            mock.patch.object(install_doctor.shutil, "which", return_value="copilot"),
-            mock.patch.object(
-                install_targets,
-                "run_text_command",
-                return_value=subprocess.CompletedProcess(["copilot", "--version"], 1, stdout="", stderr="failed"),
-            ),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(
+                    install_doctor.shutil,
+                    "which",
+                    return_value="copilot",
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    install_targets,
+                    "run_text_command",
+                    return_value=subprocess.CompletedProcess(
+                        ["copilot", "--version"],
+                        1,
+                        stdout="",
+                        stderr="failed",
+                    ),
+                )
+            )
             failure = install_doctor.check_optional_client_cli("copilot")
         self.assertEqual(failure.status, "FAIL")
 

@@ -19,6 +19,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 BETTER_PLAN_DIR = SCRIPTS_DIR / "better_plan"
 MANIFEST_TOOL = SCRIPTS_DIR / "manifest_tool.py"
 INSTALL_TOOL = SCRIPTS_DIR / "install.py"
+ENTRY_PATH_BOOTSTRAP_ARGUMENT = ast.parse(
+    "str(Path(__file__).resolve().parents[1])",
+    mode="eval",
+).body
 
 MAX_FILE_LINES = 1400
 
@@ -511,7 +515,8 @@ def _is_entry_path_bootstrap(node: ast.AST) -> bool:
         and len(node.args) == 2
         and isinstance(node.args[0], ast.Constant)
         and node.args[0].value == 0
-        and ast.unparse(node.args[1]) == "str(Path(__file__).resolve().parents[1])"
+        and ast.dump(node.args[1], include_attributes=False)
+        == ast.dump(ENTRY_PATH_BOOTSTRAP_ARGUMENT, include_attributes=False)
         and not node.keywords
     )
 
