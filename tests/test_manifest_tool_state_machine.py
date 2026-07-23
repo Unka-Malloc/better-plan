@@ -106,6 +106,8 @@ class WorkflowStateMachineTests(unittest.TestCase):
         self.assertTrue(machine.can_transition("pending", "in_progress"))
         self.assertTrue(machine.can_transition("in_progress", "completed"))
         self.assertTrue(machine.can_transition("blocked", "in_progress"))
+        self.assertTrue(machine.can_transition("pending", "deferred"))
+        self.assertTrue(machine.can_transition("deferred", "pending"))
         self.assertFalse(machine.can_transition("completed", "in_progress"))
         self.assertFalse(machine.can_transition("skipped", "pending"))
 
@@ -114,12 +116,13 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
         self.assertTrue(machine.can_reach("pending", "completed"))
         self.assertTrue(machine.can_reach("blocked", "completed"))
+        self.assertTrue(machine.can_reach("deferred", "completed"))
         self.assertTrue(machine.can_reach("pending", "pending"))
         self.assertFalse(machine.can_reach("completed", "in_progress"))
         self.assertFalse(machine.can_reach("skipped", "pending"))
         self.assertFalse(machine.can_reach("completed", "skipped"))
 
-    def test_in_progress_node_requires_completed_prerequisites(self) -> None:
+    def test_checkpoint_shape_validation_leaves_prerequisite_status_to_workspace_validation(self) -> None:
         data = [
             make_node(NODE_A_ID, "pending"),
             make_node(NODE_B_ID, "in_progress", prerequisites=[NODE_A_ID]),
@@ -127,9 +130,8 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
-        self.assertTrue(
-            any("cannot be 'in_progress' until prerequisites are completed" in issue.message for issue in issues),
-            [issue.message for issue in issues],
+        self.assertFalse(
+            [issue.message for issue in issues if "until prerequisites are completed" in issue.message]
         )
 
     def test_completed_node_requires_checked_acceptance_criteria(self) -> None:
@@ -201,9 +203,9 @@ class WorkflowStateMachineTests(unittest.TestCase):
             [issue.message for issue in issues],
         )
 
-    def test_skipped_prerequisite_makes_dependents_unstartable(self) -> None:
+    def test_checkpoint_shape_validation_leaves_unstartable_propagation_to_workspace_validation(self) -> None:
         data = [
-            make_node(NODE_A_ID, "skipped", status_reason="Deferred by the user."),
+            make_node(NODE_A_ID, "skipped", status_reason="Waived by the user."),
             make_node(NODE_B_ID, "pending", prerequisites=[NODE_A_ID]),
             make_node(NODE_C_ID, "pending", prerequisites=[NODE_B_ID]),
         ]
@@ -211,12 +213,11 @@ class WorkflowStateMachineTests(unittest.TestCase):
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         messages = [issue.message for issue in issues]
-        self.assertTrue(any("node[1]: unstartable" in message for message in messages), messages)
-        self.assertTrue(any("node[2]: unstartable" in message for message in messages), messages)
+        self.assertFalse([message for message in messages if "unstartable" in message], messages)
 
     def test_terminal_dependents_of_skipped_prerequisites_are_accepted(self) -> None:
         data = [
-            make_node(NODE_A_ID, "skipped", status_reason="Deferred by the user."),
+            make_node(NODE_A_ID, "skipped", status_reason="Waived by the user."),
             make_node(NODE_B_ID, "skipped", prerequisites=[NODE_A_ID], status_reason="Cascade skipped."),
         ]
 
@@ -463,18 +464,32 @@ class WorkflowStateMachineTests(unittest.TestCase):
             "in_progress",
         )
         self.assertEqual(
-            derive("in_progress", [make_node(NODE_A_ID, "completed"), make_node(NODE_B_ID, "skipped", status_reason="Deferred.")]),
+            derive("in_progress", [make_node(NODE_A_ID, "completed"), make_node(NODE_B_ID, "skipped", status_reason="Waived.")]),
             "completed",
         )
         self.assertEqual(
             derive(
                 "pending",
                 [
-                    make_node(NODE_A_ID, "skipped", status_reason="Deferred."),
-                    make_node(NODE_B_ID, "skipped", status_reason="Deferred."),
+                    make_node(NODE_A_ID, "skipped", status_reason="Waived."),
+                    make_node(NODE_B_ID, "skipped", status_reason="Waived."),
                 ],
             ),
             "skipped",
+        )
+        self.assertEqual(
+            derive("pending", [make_node(NODE_A_ID, "deferred", status_reason="Resume later.")]),
+            "deferred",
+        )
+        self.assertEqual(
+            derive(
+                "in_progress",
+                [
+                    make_node(NODE_A_ID, "completed"),
+                    make_node(NODE_B_ID, "deferred", status_reason="Resume later."),
+                ],
+            ),
+            "deferred",
         )
 
     def test_derive_plan_status_blocks_only_when_nothing_is_startable(self) -> None:
