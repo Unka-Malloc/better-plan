@@ -83,7 +83,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
 
     def test_cursor_native_lifecycle_host_is_documented_as_current(self) -> None:
         readme = self.readme.lower()
-        self.assertIn("codex, claude code, and cursor", readme)
+        self.assertIn("codex, claude code, cursor, and kimi code", readme)
         self.assertIn("supported events", readme)
         self.assertIn("NESTED_CONFIG_AGENTS", self.hook_protocol)
         self.assertIn("codex", self.hook_protocol)
@@ -100,7 +100,10 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("session-start", self.hook_runtime)
         self.assertIn("prompt-submit", self.hook_runtime)
         self.assertIn('EVENTS = ("session-start", "prompt-submit", "agent-complete")', self.hook_runtime)
-        self.assertIn('AGENTS=("codex","claude","cursor")', self.hook_protocol.replace(" ", ""))
+        self.assertIn(
+            'AGENTS=("codex","claude","cursor","antigravity","kimi")',
+            self.hook_protocol.replace(" ", ""),
+        )
 
     def test_session_and_prompt_are_detector_gated_guidance(self) -> None:
         detector_terms = self.hook_runtime + self.readme

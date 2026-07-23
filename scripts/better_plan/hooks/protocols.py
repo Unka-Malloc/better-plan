@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Any
 
 
-AGENTS = ("codex", "claude", "cursor")
+AGENTS = ("codex", "claude", "cursor", "antigravity", "kimi")
 NESTED_CONFIG_AGENTS = frozenset({"codex", "claude"})
 HOST_EVENTS: dict[str, dict[str, str]] = {
     "codex": {
@@ -24,6 +24,14 @@ HOST_EVENTS: dict[str, dict[str, str]] = {
         "sessionStart": "session-start",
         "beforeSubmitPrompt": "prompt-submit",
         "postToolUse": "agent-complete",
+    },
+    "antigravity": {
+        "PreInvocation": "session-start",
+    },
+    "kimi": {
+        "SessionStart": "session-start",
+        "UserPromptSubmit": "prompt-submit",
+        "SubagentStop": "agent-complete",
     },
 }
 AGENT_COMPLETION_MATCHERS = {
@@ -44,12 +52,16 @@ def host_events(agent: str) -> Mapping[str, str]:
     return MappingProxyType(HOST_EVENTS[agent].copy())
 
 
-def context_response(agent: str, event: str, value: str) -> dict[str, Any]:
+def context_response(agent: str, event: str, value: str) -> dict[str, Any] | str:
     """Encode bounded lifecycle context for one host."""
     host_events(agent)
     if event not in {"session-start", "prompt-submit", "agent-complete"}:
         raise HookProtocolError(f"unsupported event: {event}")
     if event == "session-start":
+        if agent == "kimi":
+            return value
+        if agent == "antigravity":
+            return {"injectSteps": [{"ephemeralMessage": value}]}
         if agent == "cursor":
             return {"additional_context": value}
         if agent in {"codex", "claude"}:
@@ -60,6 +72,8 @@ def context_response(agent: str, event: str, value: str) -> dict[str, Any]:
                 }
             }
     if event == "prompt-submit":
+        if agent == "kimi":
+            return value
         if agent in {"codex", "claude"}:
             return {
                 "hookSpecificOutput": {
@@ -70,6 +84,8 @@ def context_response(agent: str, event: str, value: str) -> dict[str, Any]:
         if agent == "cursor":
             raise HookProtocolError("cursor prompt-submit must be handled by prompt_allow_response")
     if event == "agent-complete":
+        if agent == "kimi":
+            return value
         if agent == "cursor":
             return {"additional_context": value}
         if agent in {"codex", "claude"}:
@@ -86,7 +102,7 @@ def event_matcher(agent: str, normalized_event: str) -> str | None:
     """Return the narrow native matcher for an event, when one is required."""
     host_events(agent)
     if normalized_event == "agent-complete":
-        return AGENT_COMPLETION_MATCHERS[agent]
+        return AGENT_COMPLETION_MATCHERS.get(agent)
     return None
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..hooks.config import (
     HookConfigError as _HookConfigError,
+    hook_command as _hook_command,
     install_hook_config as _install_hook_config,
     uninstall_hook_config as _uninstall_hook_config,
 )
@@ -108,59 +109,52 @@ shims. Preserve unrelated user changes and verify real behavior before completio
 """
 
 
-def gemini_manifest() -> dict[str, str]:
+def antigravity_manifest() -> dict[str, str]:
+    return {"name": SKILL_NAME}
+
+
+def antigravity_hooks() -> dict[str, object]:
     return {
-        "name": SKILL_NAME,
-        "version": VERSION,
-        "description": DESCRIPTION,
-        "contextFileName": "GEMINI.md",
+        SKILL_NAME: {
+            "PreInvocation": [
+                {
+                    "type": "command",
+                    "command": _hook_command("antigravity", "session-start"),
+                    "timeout": 30,
+                }
+            ]
+        }
     }
 
 
-def gemini_context_text() -> str:
-    return """# Better Plan
-
-When a project uses Better Plan, locate the installed `better-plan` skill, read its
-`SKILL.md` completely, and follow it as the active workflow. Use
-`scripts/manifest_tool.py` for state transitions and validation. Preserve unrelated
-user changes, remove obsolete implementations completely, and verify real behavior.
-"""
-
-
-def install_gemini_extension(paths: _InstallPaths, *, dry_run: bool) -> None:
+def install_antigravity_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
     if dry_run:
+        _copy_skill_tree(paths.repo_root, paths.antigravity_skill, dry_run=True)
         return
-    paths.gemini_extension.mkdir(parents=True, exist_ok=True)
-    write_json(paths.gemini_extension / "gemini-extension.json", gemini_manifest())
-    write_text(paths.gemini_extension / "GEMINI.md", gemini_context_text())
-    update_gemini_enablement(paths, enabled=True, dry_run=False)
+
+    target = paths.antigravity_plugin
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+    if temp.exists():
+        shutil.rmtree(temp)
+    try:
+        temp.mkdir()
+        write_json(temp / "plugin.json", antigravity_manifest())
+        write_json(temp / "hooks.json", antigravity_hooks())
+        _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
+        if target.exists():
+            shutil.rmtree(target)
+        temp.rename(target)
+    except Exception:
+        if temp.exists():
+            shutil.rmtree(temp)
+        raise
 
 
-def relative_scope(value: str) -> str:
-    normalized = value.strip().replace("\\", "/")
-    unsafe = (
-        not normalized
-        or normalized.startswith("/")
-        or normalized.startswith("~/")
-        or ".." in normalized.split("/")
-        or (len(normalized) >= 3 and normalized[0].isalpha() and normalized[1:3] == ":/")
-    )
-    if unsafe:
-        raise _InstallError("Gemini scope must be a relative pattern")
-    return normalized
-
-
-def update_gemini_enablement(paths: _InstallPaths, *, enabled: bool, dry_run: bool) -> None:
-    if dry_run:
-        return
-    data = read_json_object(paths.gemini_enablement)
-    updated = dict(data)
-    if enabled:
-        updated[SKILL_NAME] = {"overrides": [relative_scope(paths.gemini_scope)]}
-    else:
-        updated.pop(SKILL_NAME, None)
-    if updated != data:
-        write_json(paths.gemini_enablement, updated)
+def install_craft_skills(paths: _InstallPaths, *, dry_run: bool) -> int:
+    for target in paths.craft_skills:
+        _copy_skill_tree(paths.repo_root, target, dry_run=dry_run)
+    return len(paths.craft_skills)
 
 
 def hook_config_path(paths: _InstallPaths, agent: str) -> Path:
@@ -170,6 +164,8 @@ def hook_config_path(paths: _InstallPaths, agent: str) -> Path:
         return paths.claude_settings
     if agent == "cursor":
         return paths.cursor_hooks
+    if agent == "kimi":
+        return paths.kimi_config
     raise _InstallError(f"{agent} does not support Better Plan lifecycle Hooks")
 
 
@@ -346,26 +342,43 @@ def install_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
         return [f"cursor hooks: {action} managed handlers"]
-    if target == "gemini":
-        install_gemini_extension(paths, dry_run=dry_run)
-        return [f"gemini: {'would update' if dry_run else 'updated'} extension"]
+    if target == "kimi":
+        _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
+        action = "would update" if dry_run and changed else "updated" if changed else "already current"
+        return [f"kimi hooks: {action} managed handlers"]
+    if target == "antigravity":
+        install_antigravity_plugin(paths, dry_run=dry_run)
+        return [f"antigravity: {'would update' if dry_run else 'updated'} plugin"]
+    if target == "craft":
+        count = install_craft_skills(paths, dry_run=dry_run)
+        if count == 0:
+            return ["craft: no configured workspaces found"]
+        action = "would update" if dry_run else "updated"
+        return [f"craft: {action} skill in {count} workspace(s)"]
     return []
 
 
 def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    if target == "craft":
+        count = len(paths.craft_skills)
+        if not dry_run:
+            for path in paths.craft_skills:
+                _remove_path(path)
+        action = "would remove" if dry_run else "removed"
+        return [f"craft: {action} skill from {count} workspace(s)"]
+
     path = {
         "codex": paths.codex_skill,
         "claude": paths.claude_plugin,
         "opencode": paths.opencode_agent,
         "cursor": paths.cursor_skill,
         "copilot": paths.copilot_skill,
-        "gemini": paths.gemini_extension,
+        "antigravity": paths.antigravity_plugin,
+        "pi": paths.pi_skill,
+        "kimi": paths.kimi_skill,
     }[target]
     if not dry_run:
         _remove_path(path)
-    if target == "gemini":
-        update_gemini_enablement(paths, enabled=False, dry_run=dry_run)
-        return [f"gemini: {'would remove' if dry_run else 'removed'}"]
     return [f"{target}: {'would remove' if dry_run else 'removed'}"]

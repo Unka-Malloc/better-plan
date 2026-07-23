@@ -42,15 +42,17 @@ def detected_manifest(payload: dict[str, Any]) -> Path | None:
     return scope.detect_event_workspace(payload)
 
 
-def handle_session_start(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
+def handle_session_start(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
     if is_subagent_lifecycle(payload):
+        return {}
+    if agent == "antigravity" and payload.get("invocationNum") != 0:
         return {}
     if detected_manifest(payload) is None:
         return {}
     return protocols.context_response(agent, "session-start", context.session_context())
 
 
-def handle_prompt_submit(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
+def handle_prompt_submit(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
     if is_subagent_lifecycle(payload):
         return {}
     if detected_manifest(payload) is None:
@@ -60,12 +62,12 @@ def handle_prompt_submit(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
     return protocols.context_response(agent, "prompt-submit", context.prompt_context())
 
 
-def handle_agent_complete(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
-    tool_name = payload.get("tool_name")
+def handle_agent_complete(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
+    tool_name = payload.get("agent_name") if agent == "kimi" else payload.get("tool_name")
     if not nonempty_string(tool_name):
         return {}
     normalized_tool = str(tool_name).replace("_", "").replace("-", "").lower()
-    if normalized_tool not in AGENT_TOOL_NAMES:
+    if agent != "kimi" and normalized_tool not in AGENT_TOOL_NAMES:
         return {}
     manifest = detected_manifest(payload)
     if manifest is None:
@@ -85,7 +87,7 @@ def safe_handle_event(
     agent: str,
     event: str,
     payload: dict[str, Any],
-) -> dict[str, Any]:
+) -> dict[str, Any] | str:
     """Translate one lifecycle event, reducing all boundary failures to a safe no-op."""
     try:
         if event == "session-start":
@@ -122,5 +124,8 @@ def hook_main() -> int:
         return 0
     payload = read_payload()
     response = safe_handle_event(args.agent, args.event, payload)
-    print(json.dumps(response, ensure_ascii=False))
+    if isinstance(response, str):
+        print(response)
+    elif args.agent != "kimi" or response:
+        print(json.dumps(response, ensure_ascii=False))
     return 0

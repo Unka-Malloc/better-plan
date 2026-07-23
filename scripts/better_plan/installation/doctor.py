@@ -77,8 +77,15 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_agent_hooks(paths, "cursor"))
     if "copilot" in agents:
         checks.append(check_shared_scan_agent(paths, "copilot"))
-    if "gemini" in agents:
-        checks.append(check_gemini(paths))
+    if "antigravity" in agents:
+        checks.append(check_antigravity(paths))
+    if "pi" in agents:
+        checks.append(check_shared_scan_agent(paths, "pi"))
+    if "craft" in agents:
+        checks.append(check_craft(paths))
+    if "kimi" in agents:
+        checks.append(check_shared_scan_agent(paths, "kimi"))
+        checks.append(check_agent_hooks(paths, "kimi"))
     return checks
 
 
@@ -147,36 +154,34 @@ def check_optional_client_cli(target: str) -> _Check:
     return _Check("OK", target, f"adapter structure and {command[0]} CLI verified")
 
 
-def check_gemini(paths: _InstallPaths) -> _Check:
-    manifest = paths.gemini_extension / "gemini-extension.json"
-    context = paths.gemini_extension / "GEMINI.md"
+def check_antigravity(paths: _InstallPaths) -> _Check:
+    manifest = paths.antigravity_plugin / "plugin.json"
+    hooks = paths.antigravity_plugin / "hooks.json"
     if not manifest.is_file():
-        return _Check("FAIL", "gemini", "extension manifest is missing")
-    if not context.is_file():
-        return _Check("FAIL", "gemini", "extension context is missing")
+        return _Check("FAIL", "antigravity", "plugin manifest is missing")
+    if not hooks.is_file():
+        return _Check("FAIL", "antigravity", "plugin Hook configuration is missing")
+    skill_check = check_skill_tree("antigravity", paths.antigravity_skill)
+    if skill_check.status != "OK":
+        return skill_check
     try:
-        data = _targets.read_json_object(manifest)
-        enablement = _targets.read_json_object(paths.gemini_enablement)
+        manifest_data = _targets.read_json_object(manifest)
+        hook_data = _targets.read_json_object(hooks)
     except _InstallError as exc:
-        return _Check("FAIL", "gemini", str(exc))
-    if data.get("contextFileName") != "GEMINI.md":
-        return _Check("FAIL", "gemini", "extension manifest must set contextFileName to GEMINI.md")
-    if SKILL_NAME not in enablement:
-        return _Check("FAIL", "gemini", "extension enablement is missing")
-    text = context.read_text(encoding="utf-8")
-    if "installed `better-plan` skill" not in text or "scripts/manifest_tool.py" not in text:
-        return _Check("FAIL", "gemini", "extension context does not reference the current skill interface")
-    gemini = shutil.which("gemini")
-    if gemini is None:
-        return _Check("WARN", "gemini", "extension structure verified; gemini CLI not found for runtime validation")
-    validation = _targets.run_text_command(
-        [gemini, "extensions", "validate", str(paths.gemini_extension)], timeout=30
-    )
-    if validation.returncode != 0:
-        return _Check("FAIL", "gemini", "gemini extension validation failed")
-    listing = _targets.run_text_command([gemini, "extensions", "list"], timeout=30)
-    if listing.returncode != 0:
-        return _Check("FAIL", "gemini", "gemini extensions list failed")
-    if SKILL_NAME not in listing.stdout:
-        return _Check("FAIL", "gemini", f"gemini extensions list did not include {SKILL_NAME}")
-    return _Check("OK", "gemini", "extension structure and runtime listing verified")
+        return _Check("FAIL", "antigravity", str(exc))
+    if manifest_data.get("name") != SKILL_NAME:
+        return _Check("FAIL", "antigravity", "plugin manifest name is invalid")
+    expected = _targets.antigravity_hooks()
+    if hook_data != expected:
+        return _Check("FAIL", "antigravity", "plugin Hook configuration is not current")
+    return _Check("OK", "antigravity", "plugin, skill, and lifecycle Hook verified")
+
+
+def check_craft(paths: _InstallPaths) -> _Check:
+    if not paths.craft_skills:
+        return _Check("WARN", "craft", "no configured Craft workspace found")
+    for root in paths.craft_skills:
+        result = check_skill_tree("craft", root)
+        if result.status != "OK":
+            return result
+    return _Check("OK", "craft", f"installed skill verified in {len(paths.craft_skills)} workspace(s)")

@@ -32,8 +32,18 @@ def default_paths(args: argparse.Namespace) -> _InstallPaths:
         ).expanduser(),
         cursor_home=Path(args.cursor_home or os.environ.get("CURSOR_HOME") or home / ".cursor").expanduser(),
         copilot_home=Path(args.copilot_home or os.environ.get("COPILOT_HOME") or home / ".copilot").expanduser(),
-        gemini_home=Path(args.gemini_home or os.environ.get("GEMINI_HOME") or home / ".gemini").expanduser(),
-        gemini_scope=_targets.relative_scope(args.gemini_scope or "*"),
+        antigravity_home=Path(
+            args.antigravity_home
+            or os.environ.get("ANTIGRAVITY_HOME")
+            or home / ".gemini" / "config"
+        ).expanduser(),
+        pi_home=Path(args.pi_home or os.environ.get("PI_HOME") or home / ".pi" / "agent").expanduser(),
+        craft_home=Path(
+            args.craft_home or os.environ.get("CRAFT_AGENT_HOME") or home / ".craft-agent"
+        ).expanduser(),
+        kimi_home=Path(
+            args.kimi_home or os.environ.get("KIMI_CODE_HOME") or home / ".kimi-code"
+        ).expanduser(),
     )
 
 
@@ -72,7 +82,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets: all, codex, claude, opencode, cursor, copilot, gemini",
+        help="agent targets: all, codex, claude, opencode, cursor, copilot, antigravity, pi, craft, kimi",
     )
     parser.add_argument("--source", help="Better Plan source tree; defaults to this repository")
     parser.add_argument("--codex-home", help="Codex home directory")
@@ -81,8 +91,10 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--opencode-config", help="OpenCode config directory")
     parser.add_argument("--cursor-home", help="Cursor home directory")
     parser.add_argument("--copilot-home", help="GitHub Copilot home directory")
-    parser.add_argument("--gemini-home", help="Gemini home directory")
-    parser.add_argument("--gemini-scope", help="relative Gemini extension enablement pattern")
+    parser.add_argument("--antigravity-home", help="Antigravity customization directory")
+    parser.add_argument("--pi-home", help="Pi agent configuration directory")
+    parser.add_argument("--craft-home", help="Craft Agents configuration directory")
+    parser.add_argument("--kimi-home", help="Kimi Code configuration directory")
 
 
 def build_parser() -> argparse.ArgumentParser:

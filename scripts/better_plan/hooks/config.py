@@ -12,7 +12,7 @@ from typing import Any
 from . import protocols
 
 
-AGENTS = protocols.AGENTS
+AGENTS = ("codex", "claude", "cursor", "kimi")
 MANAGED_MARKER = "--managed-by better-plan"
 PORTABLE_PYTHON = "python" if os.name == "nt" else "python3"
 HOOK_TIMEOUT_SECONDS = 30
@@ -78,11 +78,24 @@ def skill_root_expressions(agent: str) -> list[str]:
     if agent == "cursor":
         native = "Path(os.environ.get('CURSOR_HOME') or h/'.cursor')/'skills'/'better-plan'"
         return [shared, native]
+    if agent == "antigravity":
+        plugin = (
+            "Path(os.environ.get('ANTIGRAVITY_HOME') or h/'.gemini'/'config')/"
+            "'plugins'/'better-plan'/'skills'/'better-plan'"
+        )
+        return [plugin]
+    if agent == "kimi":
+        native = (
+            "Path(os.environ.get('KIMI_CODE_HOME') or h/'.kimi-code')/"
+            "'skills'/'better-plan'"
+        )
+        return [shared, native]
     raise HookConfigError(f"unsupported Hook agent: {agent}")
 
 
 def hook_launcher_code(agent: str, event: str) -> str:
     roots = ",".join(skill_root_expressions(agent))
+    missing_skill_response = "None" if agent == "kimi" else "print('{}')"
     return (
         "import os,runpy,sys;from pathlib import Path;h=Path.home();"
         f"roots=[{roots}];"
@@ -92,7 +105,8 @@ def hook_launcher_code(agent: str, event: str) -> str:
         "and (root/'scripts'/'better_plan'/'hooks'/'context.py').is_file() "
         "and (root/'scripts'/'hook_tool.py').is_file()),None);"
         f"sys.argv=[str(script),'--agent',{agent!r},'--event',{event!r},'--managed-by','better-plan'];"
-        "runpy.run_path(str(script),run_name='__main__') if script is not None else print('{}')"
+        "runpy.run_path(str(script),run_name='__main__') "
+        f"if script is not None else {missing_skill_response}"
     )
 
 
@@ -105,6 +119,105 @@ def hook_command(agent: str, event: str) -> str:
         "better-plan",
     ]
     return subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
+
+
+def _toml_header(line: str) -> bool:
+    value = line.strip()
+    return (
+        value.startswith("[")
+        and "]" in value
+        and not value.startswith("#")
+    )
+
+
+def clean_kimi_hooks(text: str) -> str:
+    """Remove only complete Better Plan-owned Kimi Hook tables."""
+    lines = text.splitlines(keepends=True)
+    output: list[str] = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() != "[[hooks]]":
+            output.append(lines[index])
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and not _toml_header(lines[end]):
+            end += 1
+        block = "".join(lines[index:end])
+        if MANAGED_MARKER not in block:
+            output.extend(lines[index:end])
+        index = end
+    return "".join(output)
+
+
+def kimi_hook_tables() -> str:
+    blocks: list[str] = []
+    for host_event, event in protocols.host_events("kimi").items():
+        command = json.dumps(hook_command("kimi", event), ensure_ascii=False)
+        blocks.append(
+            "\n".join(
+                (
+                    "[[hooks]]",
+                    f"event = {json.dumps(host_event)}",
+                    f"command = {command}",
+                    f"timeout = {HOOK_TIMEOUT_SECONDS}",
+                )
+            )
+        )
+    return "\n\n".join(blocks) + "\n"
+
+
+def merged_kimi_config(current: str) -> str:
+    cleaned = clean_kimi_hooks(current).rstrip()
+    managed = kimi_hook_tables().rstrip()
+    return f"{cleaned}\n\n{managed}\n" if cleaned else f"{managed}\n"
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    temp: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.read_text(encoding="utf-8") == content:
+            return
+        temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+        temp.write_text(content, encoding="utf-8")
+        if path.exists():
+            temp.chmod(path.stat().st_mode)
+        os.replace(temp, path)
+    except OSError as exc:
+        raise HookConfigError("cannot update Hook configuration safely") from exc
+    finally:
+        if temp is not None and temp.exists():
+            try:
+                temp.unlink()
+            except OSError:
+                pass
+
+
+def install_kimi_hook_config(path: Path, *, dry_run: bool) -> bool:
+    try:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError as exc:
+        raise HookConfigError("cannot read Hook configuration") from exc
+    updated = merged_kimi_config(current)
+    changed = updated != current
+    if changed and not dry_run:
+        atomic_write_text(path, updated)
+    return changed
+
+
+def uninstall_kimi_hook_config(path: Path, *, dry_run: bool) -> bool:
+    if not path.exists():
+        return False
+    try:
+        current = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HookConfigError("cannot read Hook configuration") from exc
+    updated = clean_kimi_hooks(current)
+    changed = updated != current
+    if changed and not dry_run:
+        atomic_write_text(path, updated)
+    return changed
 
 
 def is_managed_handler(value: Any) -> bool:
@@ -392,6 +505,8 @@ def configured_commands(data: dict[str, Any], agent: str) -> dict[str, list[str]
 
 
 def install_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
+    if agent == "kimi":
+        return install_kimi_hook_config(path, dry_run=dry_run)
     current = read_json_object(path)
     updated = merged_config(current, agent)
     changed = updated != current
@@ -401,6 +516,8 @@ def install_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
 
 
 def uninstall_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
+    if agent == "kimi":
+        return uninstall_kimi_hook_config(path, dry_run=dry_run)
     if not path.exists():
         return False
     current = read_json_object(path)
@@ -414,6 +531,14 @@ def uninstall_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
 def hook_config_status(path: Path, agent: str) -> tuple[bool, str]:
     if not path.is_file():
         return False, "managed Hook configuration is missing"
+    if agent == "kimi":
+        try:
+            current = path.read_text(encoding="utf-8")
+        except OSError:
+            return False, "cannot read Hook configuration"
+        if current != merged_kimi_config(clean_kimi_hooks(current)):
+            return False, "expected exactly one current Better Plan handler for each Kimi lifecycle event"
+        return True, "managed Hook configuration verified"
     try:
         data = read_json_object(path)
         if agent in {"codex", "claude"}:
