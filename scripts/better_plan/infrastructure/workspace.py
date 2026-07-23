@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 from pathlib import Path
 from dataclasses import dataclass
+from collections import deque
 import json
 import os
 import subprocess
 from ..domain.models import CHECKPOINTS_NAME, DISCOVERY_SKIP_DIRS, EXTERNAL_SOURCE_PATTERN, Issue, MANIFEST_NAME, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, REQUIREMENT_LABEL_CANDIDATE_PATTERN, STATE_FILE_NAMES, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_checkpoints_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary
-from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
+from ..domain.validation import dependency_cycle_path, validate_checkpoints_data as _validate_checkpoints_data
 
 
 def find_manifests(root: Path) -> list[Path]:
@@ -276,6 +277,10 @@ def plan_snapshot_issues(
             issues.append(
                 Issue(path, f"plan[{index}].status: cannot be 'blocked' without a blocked checkpoint node")
             )
+        elif status == "deferred" and "deferred" not in node_statuses:
+            issues.append(
+                Issue(path, f"plan[{index}].status: cannot be 'deferred' without a deferred checkpoint node")
+            )
         elif status == "skipped" and "in_progress" in node_statuses:
             issues.append(
                 Issue(path, f"plan[{index}].status: cannot be 'skipped' while a checkpoint node is in_progress")
@@ -285,7 +290,7 @@ def plan_snapshot_issues(
                 issues.append(
                     Issue(path, f"plan[{index}].status: cannot stay 'pending' when every checkpoint node is terminal; run sync-plan")
                 )
-            elif any(value in {"in_progress", "completed"} for value in node_statuses):
+            elif any(value in {"in_progress", "completed", "deferred"} for value in node_statuses):
                 issues.append(
                     Issue(path, f"plan[{index}].status: cannot stay 'pending' after checkpoint work has started; run sync-plan")
                 )
@@ -461,6 +466,184 @@ def source_file_issues(manifest: Path, data: list[Any], include_indexes: set[int
     return issues
 
 
+@dataclass(frozen=True)
+class WorkspaceNodeRecord:
+    path: Path
+    index: int
+    node: dict[str, Any]
+
+
+def workspace_node_records(
+    manifest: Path,
+    overrides: Mapping[Path, list[Any]] | None = None,
+) -> tuple[dict[str, WorkspaceNodeRecord], list[tuple[str, Issue]]]:
+    """Load every referenced Node once, with optional in-memory checkpoint replacements."""
+    resolved = manifest.expanduser().resolve()
+    if resolved.is_dir():
+        resolved = resolved / MANIFEST_NAME
+    normalized_overrides = {
+        path.expanduser().resolve(): data for path, data in (overrides or {}).items()
+    }
+    records: dict[str, WorkspaceNodeRecord] = {}
+    duplicate_issues: list[tuple[str, Issue]] = []
+
+    for checkpoints_path in referenced_checkpoints_files(resolved):
+        path = checkpoints_path.expanduser().resolve()
+        data = normalized_overrides.get(path)
+        if data is None:
+            try:
+                data = load_state_entries(path)
+            except ToolError:
+                continue
+        for index, entry in enumerate(data):
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+                continue
+            node_id = entry["id"]
+            previous = records.get(node_id)
+            if previous is not None:
+                duplicate_issues.append(
+                    (
+                        node_id,
+                        Issue(
+                            path,
+                            f"node[{index}].id: duplicates workspace node id {node_id!r}",
+                        ),
+                    )
+                )
+                continue
+            records[node_id] = WorkspaceNodeRecord(path, index, entry)
+
+    return records, duplicate_issues
+
+
+def workspace_node_statuses(
+    manifest: Path,
+    overrides: Mapping[Path, list[Any]] | None = None,
+) -> dict[str, str]:
+    records, _ = workspace_node_records(manifest, overrides)
+    return {
+        node_id: str(record.node["status"])
+        for node_id, record in records.items()
+        if WORKFLOW_STATE_MACHINE.is_status(record.node.get("status"))
+    }
+
+
+def workspace_dependency_issues(
+    manifest: Path,
+    overrides: Mapping[Path, list[Any]] | None = None,
+    roots: set[str] | None = None,
+) -> list[Issue]:
+    """Validate the authoritative workspace prerequisite graph in O(V + E)."""
+    records, duplicate_issues = workspace_node_records(manifest, overrides)
+    graph = {
+        node_id: tuple(record.node.get("prerequisites", ()))
+        for node_id, record in records.items()
+        if is_string_list(record.node.get("prerequisites"))
+    }
+
+    included = set(records)
+    if roots is not None:
+        included = set()
+        frontier = list(roots)
+        while frontier:
+            node_id = frontier.pop()
+            if node_id in included or node_id not in records:
+                continue
+            included.add(node_id)
+            frontier.extend(graph.get(node_id, ()))
+
+    issues = [
+        issue
+        for node_id, issue in duplicate_issues
+        if roots is None or node_id in included
+    ]
+
+    for node_id in included:
+        record = records[node_id]
+        for field in ("prerequisites", "next"):
+            refs = record.node.get(field)
+            if not is_string_list(refs):
+                continue
+            for ref in refs:
+                if ref not in records:
+                    issues.append(
+                        Issue(
+                            record.path,
+                            f"node[{record.index}].{field}: unknown node id {ref!r} in workspace",
+                        )
+                    )
+
+    included_graph = {
+        node_id: tuple(ref for ref in graph.get(node_id, ()) if ref in included)
+        for node_id in records
+        if node_id in included
+    }
+    cycle = dependency_cycle_path(included_graph)
+    if cycle is not None:
+        record = records[cycle[0]]
+        issues.append(
+            Issue(
+                record.path,
+                f"workspace prerequisites contain a cycle: {' -> '.join(cycle)}",
+            )
+        )
+
+    statuses = {
+        node_id: str(record.node.get("status"))
+        for node_id, record in records.items()
+        if WORKFLOW_STATE_MACHINE.is_status(record.node.get("status"))
+    }
+    for node_id in included:
+        record = records[node_id]
+        status = record.node.get("status")
+        prerequisites = graph.get(node_id)
+        if status not in {"in_progress", "completed"} or prerequisites is None:
+            continue
+        incomplete = [ref for ref in prerequisites if statuses.get(ref) != "completed"]
+        if incomplete:
+            refs = ", ".join(repr(ref) for ref in incomplete)
+            issues.append(
+                Issue(
+                    record.path,
+                    f"node[{record.index}].status: cannot be {status!r} until prerequisites are completed: {refs}",
+                )
+            )
+
+    reverse: dict[str, list[str]] = {node_id: [] for node_id in included}
+    for node_id, prerequisites in included_graph.items():
+        for prerequisite in prerequisites:
+            reverse.setdefault(prerequisite, []).append(node_id)
+    unstartable = {
+        node_id for node_id in included if statuses.get(node_id) == "skipped"
+    }
+    queue = deque(unstartable)
+    while queue:
+        prerequisite = queue.popleft()
+        for dependent in reverse.get(prerequisite, []):
+            if dependent in unstartable:
+                continue
+            unstartable.add(dependent)
+            queue.append(dependent)
+
+    for node_id in included:
+        if node_id not in unstartable or statuses.get(node_id) not in {
+            "pending",
+            "blocked",
+            "deferred",
+        }:
+            continue
+        record = records[node_id]
+        issues.append(
+            Issue(
+                record.path,
+                f"node[{record.index}]: unstartable because its prerequisite chain reaches skipped history; "
+                "rewire prerequisites or skip this node",
+            )
+        )
+
+    return issues
+
+
 def workspace_semantic_issues(manifest: Path) -> list[Issue]:
     """Return current workspace issues without consulting history or mutating state."""
     resolved = manifest.expanduser().resolve()
@@ -472,6 +655,7 @@ def workspace_semantic_issues(manifest: Path) -> list[Issue]:
     global_ids: dict[str, Path] = {}
     display_root = project_root_for(resolved.parent)
 
+    dependency_statuses = workspace_node_statuses(resolved)
     for state_file in state_files:
         _, issues = validate_manifest(state_file)
         all_issues.extend(issues)
@@ -499,7 +683,11 @@ def workspace_semantic_issues(manifest: Path) -> list[Issue]:
                     continue
                 if not isinstance(checkpoints_data, list):
                     continue
-                derived = derive_plan_status(str(status), checkpoints_data)
+                derived = derive_plan_status(
+                    str(status),
+                    checkpoints_data,
+                    dependency_statuses,
+                )
                 if derived != status:
                     all_issues.append(
                         Issue(
@@ -521,6 +709,7 @@ def workspace_semantic_issues(manifest: Path) -> list[Issue]:
             else:
                 global_ids[entry_id] = state_file
 
+    all_issues.extend(workspace_dependency_issues(resolved))
     return all_issues
 
 
@@ -605,6 +794,11 @@ def write_location_and_sync_plan(location: NodeLocation) -> list[str]:
     """Validate the mutated checkpoints file, write it, and re-derive the owning plan status."""
     project_root = project_root_for(location.manifest.parent)
     _, issues = _validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
+    dependency_issues = workspace_dependency_issues(
+        location.manifest,
+        {location.checkpoints_path: location.checkpoints_data},
+    )
+    issues.extend(dependency_issues)
     if issues:
         details = "\n".join(
             f"  {relative_path_label(issue.path, project_root)}: {issue.message}"
@@ -618,7 +812,15 @@ def write_location_and_sync_plan(location: NodeLocation) -> list[str]:
         raise ToolError(f"{MANIFEST_NAME}: plan[{location.plan_index}].status is invalid; fix the manifest before mutating nodes")
 
     label = plan_label(plan, location.plan_index)
-    derived = derive_plan_status(str(plan_status), location.checkpoints_data)
+    dependency_statuses = workspace_node_statuses(
+        location.manifest,
+        {location.checkpoints_path: location.checkpoints_data},
+    )
+    derived = derive_plan_status(
+        str(plan_status),
+        location.checkpoints_data,
+        dependency_statuses,
+    )
     if derived != plan_status and not WORKFLOW_STATE_MACHINE.can_reach(str(plan_status), derived):
         raise ToolError(
             f"plan {label!r}: this change derives plan status {derived!r}, but {plan_status!r} cannot reach it; "
@@ -651,6 +853,7 @@ def load_plan_checkpoints(manifest: Path, plan: dict[str, Any]) -> tuple[list[An
 def ensure_location_is_valid(location: NodeLocation) -> None:
     """Reject malformed state before an acceptance event can cause effects."""
     _, issues = _validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
+    issues.extend(workspace_dependency_issues(location.manifest))
     if not issues:
         return
     project_root = project_root_for(location.manifest.parent)

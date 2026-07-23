@@ -288,5 +288,26 @@
     "goal": "Install, guide, advance, diagnose, and uninstall Better Plan through Kimi Code's native Skill and Hook contracts.",
     "description": "One bounded agent-target integration using Kimi Code's current user Skill discovery and lifecycle Hook configuration without tool interception or forced continuation.",
     "checkpoints": "kimi-code-support/Checkpoints.json"
+  },
+  {
+    "id": "2d5112d4-dbea-4fc1-a299-adb8cb2e92a3",
+    "status": "completed",
+    "title": "Keep deferred goals reachable and dependency graphs acyclic",
+    "directory": "planning-reachability",
+    "source_files": [
+      "SKILL.md",
+      "README.md",
+      "references/orchestration-main.md",
+      "references/state-files.md",
+      "scripts/better_plan/domain/models.py",
+      "scripts/better_plan/domain/validation.py",
+      "scripts/better_plan/infrastructure/workspace.py",
+      "scripts/better_plan/application/workflow.py",
+      "scripts/better_plan/adapters/manifest_cli.py",
+      "tests/test_planning_reachability.py"
+    ],
+    "goal": "Keep intentionally deferred goals visible and resumable while rejecting real dependency cycles across the complete workspace.",
+    "description": "One planning-reachability correction that separates terminal waiver from future scheduling and makes every Node wait part of one workspace-wide dependency graph.",
+    "checkpoints": "planning-reachability/Checkpoints.json"
   }
 ]

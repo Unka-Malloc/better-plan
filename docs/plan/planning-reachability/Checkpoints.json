@@ -1,0 +1,328 @@
+[
+  {
+    "id": "cd10cfe0-a9a8-4abd-88af-ec439f1847c3",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "deep",
+    "goal": "Keep deferred goals reachable and reject dependency cycles across the complete workspace.",
+    "description": "Scope: Closure: capability - planning reachability integrity; own the Better Plan status contract, workspace prerequisite graph, manifest CLI lifecycle commands, focused acceptance tests, and matching public guidance. Context: skipped is simultaneously terminal history and documented future deferral, while executable prerequisite validation is confined to one checkpoint array and cannot see cross-Plan wait cycles. Target: add a visible resumable deferred state, reserve skipped for irreversible waiver, resolve every Node wait through workspace-wide prerequisites, and reject a complete cycle path before mutation or dispatch. Design Considerations: reuse globally unique Node UUIDs; use iterative O(V + E) DFS plus reverse-adjacency propagation; keep status_reason and next non-authoritative; validate proposed snapshots before atomic writes. Design Value: one authoritative reachability model prevents promised work from disappearing and prevents prose-level deadlocks from reaching an executor. Constraints & Risks: preserve terminal history, do not infer dependencies from prose, do not auto-select deferred work, do not expose machine or runtime data, do not add compatibility aliases or repeated full-regression gates.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004",
+      "REQ-005",
+      "REQ-006"
+    ],
+    "design": {
+      "artifact": "docs/plan/planning-reachability/Architecture.md",
+      "owned_paths": [
+        "SKILL.md",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/state-files.md",
+        "scripts/better_plan/domain/models.py",
+        "scripts/better_plan/domain/validation.py",
+        "scripts/better_plan/infrastructure/workspace.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/adapters/manifest_cli.py"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/domain/models.py",
+        "scripts/better_plan/domain/validation.py",
+        "scripts/better_plan/infrastructure/workspace.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/adapters/manifest_cli.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/planning-reachability/Validation.md",
+        "tests/test_planning_reachability.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/domain/validation.py",
+          "kind": "function",
+          "name": "dependency_cycle_path",
+          "operation": "add",
+          "signature": "dependency_cycle_path(graph: Mapping[str, Sequence[str]]) -> list[str] | None"
+        },
+        {
+          "path": "scripts/better_plan/infrastructure/workspace.py",
+          "kind": "function",
+          "name": "workspace_dependency_issues",
+          "operation": "add",
+          "signature": "workspace_dependency_issues(manifest: Path, overrides: Mapping[Path, list[Any]] | None = None, roots: set[str] | None = None) -> list[Issue]"
+        },
+        {
+          "path": "scripts/better_plan/infrastructure/workspace.py",
+          "kind": "function",
+          "name": "workspace_node_statuses",
+          "operation": "add",
+          "signature": "workspace_node_statuses(manifest: Path, overrides: Mapping[Path, list[Any]] | None = None) -> dict[str, str]"
+        },
+        {
+          "path": "scripts/better_plan/application/workflow.py",
+          "kind": "function",
+          "name": "defer_command",
+          "operation": "add",
+          "signature": "defer_command(args: argparse.Namespace) -> int"
+        },
+        {
+          "path": "scripts/better_plan/application/workflow.py",
+          "kind": "function",
+          "name": "activate_command",
+          "operation": "add",
+          "signature": "activate_command(args: argparse.Namespace) -> int"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "deferred_lifecycle",
+          "producer": "scripts/better_plan/domain/models.py",
+          "consumers": [
+            "scripts/better_plan/application/workflow.py",
+            "scripts/better_plan/adapters/manifest_cli.py",
+            "references/state-files.md"
+          ],
+          "inputs": "explicit native-main defer or activate decision",
+          "outputs": "visible non-terminal backlog state or pending execution candidate",
+          "errors": [
+            "skipped and completed history remain irreversible",
+            "deferred Nodes reject start and dispatch"
+          ]
+        },
+        {
+          "name": "workspace_dependency_graph",
+          "producer": "scripts/better_plan/infrastructure/workspace.py",
+          "consumers": [
+            "scripts/better_plan/application/workflow.py",
+            "scripts/better_plan/adapters/manifest_cli.py"
+          ],
+          "inputs": "globally unique Node IDs and prerequisites from referenced checkpoint files",
+          "outputs": "global status lookup and bounded dependency issues",
+          "errors": [
+            "unknown prerequisite",
+            "closed dependency cycle",
+            "active or completed Node behind an incomplete prerequisite",
+            "non-terminal Node behind skipped history"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/infrastructure/workspace.py",
+          "to": "scripts/better_plan/domain/validation.py",
+          "reason": "the effectful workspace boundary uses the pure cycle-path algorithm"
+        },
+        {
+          "from": "scripts/better_plan/application/workflow.py",
+          "to": "scripts/better_plan/infrastructure/workspace.py",
+          "reason": "execution entry consumes the canonical workspace status index"
+        },
+        {
+          "from": "scripts/better_plan/adapters/manifest_cli.py",
+          "to": "scripts/better_plan/infrastructure/workspace.py",
+          "reason": "validation, status, next, and graph mutation share one dependency authority"
+        }
+      ],
+      "decisions": {
+        "composition": "extend the existing state machine and workspace boundary instead of adding a scheduler or dependency service",
+        "algorithms": "iterative three-color DFS for one exact cycle path and deque propagation over reverse adjacency, both O(V + E)",
+        "data_structures": "one global Node record map plus forward and reverse adjacency maps keyed by existing UUIDs",
+        "state": "deferred is non-terminal and visible; skipped remains irreversible terminal history",
+        "isolation": "status_reason and next carry no execution authority; Plan-scoped validation limits reports to dependency closure",
+        "concurrency": "proposed graph snapshots validate before one atomic checkpoint replacement; Plan writes remain serialized"
+      },
+      "test_seams": [
+        "pure iterative cycle-path lookup",
+        "temporary multi-Plan workspace fixtures",
+        "defer and activate CLI transitions",
+        "next and dispatch global prerequisite guards",
+        "atomic rewire rejection"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Deferred Nodes remain visible and resumable but never executable until explicit activation; skipped history stays terminal.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a2dffdd69599c985e80ad46a72ee8f700b15ad712ae3a2eda6ad38d3f25bc80b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d07f535f09923a2ca1e32b63dded4d7404696bd219e11b8ea11a296798226214",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Deferred implementation obligations prevent final validation and Plan completion from claiming delivery.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a2dffdd69599c985e80ad46a72ee8f700b15ad712ae3a2eda6ad38d3f25bc80b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d07f535f09923a2ca1e32b63dded4d7404696bd219e11b8ea11a296798226214",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Prerequisites resolve across Plans and control validate, next, start, and dispatch through one workspace status index.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a2dffdd69599c985e80ad46a72ee8f700b15ad712ae3a2eda6ad38d3f25bc80b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d07f535f09923a2ca1e32b63dded4d7404696bd219e11b8ea11a296798226214",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "An O(V + E) workspace graph check reports the exact closed cross-Plan cycle and rejects graph mutation atomically.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a2dffdd69599c985e80ad46a72ee8f700b15ad712ae3a2eda6ad38d3f25bc80b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d07f535f09923a2ca1e32b63dded4d7404696bd219e11b8ea11a296798226214",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Public guidance and bounded outputs reserve skipped for waiver, require structured Node waits, and disclose no local or backend runtime data.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "a2dffdd69599c985e80ad46a72ee8f700b15ad712ae3a2eda6ad38d3f25bc80b",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "8c95a878818d43d185eefe5089964820b01078ce979f430955dda89a05884d11",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "d07f535f09923a2ca1e32b63dded4d7404696bd219e11b8ea11a296798226214",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:10:07Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "fix: preserve deferred work and reject workspace dependency cycles",
+      "target": "planning reachability lifecycle"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_planning_reachability tests.test_manifest_tool_state_machine tests.test_manifest_tool_cli tests.test_acceptance_state_machine tests.test_orchestration_workflow -v",
+        "python3 scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "python3 scripts/manifest_tool.py check-labels docs/plan --plan planning-reachability"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "paths": [
+        "SKILL.md",
+        "README.md",
+        "references/orchestration-main.md",
+        "references/state-files.md",
+        "scripts/better_plan/domain/models.py",
+        "scripts/better_plan/domain/validation.py",
+        "scripts/better_plan/infrastructure/workspace.py",
+        "scripts/better_plan/application/workflow.py",
+        "scripts/better_plan/adapters/manifest_cli.py",
+        "tests/test_planning_reachability.py",
+        "tests/test_manifest_tool_state_machine.py",
+        "tests/test_manifest_tool_cli.py",
+        "tests/test_acceptance_state_machine.py",
+        "tests/test_orchestration_workflow.py",
+        "docs/plan/planning-reachability/Validation.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-23T19:10:07Z",
+        "contract_digest": "c02f252afd2fbcfaa75693665727e75a483bb6eaaf954172a8177ceab63ddc78",
+        "content_fingerprint": "bc9a2d58b76db901b3e4ee7008e0ca8c807547b22218bb743182259097d621d4"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-23T19:11:21Z",
+        "contract_digest": "c02f252afd2fbcfaa75693665727e75a483bb6eaaf954172a8177ceab63ddc78",
+        "content_fingerprint": "bc9a2d58b76db901b3e4ee7008e0ca8c807547b22218bb743182259097d621d4"
+      },
+      "design_digest": "1d68f807c8577486f306a99749fbafe0c67455a5827e1ae7c9bdc8cb46282f5d",
+      "acceptance_fingerprint": "e13263d6d8ec56393e2d1e16bdedc11160df204d9a45d7ac8ca2c23d95fc6fb9"
+    }
+  }
+]
