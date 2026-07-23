@@ -25,7 +25,6 @@ CURRENT_SKILL_FILES = (
     "references/state-files.md",
     "references/orchestration-main.md",
     "references/acceptance-designer.md",
-    "references/acceptance-reviewer.md",
     "references/executor.md",
     "references/auditor.md",
     "scripts/__init__.py",

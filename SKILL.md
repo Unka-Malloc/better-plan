@@ -29,6 +29,21 @@ Completion must not select or start a next or different Node. Adjacent findings,
 work, and any newly discovered capability return to the native main, which compares them with the
 latest user request before deciding what to do.
 
+## End-to-end closure policy
+
+- Complete one end-to-end user-visible capability in one pass. Do not split ordinary planning,
+  scaffolding, compilation, focused testing, or review into separate Nodes or repeated dispatch
+  cycles.
+- Freeze acceptance exactly once before implementation and perform exactly one independent review
+  after the focused regression. Do not add a separate acceptance-review dispatch.
+- Resolve ordinary compiler, type, lint, import, and local integration errors during the same
+  implementation dispatch.
+- Open a repair cycle only when evidence identifies a real design error or product-semantics error.
+  Ordinary implementation defects stay inside the current implementation closure and do not reopen
+  design or acceptance.
+- Run only the selected Node's focused tests during its closure. Run the full regression exactly
+  once, after every implementation Node in the requested delivery is complete.
+
 ## Native-main alignment
 
 For explicit implementation:
@@ -51,10 +66,10 @@ For explicit implementation:
 
 Automatic routing is limited to objective actions correlated to the selected Node:
 
-- initial acceptance design may route to a fresh acceptance reviewer;
-- approved acceptance may route to an executor;
+- one acceptance-design dispatch freezes the acceptance contract and may route directly to an
+  executor, or to the final regression for a final-validation Node;
 - executor exit runs the declared focused regression;
-- a passing focused regression may route to one thin read-only auditor.
+- a passing focused regression may route to the lifecycle's sole independent read-only auditor.
 
 Acceptance rejection, preparation drift, regression failure, audit findings, completion, and new
 scope return to the native main. `main_acceptance_decision` may revise the same Node explicitly,
@@ -74,7 +89,6 @@ Load exactly one role reference for the role currently active; do not merge leaf
 
 - Main orchestration: `references/orchestration-main.md`
 - Acceptance designer: `references/acceptance-designer.md`
-- Acceptance reviewer: `references/acceptance-reviewer.md`
 - Executor: `references/executor.md`
 - Auditor: `references/auditor.md`
 
@@ -107,6 +121,5 @@ Conditionally load exactly one applicable reference while that role is active:
 - Load `references/orchestration-main.md` only while the native main aligns the selected capability,
   decides scope, or dispatches a reported action.
 - Load `references/acceptance-designer.md` only for an acceptance-designer dispatch.
-- Load `references/acceptance-reviewer.md` only for an acceptance-reviewer dispatch.
 - Load `references/executor.md` only for an executor dispatch.
 - Load `references/auditor.md` only after focused regression selects the read-only auditor.

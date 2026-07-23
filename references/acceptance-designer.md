@@ -2,6 +2,9 @@
 
 Design executable acceptance for the current Node only.
 
+This is the lifecycle's single acceptance freeze. Produce the final executable contract in this
+dispatch; do not request or assume a separate acceptance-review stage.
+
 ## Inputs
 
 - frozen requirements, architecture, design, and scaffold for the selected Node

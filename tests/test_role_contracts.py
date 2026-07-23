@@ -16,10 +16,9 @@ from scripts.better_plan.domain import roles as role_contracts
 class RoleContractsTests(unittest.TestCase):
     """Contract tests for the canonical role contract module."""
 
-    def test_four_delegating_actions_each_map_to_distinct_relative_reference(self) -> None:
+    def test_three_delegating_actions_each_map_to_distinct_relative_reference(self) -> None:
         expected_map = {
             "dispatch_acceptance_designer": "references/acceptance-designer.md",
-            "dispatch_acceptance_reviewer": "references/acceptance-reviewer.md",
             "dispatch_executor": "references/executor.md",
             "dispatch_auditor": "references/auditor.md",
         }
@@ -31,7 +30,7 @@ class RoleContractsTests(unittest.TestCase):
 
         self.assertEqual(set(resolved.keys()), set(expected_map.keys()))
         self.assertEqual(set(resolved.values()), set(expected_map.values()))
-        self.assertEqual(len(set(resolved.values())), 4)
+        self.assertEqual(len(set(resolved.values())), 3)
 
         for action, expected_reference in expected_map.items():
             self.assertEqual(resolved[action], expected_reference)

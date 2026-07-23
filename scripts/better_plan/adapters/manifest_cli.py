@@ -980,7 +980,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument(
         "--role",
         required=True,
-        choices=("acceptance_designer", "acceptance_reviewer", "executor", "auditor"),
+        choices=("acceptance_designer", "executor", "auditor"),
         help="fresh leaf-agent role",
     )
     dispatch.set_defaults(func=dispatch_command)
@@ -996,8 +996,6 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=(
             "acceptance-designer-exited",
-            "acceptance-approved",
-            "acceptance-rejected",
             "executor-exited",
             "regression-requested",
             "audit-failed",

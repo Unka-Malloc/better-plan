@@ -124,14 +124,12 @@ python3 scripts/manifest_tool.py transition pending in_progress
 python3 scripts/manifest_tool.py platform --json
 ```
 
-Drive implementation and final-validation Nodes through the acceptance state machine. `next-action` is read-only. `dispatch` creates one bounded correlation, and `advance` consumes matching acceptance-design/review/executor/audit/regression/repair events. The state tool runs tests, writes safe receipts, routes repair, checks mapped criteria, and auto completes; native agents do none of those things:
+Drive implementation and final-validation Nodes through the acceptance state machine. `next-action` is read-only. `dispatch` creates one bounded correlation, and `advance` consumes matching acceptance-design/executor/audit/regression/repair events. The state tool runs tests, writes safe receipts, routes repair, checks mapped criteria, and auto completes; native agents do none of those things:
 
 ```sh
 python3 scripts/manifest_tool.py next-action <node-id> <workspace>
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role acceptance_designer
 python3 scripts/manifest_tool.py advance <node-id> <workspace> --event acceptance-designer-exited --dispatch-id <id>
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role acceptance_reviewer
-python3 scripts/manifest_tool.py advance <node-id> <workspace> --event acceptance-approved --dispatch-id <id>
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role executor
 python3 scripts/manifest_tool.py advance <node-id> <workspace> --event executor-exited --dispatch-id <id>
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role auditor
@@ -175,13 +173,12 @@ Only supported-callback contexts continue orchestration. The native parent then 
 
 - Native main
 - Acceptance designer
-- Acceptance reviewer
 - Executor
 - Auditor
 
 Better Plan is considered only after the user explicitly asks for implementation. The native main first understands and follows that request, then inspects relevant Plans as fallible references and aligns one selected Node to one user-visible capability. An existing or active Node never authorizes work by itself.
-The parent reads `next-action`, then dispatches `dispatch_acceptance_designer`, `dispatch_acceptance_reviewer`, `dispatch_executor`, or `dispatch_auditor` by the returned role with role isolation.
-When a native Agent tool returns, the completion Hook submits the correlated write-role exit to the state reducer before the parent receives its next model step. Acceptance-designer exit selects `dispatch_acceptance_reviewer`. Executor exit runs the declared focused regression: success selects `dispatch_auditor`, while failure emits `main_repair_decision`. The Hook never launches an agent itself and never continues the stopped child.
+The parent reads `next-action`, then dispatches `dispatch_acceptance_designer`, `dispatch_executor`, or `dispatch_auditor` by the returned role with role isolation.
+When a native Agent tool returns, the completion Hook submits the correlated write-role exit to the state reducer before the parent receives its next model step. The acceptance designer freezes the contract once and routes directly to execution. Executor exit runs the declared focused regression: success selects the lifecycle's single independent auditor, while failure returns to native-main classification. Ordinary implementation defects stay inside the same Node and frozen acceptance; only real design or product-semantics errors open a repair cycle. The Hook never launches an agent itself and never continues the stopped child.
 
 Read-only verdicts remain main-thread decisions. Approval may continue the same Node; rejection and preparation drift emit `main_acceptance_decision`, where the native main may explicitly revise the same Node, narrow the capability, defer it, or proceed when evidence permits. Regression failure and audit findings likewise return to the native main. No rejection, drift, failure, finding, completion, or newly discovered scope automatically selects a different Node.
 
@@ -194,7 +191,7 @@ Codex and Claude receive only the short intent guidance at prompt submit; no Pla
 
 “Node start” is an internal acceptance transition, not a host Hook. Session and prompt callbacks stop after returning bounded context or explicit prompt allowance. Only the Agent-completion callback reads the unique correlated dispatch, and duplicate, unrelated, ambiguous, or out-of-phase callbacks are successful no-ops.
 
-The automatic full-regression route starts only from `regression-requested`, and a fresh full receipt still requires a final read-only acceptance audit. Handoffs and responses use repository-relative paths and redacted evidence; raw prompts, Plan prose, absolute paths, machine identity, backend runtime data, and command output are excluded.
+Each implementation Node runs only its focused regression. The automatic full-regression route starts exactly once from a final-validation Node's `regression-requested`, after all implementation Nodes finish, and a fresh full receipt still requires the lifecycle's single read-only audit. Handoffs and responses use repository-relative paths and redacted evidence; raw prompts, Plan prose, absolute paths, machine identity, backend runtime data, and command output are excluded.
 
 Change Node structure without hand-editing JSON. `add-node` inserts a new pending Node at a validated position (`--after X --splice` inserts it into X's outgoing chain and rewires downstream prerequisites), `rewire` edits `prerequisites`/`next`, and `edit-node` updates Node fields — terminal Nodes accept only requirements-label corrections because completed history stays immutable:
 
@@ -228,7 +225,6 @@ The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, 
 Reference set:
 - [orchestration-main](references/orchestration-main.md)
 - [acceptance-designer](references/acceptance-designer.md)
-- [acceptance-reviewer](references/acceptance-reviewer.md)
 - [executor](references/executor.md)
 - [auditor](references/auditor.md)
 
