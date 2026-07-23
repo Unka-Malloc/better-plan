@@ -26,8 +26,19 @@ NODE_C_ID = "33333333-3333-4333-8333-333333333333"
 
 
 def run_cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    command, *values = arguments
+    option_index = next(
+        (index for index, value in enumerate(values) if value.startswith("-")),
+        len(values),
+    )
+    positioned = [
+        command,
+        *values[:option_index],
+        str(root),
+        *values[option_index:],
+    ]
     return subprocess.run(
-        [sys.executable, str(PYTHON_TOOL), *arguments, str(root)],
+        [sys.executable, str(PYTHON_TOOL), *positioned],
         cwd=PYTHON_TOOL.parents[1],
         check=False,
         text=True,

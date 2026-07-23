@@ -309,5 +309,20 @@
     "goal": "Keep intentionally deferred goals visible and resumable while rejecting real dependency cycles across the complete workspace.",
     "description": "One planning-reachability correction that separates terminal waiver from future scheduling and makes every Node wait part of one workspace-wide dependency graph.",
     "checkpoints": "planning-reachability/Checkpoints.json"
+  },
+  {
+    "id": "898fa4e8-96de-442c-a509-de0244632811",
+    "status": "completed",
+    "title": "Support Better Plan on Python 3.8 and newer",
+    "directory": "python38-compatibility",
+    "source_files": [
+      "README.md",
+      ".github/workflows/ci.yml",
+      "scripts",
+      "tests/test_python_compatibility.py"
+    ],
+    "goal": "Make Python 3.8 the tested minimum runtime for every Better Plan command and test surface.",
+    "description": "One runtime-compatibility delivery that declares Python 3.8+, proves the complete suite on the lower bound, and continuously tests both the minimum and current Python lines.",
+    "checkpoints": "python38-compatibility/Checkpoints.json"
   }
 ]

@@ -1,0 +1,249 @@
+[
+  {
+    "id": "c308f5b9-8896-418b-98d7-2965a7b89faf",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "high",
+    "goal": "Make Python 3.8 the declared and continuously verified minimum Better Plan runtime.",
+    "description": "Scope: Closure: capability - Python 3.8+ runtime compatibility; own the public runtime declaration, CI version matrix, any required direct source migration, and lower-bound acceptance tests. Context: the repository compiles on Python 3.8 but declares no minimum and CI begins above that floor. Target: one source implementation whose complete behavior passes on CPython 3.8 and current Python, with Linux and Windows lower-bound CI. Design Considerations: use actual interpreter execution as the oracle; replace unsupported APIs directly with Python 3.8 standard-library forms; retain current command and state semantics. Design Value: a tested lower bound is more reliable than annotation inspection or an undocumented compatibility claim. Constraints & Risks: no Python 3.7 support, compatibility dependency, parallel implementation, skipped test, workflow semantic change, private path, raw runtime output, or repeated full regression.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003",
+      "REQ-004"
+    ],
+    "design": {
+      "artifact": "docs/plan/python38-compatibility/Architecture.md",
+      "owned_paths": [
+        "README.md",
+        ".github/workflows/ci.yml",
+        "scripts/better_plan/domain/transitions.py"
+      ],
+      "scaffold_paths": [
+        "README.md",
+        ".github/workflows/ci.yml",
+        "scripts/better_plan/domain/transitions.py"
+      ],
+      "acceptance_paths": [
+        "docs/plan/python38-compatibility/Validation.md",
+        "tests/test_python_compatibility.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/domain/transitions.py",
+          "kind": "type",
+          "name": "TransitionKey",
+          "operation": "modify",
+          "signature": "TransitionKey = Tuple[str, str, str]"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "kind": "module",
+          "name": "jobs.test.strategy.matrix",
+          "operation": "modify",
+          "signature": "Python 3.8 Linux and Windows lower-bound jobs plus one current-Python Linux job"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "python_runtime_contract",
+          "producer": "README.md",
+          "consumers": [
+            ".github/workflows/ci.yml",
+            "scripts",
+            "tests/test_python_compatibility.py"
+          ],
+          "inputs": "one supported Python interpreter version",
+          "outputs": "unchanged Better Plan CLI, Hook, installer, and planning behavior",
+          "errors": [
+            "runtime below Python 3.8 is unsupported",
+            "any compile, import, command, or test failure on Python 3.8 rejects compatibility"
+          ]
+        }
+      ],
+      "dependencies": [],
+      "decisions": {
+        "composition": "one standard-library source implementation shared by the complete supported Python range",
+        "algorithms": "actual lower-bound compile and behavioral execution instead of source-pattern approximation",
+        "data_structures": "the existing CI matrix is the sole version-support inventory",
+        "state": "runtime compatibility adds no persisted workflow state",
+        "isolation": "an isolated Python 3.8 runtime executes repository-relative tests without modifying agent configuration",
+        "concurrency": "independent CI matrix jobs run the same deterministic suite"
+      },
+      "test_seams": [
+        "isolated CPython 3.8 compile probe",
+        "complete unittest discovery under CPython 3.8",
+        "README and CI compatibility contract assertions",
+        "existing CLI, Hook, installer, and state-machine suites"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Public guidance declares Python 3.8 and newer as the supported Better Plan runtime range.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3b3aadb1825da60b19ffbe8e83e6f4c8901c1953a8193a56ad552c6bc725caff",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "2a32d27aab0fc8b07dfe47d0be1f55419fde73122519ee5dfe3aa51f0df3ce40",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "b3fddaf314ddaa7dbcf35c21a2ef1d418fa2ef5dcbcb4368df0aa47cfbe0d652",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "fc3aa9143bb6b02fc9c9aaf1d8a7447d1b7131b2340aca3cf5eb6d2d359429cf",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Every shipped source and test module compiles under an isolated CPython 3.8 interpreter.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3b3aadb1825da60b19ffbe8e83e6f4c8901c1953a8193a56ad552c6bc725caff",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "2a32d27aab0fc8b07dfe47d0be1f55419fde73122519ee5dfe3aa51f0df3ce40",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "b3fddaf314ddaa7dbcf35c21a2ef1d418fa2ef5dcbcb4368df0aa47cfbe0d652",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "fc3aa9143bb6b02fc9c9aaf1d8a7447d1b7131b2340aca3cf5eb6d2d359429cf",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The complete repository test suite and existing command surfaces pass on CPython 3.8 without version-based skips or alternate implementations.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3b3aadb1825da60b19ffbe8e83e6f4c8901c1953a8193a56ad552c6bc725caff",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "2a32d27aab0fc8b07dfe47d0be1f55419fde73122519ee5dfe3aa51f0df3ce40",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "b3fddaf314ddaa7dbcf35c21a2ef1d418fa2ef5dcbcb4368df0aa47cfbe0d652",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "fc3aa9143bb6b02fc9c9aaf1d8a7447d1b7131b2340aca3cf5eb6d2d359429cf",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "CI continuously runs the complete suite on Python 3.8 for Linux and Windows and retains a current-Python Linux job.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "3b3aadb1825da60b19ffbe8e83e6f4c8901c1953a8193a56ad552c6bc725caff",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "2a32d27aab0fc8b07dfe47d0be1f55419fde73122519ee5dfe3aa51f0df3ce40",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "b3fddaf314ddaa7dbcf35c21a2ef1d418fa2ef5dcbcb4368df0aa47cfbe0d652",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "fc3aa9143bb6b02fc9c9aaf1d8a7447d1b7131b2340aca3cf5eb6d2d359429cf",
+            "exit_code": 0,
+            "recorded_at": "2026-07-23T19:27:33Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "support Python 3.8 and newer",
+      "target": "origin/nightly"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "uv run --python 3.8 -- python -m compileall -q scripts tests",
+        "uv run --python 3.8 -- python -m unittest discover -s tests -v",
+        "uv run --python 3.8 -- python scripts/manifest_tool.py validate docs/plan --check-sources --no-git",
+        "uv run --python 3.8 -- python scripts/manifest_tool.py check-labels docs/plan --plan python38-compatibility"
+      ],
+      "criteria": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "paths": [
+        "README.md",
+        ".github/workflows/ci.yml",
+        "scripts",
+        "tests"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-23T19:27:33Z",
+        "contract_digest": "b367880c69d4a1c104365e42b1a40229fe661ff6d510af66e59d51c02fe0a39e",
+        "content_fingerprint": "2badb7a3a8d14313007fa622ea227420168eca31936ee7f1c2e22ad1e5268969"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-23T19:28:01Z",
+        "contract_digest": "b367880c69d4a1c104365e42b1a40229fe661ff6d510af66e59d51c02fe0a39e",
+        "content_fingerprint": "2badb7a3a8d14313007fa622ea227420168eca31936ee7f1c2e22ad1e5268969"
+      },
+      "design_digest": "24c4c626b06b86ca5a3870c79a9c54395ba6ec5d6ccffc69275ffec3870a11f8",
+      "acceptance_fingerprint": "69fa83674649ac700410ff69dcd7550b2b49afb30259438e51d9984c5aa88ea4"
+    }
+  }
+]
