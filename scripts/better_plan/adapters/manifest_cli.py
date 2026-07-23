@@ -9,12 +9,12 @@ import hashlib
 import json
 import subprocess
 import sys
-from ..application.workflow import advance_command as _advance_command, block_command, complete_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
+from ..application.workflow import activate_command, advance_command as _advance_command, block_command, complete_command, defer_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
 from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
 from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
 from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
 from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_manifest_path, write_location_and_sync_plan, write_state_entries
+from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_dependency_issues, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan, write_state_entries
 
 
 def validate_command(args: argparse.Namespace) -> int:
@@ -31,6 +31,7 @@ def validate_command(args: argparse.Namespace) -> int:
         return 1
 
     snapshot_indexes: set[int] | None = None
+    dependency_roots: set[str] | None = None
     if args.plan is not None:
         if manifests[0].name != MANIFEST_NAME:
             raise ToolError(f"--plan requires the Better Plan workspace root or its {MANIFEST_NAME}, not a single {CHECKPOINTS_NAME}")
@@ -42,6 +43,11 @@ def validate_command(args: argparse.Namespace) -> int:
             checkpoint_path = manifests[0].parent / normalize_workspace_path(str(checkpoints))
             if checkpoint_path.name == CHECKPOINTS_NAME and checkpoint_path.is_file():
                 manifests.append(checkpoint_path)
+                dependency_roots = {
+                    str(node.get("id"))
+                    for node in load_state_entries(checkpoint_path)
+                    if isinstance(node, dict) and isinstance(node.get("id"), str)
+                }
     elif len(manifests) == 1 and manifests[0].name == MANIFEST_NAME:
         manifests.extend(referenced_checkpoints_files(manifests[0]))
 
@@ -81,6 +87,11 @@ def validate_command(args: argparse.Namespace) -> int:
                 all_issues.append(Issue(manifest, f"entry[{index}].id: duplicates id from {other_label}: {node_id!r}"))
             else:
                 global_ids[node_id] = manifest
+
+    if manifests[0].name == MANIFEST_NAME:
+        all_issues.extend(
+            workspace_dependency_issues(manifests[0], roots=dependency_roots)
+        )
 
     if args.json:
         payload = {
@@ -705,6 +716,7 @@ def check_labels_command(args: argparse.Namespace) -> int:
 def sync_plan_command(args: argparse.Namespace) -> int:
     manifest = workspace_manifest_path(Path(args.root))
     manifest_data = load_state_entries(manifest)
+    dependency_statuses = workspace_node_statuses(manifest)
 
     messages: list[str] = []
     errors: list[str] = []
@@ -722,7 +734,7 @@ def sync_plan_command(args: argparse.Namespace) -> int:
         if nodes is None:
             errors.append(f"plan {label!r}: {error}")
             continue
-        derived = derive_plan_status(str(status), nodes)
+        derived = derive_plan_status(str(status), nodes, dependency_statuses)
         if derived == status:
             continue
         if not WORKFLOW_STATE_MACHINE.can_reach(str(status), derived):
@@ -767,6 +779,7 @@ def status_command(args: argparse.Namespace) -> int:
         counts = {status: 0 for status in STATUS_ORDER}
         in_progress: list[dict[str, Any]] = []
         blocked: list[dict[str, Any]] = []
+        deferred: list[dict[str, Any]] = []
         total = 0
         for node in nodes:
             if not isinstance(node, dict):
@@ -782,8 +795,20 @@ def status_command(args: argparse.Namespace) -> int:
                 blocked.append(
                     {**entry, "status_reason": public_summary(node.get("status_reason"), "[redacted]")}
                 )
+            elif status == "deferred":
+                deferred.append(
+                    {**entry, "status_reason": public_summary(node.get("status_reason"), "[redacted]")}
+                )
 
-        payload.update({"nodes": total, "counts": counts, "in_progress": in_progress, "blocked": blocked})
+        payload.update(
+            {
+                "nodes": total,
+                "counts": counts,
+                "in_progress": in_progress,
+                "blocked": blocked,
+                "deferred": deferred,
+            }
+        )
         plans_payload.append(payload)
 
     if args.json:
@@ -804,6 +829,9 @@ def status_command(args: argparse.Namespace) -> int:
         for entry in payload["blocked"]:
             reason = entry.get("status_reason") or "no status_reason recorded"
             print(f"  blocked: {entry['id']} {entry['goal']} (reason: {reason})")
+        for entry in payload["deferred"]:
+            reason = entry.get("status_reason") or "no status_reason recorded"
+            print(f"  deferred: {entry['id']} {entry['goal']} (reason: {reason})")
     return 0
 
 
@@ -812,6 +840,7 @@ def next_command(args: argparse.Namespace) -> int:
     manifest_data = load_state_entries(manifest)
     platform = current_platform()
     workspace = relative_path_label(manifest.parent, project_root_for(manifest.parent))
+    node_statuses = workspace_node_statuses(manifest)
 
     plans_payload: list[dict[str, Any]] = []
     for index, plan in enumerate(manifest_data):
@@ -823,11 +852,6 @@ def next_command(args: argparse.Namespace) -> int:
         nodes, _ = load_plan_checkpoints(manifest, plan)
         if nodes is None:
             continue
-
-        node_statuses: dict[str, Any] = {}
-        for node in nodes:
-            if isinstance(node, dict) and isinstance(node.get("id"), str):
-                node_statuses[node["id"]] = node.get("status")
 
         def node_entry(node: dict[str, Any]) -> dict[str, Any]:
             return {
@@ -1034,8 +1058,19 @@ def build_parser() -> argparse.ArgumentParser:
     skip = subparsers.add_parser("skip", help="mark a node skipped and record the reason in status_reason")
     skip.add_argument("node_id", help="node UUID")
     skip.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    skip.add_argument("--reason", required=True, help="why the node is intentionally deferred")
+    skip.add_argument("--reason", required=True, help="why the node is waived or not applicable")
     skip.set_defaults(func=skip_command)
+
+    defer = subparsers.add_parser("defer", help="park a promised node as visible non-executable future work")
+    defer.add_argument("node_id", help="node UUID")
+    defer.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    defer.add_argument("--reason", required=True, help="why the node is deferred and what should reactivate it")
+    defer.set_defaults(func=defer_command)
+
+    activate = subparsers.add_parser("activate", help="return an explicitly deferred node to pending")
+    activate.add_argument("node_id", help="node UUID")
+    activate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    activate.set_defaults(func=activate_command)
 
     pause = subparsers.add_parser("pause", help="return an in_progress node to pending so another node can start; progress notes stay in status_reason")
     pause.add_argument("node_id", help="node UUID")
@@ -1143,7 +1178,10 @@ def build_parser() -> argparse.ArgumentParser:
     sync_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     sync_plan.set_defaults(func=sync_plan_command)
 
-    status = subparsers.add_parser("status", help="report per-plan progress, the in_progress node, and blocked nodes")
+    status = subparsers.add_parser(
+        "status",
+        help="report per-plan progress plus in_progress, blocked, and deferred nodes",
+    )
     status.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     status.add_argument("--json", action="store_true", help="print machine-readable status")
     status.set_defaults(func=status_command)

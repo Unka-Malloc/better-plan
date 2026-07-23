@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 from pathlib import Path
 from dataclasses import dataclass
 import re
@@ -18,7 +18,7 @@ CHECKPOINTS_NAME = "Checkpoints.json"
 STATE_FILE_NAMES = {MANIFEST_NAME, CHECKPOINTS_NAME}
 
 
-STATUS_ORDER = ("pending", "in_progress", "blocked", "completed", "skipped")
+STATUS_ORDER = ("pending", "in_progress", "blocked", "deferred", "completed", "skipped")
 
 
 VALID_STATUSES = set(STATUS_ORDER)
@@ -410,16 +410,12 @@ class WorkflowStateMachine:
 
     def checkpoint_snapshot_issues(self, path: Path, data: list[Any]) -> list[Issue]:
         issues: list[Issue] = []
-        node_statuses: dict[str, str] = {}
         in_progress_indexes: list[int] = []
 
         for index, node in enumerate(data):
             if not isinstance(node, dict):
                 continue
-            node_id = node.get("id")
             status = node.get("status")
-            if isinstance(node_id, str) and self.is_status(status):
-                node_statuses[node_id] = status
             if status == "in_progress":
                 in_progress_indexes.append(index)
 
@@ -427,7 +423,6 @@ class WorkflowStateMachine:
             indexes = ", ".join(f"node[{index}]" for index in in_progress_indexes)
             issues.append(Issue(path, f"state machine: only one node may be in_progress at a time: {indexes}"))
 
-        unstartable_ids: set[str] = set()
         for index, node in enumerate(data):
             if not isinstance(node, dict):
                 continue
@@ -435,34 +430,6 @@ class WorkflowStateMachine:
             status = node.get("status")
             if not self.is_status(status):
                 continue
-
-            prerequisites = node.get("prerequisites")
-            if status in {"in_progress", "completed"} and is_string_list(prerequisites):
-                incomplete = [ref for ref in prerequisites if node_statuses.get(ref) != "completed"]
-                if incomplete:
-                    refs = ", ".join(repr(ref) for ref in incomplete)
-                    issues.append(Issue(path, f"node[{index}].status: cannot be {status!r} until prerequisites are completed: {refs}"))
-
-            if is_string_list(prerequisites):
-                blocking = [
-                    ref
-                    for ref in prerequisites
-                    if node_statuses.get(ref) == "skipped"
-                    or (ref in unstartable_ids and node_statuses.get(ref) != "completed")
-                ]
-                if blocking:
-                    node_id = node.get("id")
-                    if isinstance(node_id, str):
-                        unstartable_ids.add(node_id)
-                    if status in {"pending", "blocked"}:
-                        refs = ", ".join(repr(ref) for ref in blocking)
-                        issues.append(
-                            Issue(
-                                path,
-                                f"node[{index}]: unstartable because prerequisites are skipped or unstartable: {refs}; "
-                                "rewire prerequisites or skip this node",
-                            )
-                        )
 
             acceptance_criteria = node.get("acceptance_criteria")
             if status == "completed" and isinstance(acceptance_criteria, list):
@@ -497,9 +464,10 @@ class WorkflowStateMachine:
 WORKFLOW_STATE_MACHINE = WorkflowStateMachine(
     statuses=frozenset(VALID_STATUSES),
     transitions={
-        "pending": frozenset({"pending", "in_progress", "blocked", "skipped"}),
-        "in_progress": frozenset({"in_progress", "pending", "completed", "blocked", "skipped"}),
-        "blocked": frozenset({"blocked", "in_progress", "skipped"}),
+        "pending": frozenset({"pending", "in_progress", "blocked", "deferred", "skipped"}),
+        "in_progress": frozenset({"in_progress", "pending", "completed", "blocked", "deferred", "skipped"}),
+        "blocked": frozenset({"blocked", "in_progress", "deferred", "skipped"}),
+        "deferred": frozenset({"deferred", "pending", "blocked", "skipped"}),
         "completed": frozenset({"completed"}),
         "skipped": frozenset({"skipped"}),
     },
@@ -578,14 +546,28 @@ def expected_regression_scope(role: Any) -> str | None:
     return None
 
 
-def has_startable_pending_node(nodes: list[Any]) -> bool:
-    status_by_id: dict[str, str] = {}
+def has_startable_pending_node(
+    nodes: list[Any],
+    dependency_statuses: Mapping[str, str] | None = None,
+) -> bool:
+    status_by_id: dict[str, str] = dict(dependency_statuses or {})
     for node in nodes:
-        if isinstance(node, dict) and isinstance(node.get("id"), str) and WORKFLOW_STATE_MACHINE.is_status(node.get("status")):
+        if (
+            isinstance(node, dict)
+            and isinstance(node.get("id"), str)
+            and WORKFLOW_STATE_MACHINE.is_status(node.get("status"))
+        ):
             status_by_id[node["id"]] = str(node["status"])
 
     for node in nodes:
         if not isinstance(node, dict) or node.get("status") != "pending":
+            continue
+        if node.get("role") == "final_validation" and any(
+            isinstance(entry, dict)
+            and entry.get("role") == "implementation"
+            and entry.get("status") not in WORKFLOW_STATE_MACHINE.terminal_statuses
+            for entry in nodes
+        ):
             continue
         prerequisites = node.get("prerequisites")
         if not is_string_list(prerequisites):
@@ -595,7 +577,11 @@ def has_startable_pending_node(nodes: list[Any]) -> bool:
     return False
 
 
-def derive_plan_status(current: str, nodes: list[Any]) -> str:
+def derive_plan_status(
+    current: str,
+    nodes: list[Any],
+    dependency_statuses: Mapping[str, str] | None = None,
+) -> str:
     node_statuses = [
         str(node.get("status"))
         for node in nodes
@@ -607,10 +593,13 @@ def derive_plan_status(current: str, nodes: list[Any]) -> str:
         return "in_progress"
     if all(status in WORKFLOW_STATE_MACHINE.terminal_statuses for status in node_statuses):
         return "skipped" if all(status == "skipped" for status in node_statuses) else "completed"
+    startable = has_startable_pending_node(nodes, dependency_statuses)
     if "blocked" in node_statuses:
         # The plan stalls only when the blocked node leaves nothing startable;
         # otherwise sibling nodes can keep the plan moving.
-        return "blocked" if not has_startable_pending_node(nodes) else "in_progress"
-    if "completed" in node_statuses:
+        return "blocked" if not startable else "in_progress"
+    if "deferred" in node_statuses and not startable:
+        return "deferred"
+    if any(status in {"completed", "deferred"} for status in node_statuses):
         return "in_progress"
     return "pending"

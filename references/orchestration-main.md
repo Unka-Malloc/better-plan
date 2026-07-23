@@ -69,6 +69,12 @@ For `main_acceptance_decision`, inspect the concrete verdict or drift and choose
 same Node explicitly, narrow its capability, defer it, or proceed when evidence permits. Never
 auto-select a designer or a different Node.
 
+Persist a defer decision with `defer`, which keeps the capability visible but non-executable.
+Only an explicit `activate` returns it to pending execution. Never use terminal `skipped` for
+promised future work; reserve it for an explicit waiver or not-applicable outcome. If this Node
+waits on another Better Plan Node, record that UUID in workspace-wide `prerequisites`. Do not put
+execution authority in `status_reason`, `next`, Plan hierarchy, or prose.
+
 For `main_correction_decision` and `main_audit_decision`, classify current evidence before acting.
 An ordinary implementation defect receives a same-Node correction under the frozen acceptance
 contract. Revise design and reopen acceptance only for a real design error or product-semantics
@@ -86,6 +92,6 @@ failure gate. The host framework owns agent lifetime and cancellation.
 
 ## Completion
 
-Stop lifecycle orchestration when the selected capability completes or the native main defers it.
-Report adjacent findings without starting another Node. Do not import or embed leaf prompt bodies in
-the final response.
+Stop lifecycle orchestration when the selected capability completes or the native main persists a
+visible defer decision. Report adjacent findings without starting another Node. Do not import or
+embed leaf prompt bodies in the final response.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping, Sequence
 from pathlib import Path
 from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
 from .models import ACCEPTANCE_AUDIT_FIELDS, ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GIT_SHA_PATTERN, HIGH_OR_DEEP_REQUIRED_ROLES, Issue, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, expected_regression_scope, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, safe_summary_issue
@@ -488,42 +488,74 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
             for field in extra_commit_fields:
                 issues.append(Issue(path, f"{prefix}.commit.{field}: unknown field"))
 
-    id_first_index: dict[str, int] = {}
-    for index, node in enumerate(data):
-        if isinstance(node, dict) and isinstance(node.get("id"), str):
-            id_first_index.setdefault(node["id"], index)
-
     for index, node in enumerate(data):
         if not isinstance(node, dict):
             continue
+        for field in ("prerequisites", "next"):
+            refs = node.get(field)
+            if isinstance(refs, list):
+                for ref in refs:
+                    if not isinstance(ref, str):
+                        continue
+                    if not is_manifest_id(ref):
+                        issues.append(
+                            Issue(path, f"node[{index}].{field}: must contain UUID4 node ids")
+                        )
 
-        prerequisites = node.get("prerequisites")
-        if isinstance(prerequisites, list):
-            for ref in prerequisites:
-                if not isinstance(ref, str):
-                    continue
-                ref_index = id_first_index.get(ref)
-                if ref_index is None:
-                    issues.append(Issue(path, f"node[{index}].prerequisites: unknown node id {ref!r}"))
-                elif ref_index >= index:
-                    issues.append(Issue(path, f"node[{index}].prerequisites: must reference an earlier node id {ref!r}"))
-
-        next_refs = node.get("next")
-        if isinstance(next_refs, list):
-            for ref in next_refs:
-                if not isinstance(ref, str):
-                    continue
-                if not is_manifest_id(ref):
-                    issues.append(Issue(path, f"node[{index}].next: must contain UUID4 node ids"))
-                elif ref not in id_first_index:
-                    issues.append(Issue(path, f"node[{index}].next: unknown node id {ref!r}"))
-
-    issues.extend(validate_prerequisite_cycles(path, data))
     issues.extend(validate_independent_design_ownership(path, data))
     issues.extend(validate_delivery_roles(path, data))
     issues.extend(validate_requirement_traceability(path, data))
     issues.extend(WORKFLOW_STATE_MACHINE.checkpoint_snapshot_issues(path, data))
     return len(data), issues
+
+
+def dependency_cycle_path(
+    graph: Mapping[str, Sequence[str]],
+) -> list[str] | None:
+    """Return one exact closed cycle path using iterative O(V + E) traversal."""
+    white = 0
+    gray = 1
+    black = 2
+    color: dict[str, int] = {}
+    active_path: list[str] = []
+    active_positions: dict[str, int] = {}
+
+    for root in graph:
+        if color.get(root, white) != white:
+            continue
+
+        color[root] = gray
+        active_positions[root] = len(active_path)
+        active_path.append(root)
+        frames: list[tuple[str, int]] = [(root, 0)]
+
+        while frames:
+            node_id, offset = frames[-1]
+            dependencies = graph.get(node_id, ())
+            if offset >= len(dependencies):
+                frames.pop()
+                color[node_id] = black
+                active_positions.pop(node_id, None)
+                active_path.pop()
+                continue
+
+            dependency = dependencies[offset]
+            frames[-1] = (node_id, offset + 1)
+            if dependency not in graph:
+                continue
+
+            dependency_color = color.get(dependency, white)
+            if dependency_color == white:
+                color[dependency] = gray
+                active_positions[dependency] = len(active_path)
+                active_path.append(dependency)
+                frames.append((dependency, 0))
+                continue
+            if dependency_color == gray:
+                start = active_positions[dependency]
+                return [*active_path[start:], dependency]
+
+    return None
 
 
 def validate_evidence_refs(path: Path, prefix: str, refs: Any) -> list[Issue]:
@@ -565,44 +597,6 @@ def validate_evidence_refs(path: Path, prefix: str, refs: Any) -> list[Issue]:
             exit_code = ref.get("exit_code")
             if "exit_code" in ref and (type(exit_code) is not int or exit_code != 0):
                 issues.append(Issue(path, f"{ref_prefix}.exit_code: must be the integer 0; command evidence must record a passing run"))
-
-    return issues
-
-
-def validate_prerequisite_cycles(path: Path, data: Any) -> list[Issue]:
-    if not isinstance(data, list):
-        return []
-
-    graph: dict[str, list[str]] = {}
-    for node in data:
-        if not isinstance(node, dict):
-            continue
-        node_id = node.get("id")
-        prereqs = node.get("prerequisites")
-        if isinstance(node_id, str) and is_string_list(prereqs):
-            graph[node_id] = list(prereqs)
-
-    issues: list[Issue] = []
-    visiting: set[str] = set()
-    visited: set[str] = set()
-
-    def visit(node_id: str, stack: list[str]) -> None:
-        if node_id in visiting:
-            cycle = stack[stack.index(node_id) :] + [node_id] if node_id in stack else stack + [node_id]
-            issues.append(Issue(path, f"prerequisites contain a cycle: {' -> '.join(cycle)}"))
-            return
-        if node_id in visited:
-            return
-
-        visiting.add(node_id)
-        for dep in graph.get(node_id, []):
-            if dep in graph:
-                visit(dep, stack + [node_id])
-        visiting.remove(node_id)
-        visited.add(node_id)
-
-    for node_id in graph:
-        visit(node_id, [])
 
     return issues
 

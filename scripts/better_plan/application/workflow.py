@@ -9,7 +9,7 @@ import json
 from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, GIT_SHA_PATTERN, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
 from ..domain.transitions import next_action as acceptance_next_action, transition as acceptance_transition
 from ..infrastructure.regression import current_platform, ensure_node_regression, evidence_timestamp, platform_matches, preparation_fingerprints, regression_receipt_status, run_node_regression, run_regression_at_location as _run_regression_at_location, validated_design_contract, validated_regression_contract
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_path, write_location_and_sync_plan
+from ..infrastructure.workspace import NodeLocation as _NodeLocation, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
 
 
 def run_node_mutation(
@@ -39,7 +39,7 @@ def run_node_mutation(
         raise ToolError(f"node {node_id}: cannot transition from {current_status!r} to {target!r}; allowed targets: {allowed}")
 
     normalized_reason: str | None = None
-    if target in {"blocked", "skipped"}:
+    if target in {"blocked", "deferred", "skipped"}:
         if reason is None or not reason.strip():
             raise ToolError(f"a non-empty --reason is required to mark a node {target}")
         reason_issue = safe_summary_issue(reason)
@@ -52,7 +52,7 @@ def run_node_mutation(
             raise ToolError(f"--reason {reason_issue}")
         normalized_reason = reason.strip()
 
-    if target in {"blocked", "skipped"} and current_status == target:
+    if target in {"blocked", "deferred", "skipped"} and current_status == target:
         if node.get("status_reason") == normalized_reason:
             return [f"OK: node {node_id} remains {target}"]
         raise ToolError(
@@ -94,6 +94,14 @@ def run_node_mutation(
                     f"node {entry.get('id')} is already in_progress in {state_label}; "
                     f"pause it with `pause {entry.get('id')}` to yield, or complete/block it, before starting {node_id}"
                 )
+        statuses = workspace_node_statuses(manifest)
+        prerequisites = node.get("prerequisites")
+        if not is_string_list(prerequisites):
+            raise ToolError(f"node {node_id}: prerequisites must be an array")
+        if any(statuses.get(ref) != "completed" for ref in prerequisites):
+            raise ToolError(
+                f"node {node_id}: prerequisites must be completed before the node starts"
+            )
         if current_status != "in_progress" and isinstance(node.get("regression"), dict):
             node["regression"].pop("last_pass", None)
 
@@ -105,7 +113,7 @@ def run_node_mutation(
     normalize_delivery_administrative_transition(node, target)
 
     node["status"] = target
-    if target in {"blocked", "skipped"}:
+    if target in {"blocked", "deferred", "skipped"}:
         assert normalized_reason is not None
         node["status_reason"] = normalized_reason
     elif target == "pending" and normalized_reason is not None:
@@ -173,7 +181,7 @@ def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[s
         return acceptance
 
     clear_regression_proof(node)
-    if node.get("status") != "blocked":
+    if node.get("status") not in {"blocked", "deferred"}:
         node["status"] = "pending"
         node.pop("status_reason", None)
     reset = {
@@ -231,11 +239,7 @@ def ensure_node_can_start(location: _NodeLocation, node: dict[str, Any]) -> None
     if not isinstance(mapped, list) or len(mapped) != criterion_count or set(mapped) != set(range(criterion_count)):
         raise ToolError("automated acceptance requires regression criteria to map every acceptance criterion exactly once")
 
-    status_by_id = {
-        str(entry.get("id")): entry.get("status")
-        for entry in location.checkpoints_data
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-    }
+    status_by_id = workspace_node_statuses(location.manifest)
     prerequisites = node.get("prerequisites")
     if not is_string_list(prerequisites):
         raise ToolError(f"node {node_id}: prerequisites must be an array")
@@ -252,7 +256,9 @@ def ensure_node_can_start(location: _NodeLocation, node: dict[str, Any]) -> None
             and entry.get("status") not in {"completed", "skipped"}
         ]
         if unfinished:
-            raise ToolError("final_validation cannot start while implementation nodes remain unfinished")
+            raise ToolError(
+                "final_validation cannot start until every non-skipped implementation node is completed"
+            )
 
     for entry in location.checkpoints_data:
         if (
@@ -290,6 +296,9 @@ def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
     if status in WORKFLOW_STATE_MACHINE.terminal_statuses:
         return
     clear_regression_proof(node)
+    if status == "deferred":
+        node.pop("acceptance", None)
+        return
     prior = node.get("acceptance")
     attempt = prior.get("attempt", 0) if isinstance(prior, dict) else 0
     safe_attempt = int(attempt) if type(attempt) is int and attempt >= 0 else 0
@@ -308,13 +317,18 @@ def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
 
 
 def normalize_delivery_administrative_transition(node: dict[str, Any], target: str) -> None:
-    """Cancel automated proof before a delivery node is paused, blocked, or skipped."""
+    """Cancel automated proof before a delivery node is paused, blocked, deferred, or skipped."""
     role = node.get("role")
-    if role not in REGRESSION_NODE_ROLES or target not in {"pending", "blocked", "skipped"}:
+    if role not in REGRESSION_NODE_ROLES or target not in {
+        "pending",
+        "blocked",
+        "deferred",
+        "skipped",
+    }:
         return
 
     clear_regression_proof(node)
-    if target == "skipped":
+    if target in {"deferred", "skipped"}:
         node.pop("acceptance", None)
         return
 
@@ -411,9 +425,11 @@ def bounded_acceptance_payload(node: dict[str, Any], *, action: str | None = Non
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance["phase"])
     if action is None:
-        action = "none" if node.get("status") in WORKFLOW_STATE_MACHINE.terminal_statuses else acceptance_next_action(
-            phase,
-            str(node.get("role")),
+        action = (
+            "none"
+            if node.get("status") == "deferred"
+            or node.get("status") in WORKFLOW_STATE_MACHINE.terminal_statuses
+            else acceptance_next_action(phase, str(node.get("role")))
         )
     payload: dict[str, Any] = {
         "node_id": node.get("id"),
@@ -437,6 +453,9 @@ def next_action_command(args: argparse.Namespace) -> int:
     ensure_location_is_valid(location)
     node = location.checkpoints_data[location.node_index]
     automated_node_role(node)
+    if node.get("status") == "deferred":
+        print_acceptance_payload(node, action="none")
+        return 0
     if node.get("status") in {"pending", "blocked", "in_progress"} and "acceptance" not in node:
         ensure_node_can_start(location, node)
     before = json.dumps(node, sort_keys=True, separators=(",", ":"))
@@ -907,6 +926,28 @@ def block_command(args: argparse.Namespace) -> int:
 
 def skip_command(args: argparse.Namespace) -> int:
     for message in run_node_mutation(args.root, args.node_id, "skipped", reason=args.reason):
+        print(message)
+    return 0
+
+
+def defer_command(args: argparse.Namespace) -> int:
+    for message in run_node_mutation(
+        args.root,
+        args.node_id,
+        "deferred",
+        reason=args.reason,
+    ):
+        print(message)
+    return 0
+
+
+def activate_command(args: argparse.Namespace) -> int:
+    for message in run_node_mutation(
+        args.root,
+        args.node_id,
+        "pending",
+        require_current="deferred",
+    ):
         print(message)
     return 0
 

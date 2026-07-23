@@ -76,6 +76,12 @@ scope return to the native main. `main_acceptance_decision` may revise the same 
 narrow its current capability, defer it, or proceed when the evidence supports that choice; it does
 not map to a leaf role or choose another Node.
 
+Deferral is a visible, non-terminal scheduling decision: use the manifest tool's `defer` command,
+and use `activate` before the capability may become executable again. `skipped` is reserved for an
+irreversible waiver or not-applicable outcome and must never represent promised follow-up work.
+Every wait on another Better Plan Node belongs in workspace-wide `prerequisites`; prose,
+`status_reason`, Plan nesting, and `next` never create execution dependencies.
+
 When delegated state is unchanged, do not repeat status or progress reports. Use the host's waiting
 capability and report only completion, blocking, a needed decision, or a material scope change.
 
@@ -112,6 +118,8 @@ main. Reviewers and auditors remain read-only. No leaf mutates Plan state, crite
 - `scripts/manifest_tool.py next-action <node-id> [workspace]`
 - `scripts/manifest_tool.py dispatch <node-id> [workspace] --role ...`
 - `scripts/manifest_tool.py advance <node-id> ...`
+- `scripts/manifest_tool.py defer <node-id> [workspace] --reason ...`
+- `scripts/manifest_tool.py activate <node-id> [workspace]`
 - `scripts/manifest_tool.py validate [workspace]`
 
 ## role references

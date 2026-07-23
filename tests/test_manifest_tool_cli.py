@@ -1042,7 +1042,13 @@ class ManifestToolCliTests(unittest.TestCase):
             self.assertEqual(resume.returncode, 0, resume.stderr)
 
             skip = run_command(
-                sys.executable, PYTHON_TOOL, "skip", SECOND_NODE_ID, tmpdir, "--reason", "deferred to a follow-up plan"
+                sys.executable,
+                PYTHON_TOOL,
+                "skip",
+                SECOND_NODE_ID,
+                tmpdir,
+                "--reason",
+                "waived from this delivery",
             )
             self.assertEqual(skip.returncode, 0, skip.stderr)
             self.assertIn("OK: plan 'Main Plan' in_progress -> completed", skip.stdout)
@@ -1054,7 +1060,7 @@ class ManifestToolCliTests(unittest.TestCase):
             self.assertEqual(nodes[0]["acceptance_criteria"][1]["evidence"], "unit tests passed")
             self.assertNotIn("status_reason", nodes[0])
             self.assertEqual(nodes[1]["status"], "skipped")
-            self.assertEqual(nodes[1]["status_reason"], "deferred to a follow-up plan")
+            self.assertEqual(nodes[1]["status_reason"], "waived from this delivery")
             self.assertEqual(read_plans(root)[0]["status"], "completed")
 
             restart = run_command(sys.executable, PYTHON_TOOL, "start", NODE_ID, tmpdir)
@@ -1315,7 +1321,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(nodes[2]["prerequisites"], [inserted["id"]])
         self.assertIn("downstream prerequisites rewired", result.stdout)
 
-    def test_add_node_rejects_forward_prerequisites(self) -> None:
+    def test_add_node_accepts_forward_prerequisites_when_the_workspace_graph_is_acyclic(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             write_workspace(
@@ -1338,13 +1344,13 @@ class ManifestToolCliTests(unittest.TestCase):
                 "--prerequisites",
                 NODE_ID,
                 "--goal",
-                "Break the topology on purpose.",
+                "Depend on a later serialized node.",
                 "--description",
-                "Scope: enabling test fixture for validated insertion.",
+                "Scope: enabling test fixture for workspace-level dependency validation.",
                 "--design-json",
                 json.dumps(design),
                 "--criterion",
-                "Never written.",
+                "The forward prerequisite is preserved.",
                 "--commit-message",
                 "test add-node",
                 "--commit-target",
@@ -1357,9 +1363,10 @@ class ManifestToolCliTests(unittest.TestCase):
                 "0",
             )
 
-            self.assertNotEqual(result.returncode, 0, result.stdout)
-            self.assertIn("must reference an earlier node id", result.stderr)
-            self.assertEqual(len(read_nodes(root)), 1)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            nodes = read_nodes(root)
+            self.assertEqual(len(nodes), 2)
+            self.assertEqual(nodes[0]["prerequisites"], [NODE_ID])
 
     def test_add_node_rejects_noncanonical_requirement_labels_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

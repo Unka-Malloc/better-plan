@@ -167,8 +167,15 @@ Administrative suspension is separate from acceptance. It cancels stale dispatch
 ```sh
 python3 scripts/manifest_tool.py pause <node-id> <workspace> --reason "yielding to an inserted task"
 python3 scripts/manifest_tool.py block <node-id> <workspace> --reason "waiting on credentials"
-python3 scripts/manifest_tool.py skip <node-id> <workspace> --reason "deferred to a follow-up plan"
+python3 scripts/manifest_tool.py defer <node-id> <workspace> --reason "resume after the next planning review"
+python3 scripts/manifest_tool.py activate <node-id> <workspace>
+python3 scripts/manifest_tool.py skip <node-id> <workspace> --reason "waived from this delivery"
 ```
+
+`deferred` is non-terminal backlog state: it stays visible in `status`, is absent from executable
+selection, and returns to `pending` only through `activate`. A deferred implementation still blocks
+final validation and Plan completion. `skipped` is an irreversible terminal waiver or
+not-applicable outcome; it never means “do this later.”
 
 Every executable `implementation` or `final_validation` Node declares a regression object. Implementation uses `focused`; final validation uses `full`. `criteria` identifies which acceptance criteria the complete command set proves, while `paths` identifies the smallest repository-relative source/test content bound into the freshness receipt:
 
@@ -209,7 +216,7 @@ Codex, Claude, and Kimi Code receive only the short intent guidance at prompt su
 
 Each implementation Node runs only its focused regression. The automatic full-regression route starts exactly once from a final-validation Node's `regression-requested`, after all implementation Nodes finish, and a fresh full receipt still requires the lifecycle's single read-only audit. Handoffs and responses use repository-relative paths and redacted evidence; raw prompts, Plan prose, absolute paths, machine identity, backend runtime data, and command output are excluded.
 
-Change Node structure without hand-editing JSON. `add-node` inserts a new pending Node at a validated position (`--after X --splice` inserts it into X's outgoing chain and rewires downstream prerequisites), `rewire` edits `prerequisites`/`next`, and `edit-node` updates Node fields — terminal Nodes accept only requirements-label corrections because completed history stays immutable:
+Change Node structure without hand-editing JSON. `add-node` inserts a new pending Node at a validated position (`--after X --splice` inserts it into X's outgoing chain and rewires downstream prerequisites), `rewire` edits `prerequisites`/`next`, and `edit-node` updates Node fields — terminal Nodes accept only requirements-label corrections because completed history stays immutable. `prerequisites` is the sole execution-dependency authority and may reference any globally unique Node in the workspace; `next` is navigation metadata only:
 
 ```sh
 python3 scripts/manifest_tool.py add-node <workspace> --plan <selector> --after <node-id> --splice \
@@ -236,7 +243,7 @@ python3 scripts/manifest_tool.py schema plan
 python3 scripts/manifest_tool.py schema node
 ```
 
-The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, regression contracts and receipts, graph references, prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, structured evidence references, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
+The validator checks JSON shape, UUIDs, delivery roles, role difficulty floors, requirement-label traceability, regression contracts and receipts, workspace-wide graph references and prerequisite cycles, unstartable nodes behind skipped prerequisites, state-machine snapshot guards such as prerequisite completion and checked acceptance criteria, structured evidence references, Plan status consistency and drift against referenced checkpoints, and status changes against the git HEAD version of each state file.
 
 Reference set:
 - [orchestration-main](references/orchestration-main.md)

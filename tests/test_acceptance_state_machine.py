@@ -821,6 +821,30 @@ class AcceptanceMachineContract(unittest.TestCase):
                     self.cli("dispatch", NODE_ID, "--role", "executor", ok=False)
                     self.assertEqual(self.workspace_state_bytes(), before)
 
+    def test_defer_cancels_active_cycle_and_requires_explicit_activation(self) -> None:
+        self._write_workspace()
+        stale_dispatch = self._dispatch_executor()
+
+        reason = "Resume this delivery after the architecture decision."
+        self.cli("defer", NODE_ID, "--reason", reason)
+        deferred = self.state()
+        self.assertEqual(deferred["status"], "deferred")
+        self.assertEqual(deferred["status_reason"], reason)
+        self.assertNotIn("acceptance", deferred)
+        self.assertEqual(self.next_action(), "none")
+        self.assert_automated_proof_cleared(deferred)
+        self.assert_advance_rejected_without_change("executor-exited", stale_dispatch)
+
+        before = self.workspace_state_bytes()
+        self.cli("dispatch", NODE_ID, "--role", "executor", ok=False)
+        self.assertEqual(self.workspace_state_bytes(), before)
+
+        self.cli("activate", NODE_ID)
+        activated = self.state()
+        self.assertEqual(activated["status"], "pending")
+        self.assertNotIn("status_reason", activated)
+        self.assertEqual(self.next_action(), "dispatch_acceptance_designer")
+
     def test_unenrolled_delivery_can_block_resume_or_skip_without_manual_acceptance(self) -> None:
         for final in (False, True):
             role = "final_validation" if final else "implementation"
