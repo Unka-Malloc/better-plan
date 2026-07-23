@@ -85,7 +85,7 @@ The coarse Node `status` remains the delivery lifecycle. A bounded `acceptance` 
 - `acceptance_revision_required`: the reviewer rejected the cases; a fresh designer must revise them.
 - `awaiting_executor`: reviewed implementation acceptance is current.
 - `executor_running`: one code-only executor dispatch is outstanding.
-- `repair_required`: regression or code audit failed without invalidating design or tests; the
+- `correction_required`: regression or code audit failed without invalidating design or tests; the
   native main must choose repair or defer. A fresh executor is legal only after that choice.
 - `awaiting_regression`: reviewed final-validation acceptance is current and the single full run is next.
 - `awaiting_auditor`: a current passing regression receipt exists.
@@ -105,8 +105,8 @@ The snapshot stores only bounded phase, attempt count, opaque correlation, safe 
 | `awaiting_acceptance_review` | acceptance reviewer dispatched | different role; bind both preparation fingerprints | wait for reviewer verdict |
 | `acceptance_reviewer_running` | `acceptance-approved` | matching correlation and unchanged fingerprints | implementation → `dispatch_executor`; final → `run_regression` |
 | `acceptance_reviewer_running` | `acceptance-rejected` | matching correlation; clear candidate approval | `dispatch_acceptance_designer` |
-| `awaiting_executor` or `repair_required` | executor dispatched | current preparation approval; increment attempt | wait for executor exit |
-| `executor_running` | `executor-exited` | matching executor; first compare stable reviewed inputs, then run focused regression | reviewed-input drift → `dispatch_acceptance_designer`; unchanged-input failure → `main_repair_decision`; success → `dispatch_auditor` |
+| `awaiting_executor` or `correction_required` | executor dispatched | current preparation approval; increment attempt | wait for executor exit |
+| `executor_running` | `executor-exited` | matching executor; first compare stable reviewed inputs, then run focused regression | reviewed-input drift → `dispatch_acceptance_designer`; unchanged-input failure → `main_correction_decision`; success → `dispatch_auditor` |
 | `awaiting_regression` | `regression-requested` | final Node and current preparation approval | failure → `create_repair_plan`; success → `dispatch_auditor` |
 | `awaiting_auditor` | auditor dispatched | current regression receipt | wait for minimal audit verdict |
 | `auditor_running` | `audit-failed` | matching correlation and fingerprint | implementation → repair; final → repair Plan |

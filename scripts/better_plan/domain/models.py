@@ -185,21 +185,16 @@ ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS = {
 ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | {"design_digest"}
 
 
-ACCEPTANCE_REVIEWER_DISPATCH_REQUIRED_FIELDS = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | set(ACCEPTANCE_PREPARATION_FIELDS)
-
-
 ACCEPTANCE_AUDIT_FIELDS = {"recorded_at", "contract_digest", "content_fingerprint"}
 
 
 ACCEPTANCE_PHASES = {
     "awaiting_acceptance_design",
     "acceptance_designer_running",
-    "awaiting_acceptance_review",
-    "acceptance_reviewer_running",
     "acceptance_revision_required",
     "awaiting_executor",
     "executor_running",
-    "repair_required",
+    "correction_required",
     "awaiting_regression",
     "awaiting_auditor",
     "auditor_running",
@@ -211,7 +206,6 @@ ACCEPTANCE_PHASES = {
 
 ACCEPTANCE_OUTCOMES = {
     "none",
-    "acceptance_rejected",
     "regression_passed",
     "regression_failed",
     "regression_timeout",

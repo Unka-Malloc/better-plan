@@ -9,7 +9,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = REPO_ROOT / "SKILL.md"
 ORCHESTRATION_MAIN_PATH = REPO_ROOT / "references" / "orchestration-main.md"
 ACCEPTANCE_DESIGNER_PATH = REPO_ROOT / "references" / "acceptance-designer.md"
-ACCEPTANCE_REVIEWER_PATH = REPO_ROOT / "references" / "acceptance-reviewer.md"
 EXECUTOR_PATH = REPO_ROOT / "references" / "executor.md"
 AUDITOR_PATH = REPO_ROOT / "references" / "auditor.md"
 README_PATH = REPO_ROOT / "README.md"
@@ -44,7 +43,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         cls.install_models = INSTALL_MODELS_PATH.read_text(encoding="utf-8")
         cls.reference_main = ORCHESTRATION_MAIN_PATH.read_text(encoding="utf-8")
         cls.reference_acceptance_designer = ACCEPTANCE_DESIGNER_PATH.read_text(encoding="utf-8")
-        cls.reference_acceptance_reviewer = ACCEPTANCE_REVIEWER_PATH.read_text(encoding="utf-8")
         cls.reference_executor = EXECUTOR_PATH.read_text(encoding="utf-8")
         cls.reference_auditor = AUDITOR_PATH.read_text(encoding="utf-8")
 
@@ -53,7 +51,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("name: better-plan", self.skill)
         self.assertIn("references/orchestration-main.md", self.skill)
         self.assertIn("references/acceptance-designer.md", self.skill)
-        self.assertIn("references/acceptance-reviewer.md", self.skill)
         self.assertIn("references/executor.md", self.skill)
         self.assertIn("references/auditor.md", self.skill)
         self.assertIn("role references", self.skill)
@@ -61,7 +58,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
     def test_role_references_are_leaf_and_separated(self) -> None:
         for payload in (
             self.reference_acceptance_designer,
-            self.reference_acceptance_reviewer,
             self.reference_executor,
             self.reference_auditor,
         ):
@@ -135,6 +131,22 @@ class OrchestrationWorkflowTests(unittest.TestCase):
                 ),
             )
 
+    def test_end_to_end_closure_policy_is_shared_by_every_active_role(self) -> None:
+        skill = " ".join(self.skill.lower().split())
+        self.assertIn("complete one end-to-end user-visible capability in one pass", skill)
+        self.assertIn("freeze acceptance exactly once", skill)
+        self.assertIn("exactly one independent review", skill)
+        self.assertIn("resolve ordinary compiler", skill)
+        self.assertIn("real design error or product-semantics error", skill)
+        self.assertIn("run the full regression exactly once", skill)
+        self.assertIn("after every implementation node", skill)
+
+        self.assertIn("freeze acceptance once", self.reference_main.lower())
+        self.assertIn("ordinary compiler", self.reference_executor.lower())
+        self.assertIn("same dispatch", self.reference_executor.lower())
+        self.assertIn("only independent review", self.reference_auditor.lower())
+        self.assertIn("single acceptance freeze", self.reference_acceptance_designer.lower())
+
     def test_acceptance_dimensions_are_risk_selected_candidates_not_a_checklist(self) -> None:
         dimensions = ("success", "boundary", "negative", "replay", "privacy", "fingerprint")
         designer_clause = next(
@@ -151,28 +163,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertRegex(designer_clause, r"(?:only|仅|只)")
         self.assertRegex(designer_clause, r"(?:applicable|relevant|适用|相关)")
         self.assertRegex(designer_clause, r"(?:risk|风险)")
-
-        reviewer_clause = next(
-            (
-                paragraph
-                for paragraph in normalized_paragraphs(self.reference_acceptance_reviewer)
-                if re.search(r"(?:reject|拒绝)", paragraph)
-                and re.search(r"(?:irrelevant|inapplicable|not applicable|无关|不适用)", paragraph)
-                and re.search(r"(?:dimension|category|维度|类别)", paragraph)
-            ),
-            "",
-        )
-        self.assertTrue(reviewer_clause, "irrelevant dimensions need one explicit non-rejection clause")
-        self.assertRegex(
-            reviewer_clause,
-            re.compile(
-                r"(?:"
-                r"(?:must not|do not).{0,80}reject.{0,80}(?:solely|merely).{0,160}"
-                r"(?:omit|absen|missing)"
-                r"|(?:不得|不能).{0,80}(?:仅|只因).{0,160}(?:遗漏|缺少|未覆盖).{0,160}拒绝"
-                r")"
-            ),
-        )
 
     def test_unchanged_waiting_is_quiet_heuristic_guidance_not_a_timer_gate(self) -> None:
         for payload in (self.skill, self.reference_main):
@@ -221,7 +211,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
                 self.skill,
                 self.reference_main,
                 self.reference_acceptance_designer,
-                self.reference_acceptance_reviewer,
             )
         ).lower()
         for concrete_name in (

@@ -2,6 +2,8 @@
 
 Role: fresh read-only auditor; leaf role.
 
+This is the lifecycle's only independent review. Do not request another review stage.
+
 Return only:
 - `fingerprint:` repository-relative summary of evaluated paths
 - `scope_match:` `true` or `false`

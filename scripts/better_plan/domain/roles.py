@@ -12,10 +12,9 @@ ORCHESTRATION_MAIN_REFERENCE: Final[str] = "references/orchestration-main.md"
 MAIN_ACTIONS: Final[frozenset[str]] = frozenset(
     {
         "await_acceptance_designer_exit",
-        "await_acceptance_reviewer_verdict",
         "main_acceptance_decision",
         "await_executor_exit",
-        "main_repair_decision",
+        "main_correction_decision",
         "run_regression",
         "await_auditor_verdict",
         "create_repair_plan",
@@ -27,7 +26,6 @@ MAIN_ACTIONS: Final[frozenset[str]] = frozenset(
 ROLE_REFERENCES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "dispatch_acceptance_designer": "references/acceptance-designer.md",
-        "dispatch_acceptance_reviewer": "references/acceptance-reviewer.md",
         "dispatch_executor": "references/executor.md",
         "dispatch_auditor": "references/auditor.md",
     }

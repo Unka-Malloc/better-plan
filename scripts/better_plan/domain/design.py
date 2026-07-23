@@ -1,7 +1,7 @@
 """Pure interfaces for Better Plan design contracts.
 
 The main design stage fixes this boundary before acceptance tests are authored.
-Behavior is implemented only after those tests receive independent approval.
+Behavior is implemented only after the acceptance contract is frozen once.
 """
 
 from __future__ import annotations

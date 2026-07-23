@@ -297,7 +297,7 @@ class AcceptanceMachineContract(unittest.TestCase):
     def test_public_transition_table_and_next_action_are_pure_and_guarded(self) -> None:
         machine = importlib.import_module("scripts.better_plan.domain.transitions")
         self.assertEqual(machine.transition("awaiting_executor", "executor-dispatched", "executor"), "executor_running")
-        self.assertEqual(machine.next_action("repair_required", "executor"), "main_repair_decision")
+        self.assertEqual(machine.next_action("correction_required", "executor"), "main_correction_decision")
         self.assertEqual(
             machine.transition("repair_plan_required", "repair-registered", "final_validation"),
             "awaiting_repair",
@@ -313,33 +313,12 @@ class AcceptanceMachineContract(unittest.TestCase):
         )
         self.assertEqual(
             machine.transition("acceptance_designer_running", "acceptance-designer-exited", "acceptance_designer"),
-            "awaiting_acceptance_review",
-        )
-        self.assertEqual(
-            machine.transition(
-                "awaiting_acceptance_review",
-                "acceptance-reviewer-dispatched",
-                "acceptance_reviewer",
-            ),
-            "acceptance_reviewer_running",
-        )
-        self.assertEqual(
-            machine.transition("acceptance_reviewer_running", "acceptance-approved", "acceptance_reviewer"),
             "awaiting_executor",
-        )
-        self.assertEqual(
-            machine.transition("acceptance_reviewer_running", "acceptance-rejected", "acceptance_reviewer"),
-            "acceptance_revision_required",
         )
         self.assertEqual(machine.next_action("awaiting_acceptance_design", "implementation"), "dispatch_acceptance_designer")
         self.assertEqual(
             machine.next_action("acceptance_designer_running", "implementation"),
             "await_acceptance_designer_exit",
-        )
-        self.assertEqual(machine.next_action("awaiting_acceptance_review", "implementation"), "dispatch_acceptance_reviewer")
-        self.assertEqual(
-            machine.next_action("acceptance_reviewer_running", "implementation"),
-            "await_acceptance_reviewer_verdict",
         )
         self.assertEqual(
             machine.next_action("acceptance_revision_required", "implementation"),
@@ -424,16 +403,11 @@ class AcceptanceMachineContract(unittest.TestCase):
             designer = self.dispatch("acceptance_designer", node_id=node_id)
             self.assertEqual(self.state(node_id)["acceptance"]["phase"], "acceptance_designer_running")
             self.advance("acceptance-designer-exited", designer, node_id=node_id)
-            self.assertEqual(self.next_action(node_id), "dispatch_acceptance_reviewer")
-        if self.next_action(node_id) == "dispatch_acceptance_reviewer":
-            reviewer = self.dispatch("acceptance_reviewer", node_id=node_id)
-            self.assertEqual(self.state(node_id)["acceptance"]["phase"], "acceptance_reviewer_running")
-            self.advance("acceptance-approved", reviewer, node_id=node_id)
 
     def _dispatch_executor(self, node_id: str = NODE_ID) -> str:
         self._prime_acceptance(node_id=node_id)
         phase = self.state(node_id)["acceptance"]["phase"]
-        expected_action = "main_repair_decision" if phase == "repair_required" else "dispatch_executor"
+        expected_action = "main_correction_decision" if phase == "correction_required" else "dispatch_executor"
         self.assertEqual(self.next_action(node_id), expected_action)
         return self.dispatch("executor", node_id=node_id)
 
@@ -451,37 +425,14 @@ class AcceptanceMachineContract(unittest.TestCase):
         self.assertEqual(self.state()["acceptance"]["attempt"], 0)
         self.assertEqual(self.next_action(), "await_acceptance_designer_exit")
         self.advance("acceptance-designer-exited", designer)
-        self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_acceptance_review")
-        self.assertEqual(self.next_action(), "dispatch_acceptance_reviewer")
-        reviewer = self.dispatch("acceptance_reviewer")
-        self.assertEqual(self.state()["acceptance"]["phase"], "acceptance_reviewer_running")
-        self.assertEqual(self.next_action(), "await_acceptance_reviewer_verdict")
-        self.advance("acceptance-approved", reviewer)
         self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_executor")
         self.assertEqual(self.next_action(), "dispatch_executor")
-
-    def test_reviewer_event_requires_distinct_dispatch_and_executor_gates_before_approval(self) -> None:
-        self._write_workspace_with_design()
-        self.assertEqual(self.next_action(), "dispatch_acceptance_designer")
-        designer = self.dispatch("acceptance_designer")
-        self.advance("acceptance-designer-exited", designer)
-        self.assertEqual(self.next_action(), "dispatch_acceptance_reviewer")
-        self.cli("dispatch", NODE_ID, "--role", "executor", ok=False)
-        reviewer = self.dispatch("acceptance_reviewer")
-        self.advance("acceptance-approved", reviewer)
-        self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_executor")
-        self.advance("acceptance-approved", "stale-review", ok=False)
-        self.advance("acceptance-designer-exited", "stale-review", ok=False)
-        self.cli("dispatch", NODE_ID, "--role", "executor")
-        self.assertEqual(self.state()["acceptance"]["phase"], "executor_running")
 
     def test_inputs_change_invalidation_returns_to_main_acceptance_decision(self) -> None:
         self._write_workspace_with_design(acceptance_id="initial")
         self.assertEqual(self.next_action(), "dispatch_acceptance_designer")
         designer = self.dispatch("acceptance_designer")
         self.advance("acceptance-designer-exited", designer)
-        reviewer = self.dispatch("acceptance_reviewer")
-        self.advance("acceptance-approved", reviewer)
         self.assertEqual(self.next_action(), "dispatch_executor")
         path = str(self.state()["design"]["acceptance_paths"][0])  # type: ignore[index]
         (self.workspace / str(path)).write_text("changed acceptance mapping", encoding="utf-8")
@@ -493,14 +444,14 @@ class AcceptanceMachineContract(unittest.TestCase):
         self.assertEqual(state["acceptance"]["outcome"], "none")
         self.assert_automated_proof_cleared(state)
 
-    def test_repair_required_path_drift_returns_to_main_acceptance_decision(self) -> None:
+    def test_correction_required_path_drift_returns_to_main_acceptance_decision(self) -> None:
         self._write_workspace(regression=self._failure_command("acceptance-repair-token"))
         self._ensure_design()
         self._prime_acceptance()
         executor = self._dispatch_executor()
         self.advance("executor-exited", executor)
-        self.assertEqual(self.state()["acceptance"]["phase"], "repair_required")
-        self.assertEqual(self.next_action(), "main_repair_decision")
+        self.assertEqual(self.state()["acceptance"]["phase"], "correction_required")
+        self.assertEqual(self.next_action(), "main_correction_decision")
 
         acceptance_path = str(self.state()["design"]["acceptance_paths"][0])  # type: ignore[index]
         (self.workspace / acceptance_path).write_text("updated acceptance contract text", encoding="utf-8")
@@ -558,7 +509,7 @@ class AcceptanceMachineContract(unittest.TestCase):
         self.assertNotIn("dispatch", state["acceptance"])
         self.assert_automated_proof_cleared(state)
 
-    def test_unrelated_file_change_after_acceptance_approval_remains_executor_flow(self) -> None:
+    def test_unrelated_file_change_after_acceptance_freeze_remains_executor_flow(self) -> None:
         self._write_workspace_with_design(acceptance_id="initial")
         self._prime_acceptance()
         self.assertEqual(self.next_action(), "dispatch_executor")
@@ -594,15 +545,15 @@ class AcceptanceMachineContract(unittest.TestCase):
         self._write_workspace(regression=self._failure_command("synthetic-regression-token"))
         executor = self._dispatch_executor()
         self.advance("executor-exited", executor)
-        self.assertEqual(self.state()["acceptance"]["phase"], "repair_required")
+        self.assertEqual(self.state()["acceptance"]["phase"], "correction_required")
 
     def test_audit_failure_repairs_and_fresh_pass_automatically_completes(self) -> None:
         executor = self._dispatch_executor()
         self.advance("executor-exited", executor)
         auditor = self.dispatch("auditor")
         self.advance("audit-failed", auditor)
-        self.assertEqual(self.state()["acceptance"]["phase"], "repair_required")
-        self.assertEqual(self.next_action(), "main_repair_decision")
+        self.assertEqual(self.state()["acceptance"]["phase"], "correction_required")
+        self.assertEqual(self.next_action(), "main_correction_decision")
         executor = self._dispatch_executor()
         self.advance("executor-exited", executor)
         auditor = self.dispatch("auditor")

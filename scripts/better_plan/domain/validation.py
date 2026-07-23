@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from pathlib import Path
 from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
-from .models import ACCEPTANCE_AUDIT_FIELDS, ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEWER_DISPATCH_REQUIRED_FIELDS, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GIT_SHA_PATTERN, HIGH_OR_DEEP_REQUIRED_ROLES, Issue, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, expected_regression_scope, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, safe_summary_issue
+from .models import ACCEPTANCE_AUDIT_FIELDS, ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GIT_SHA_PATTERN, HIGH_OR_DEEP_REQUIRED_ROLES, Issue, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, expected_regression_scope, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, safe_summary_issue
 
 
 def validate_regression_contract(
@@ -202,7 +202,7 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
 
     if role == "implementation" and phase in {"awaiting_regression", "repair_plan_required", "awaiting_repair"}:
         issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for implementation"))
-    if role == "final_validation" and phase in {"awaiting_executor", "executor_running", "repair_required"}:
+    if role == "final_validation" and phase in {"awaiting_executor", "executor_running", "correction_required"}:
         issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for final_validation"))
 
     if phase == "accepted":
@@ -235,15 +235,13 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     expected_outcomes: dict[str, set[str]] = {
         "awaiting_acceptance_design": {"none"},
         "acceptance_designer_running": {"none"},
-        "awaiting_acceptance_review": {"none"},
-        "acceptance_reviewer_running": {"none"},
-        "acceptance_revision_required": {"none", "acceptance_rejected"},
+        "acceptance_revision_required": {"none"},
         "awaiting_executor": {"none"},
         "executor_running": {"none"},
         "awaiting_regression": {"none"},
         "awaiting_auditor": {"regression_passed"},
         "auditor_running": {"regression_passed"},
-        "repair_required": ACCEPTANCE_FAILURE_OUTCOMES,
+        "correction_required": ACCEPTANCE_FAILURE_OUTCOMES,
         "repair_plan_required": ACCEPTANCE_FAILURE_OUTCOMES,
         "awaiting_repair": ACCEPTANCE_FAILURE_OUTCOMES,
         "accepted": {"accepted"},
@@ -262,7 +260,6 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     dispatch = acceptance.get("dispatch")
     dispatch_roles = {
         "acceptance_designer_running": "acceptance_designer",
-        "acceptance_reviewer_running": "acceptance_reviewer",
         "executor_running": "executor",
         "auditor_running": "auditor",
     }
@@ -300,15 +297,6 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
                 issues.append(Issue(path, f"{prefix}.acceptance.dispatch.design_digest: must bind the current design digest"))
             for field in {"acceptance_fingerprint", "scaffold_fingerprint", *regression_digest_fields} & set(dispatch):
                 issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: acceptance designer dispatch has an invalid binding"))
-        elif expected_role == "acceptance_reviewer":
-            for field in sorted(ACCEPTANCE_REVIEWER_DISPATCH_REQUIRED_FIELDS - set(dispatch)):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: missing required field"))
-            for field in ACCEPTANCE_PREPARATION_FIELDS:
-                value = dispatch.get(field)
-                if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
-                    issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: must bind current preparation"))
-            for field in regression_digest_fields & set(dispatch):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: acceptance reviewer dispatch cannot bind regression"))
         else:
             for field in (regression_digest_fields | set(ACCEPTANCE_PREPARATION_FIELDS)) & set(dispatch):
                 issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: executor dispatches must not retain fingerprints"))
@@ -344,12 +332,10 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     if phase in {
         "awaiting_acceptance_design",
         "acceptance_designer_running",
-        "awaiting_acceptance_review",
-        "acceptance_reviewer_running",
         "acceptance_revision_required",
         "awaiting_executor",
         "executor_running",
-        "repair_required",
+        "correction_required",
         "awaiting_regression",
         "repair_plan_required",
         "awaiting_repair",
