@@ -17,6 +17,23 @@ details, or backend runtime output.
 4. Completion must not select or start a next or different Node. Adjacent defects, optimizations,
    integrations, and possible follow-up capabilities are findings for native-main judgment.
 
+## End-to-end closure policy
+
+Complete the selected capability end to end in one pass. Freeze acceptance once, keep implementation
+inside one coherent phase, use only the Node's focused tests to close it, and request one independent
+post-regression audit. Do not split routine scaffolding, compilation, test correction, or review
+into extra Nodes or lifecycle phases.
+
+The executor owns ordinary compiler, type, lint, import, and local integration errors caused by its
+change and resolves them before returning. If focused regression later exposes another ordinary
+implementation defect, correct it inside the same Node and frozen acceptance contract without
+starting a design-repair cycle. Open a repair cycle only for evidence of a real design error or
+product-semantics error.
+
+During implementation closures, never run a full suite. Re-run a focused test only after a concrete
+implementation correction requires new evidence. A final-validation Node may run the full regression
+exactly once only after every implementation Node in the requested delivery is complete.
+
 ## Proportional design
 
 Keep Requirements, Evidence, Architecture, focused regression, and the minimal useful scaffold
@@ -43,16 +60,20 @@ risks without expanding the product scope.
 4. Keep role context isolated. Do not paste one leaf contract into another or ask a leaf to mutate
    Plan state.
 
-Automatic routing is bounded to the same lifecycle: designer to reviewer, approval to executor,
-executor exit to focused regression, and regression pass to thin auditor. Rejection, preparation
-drift, regression failure, audit findings, completion, or new scope returns to this contract.
+Automatic routing is bounded to the same lifecycle: one designer freezes acceptance and routes
+directly to the executor, executor exit runs focused regression, and regression pass routes to the
+single thin auditor. Preparation drift, regression failure, audit findings, completion, or new
+scope returns to this contract.
 
 For `main_acceptance_decision`, inspect the concrete verdict or drift and choose whether to revise the
 same Node explicitly, narrow its capability, defer it, or proceed when evidence permits. Never
 auto-select a designer or a different Node.
 
-For `main_repair_decision` and `main_audit_decision`, choose repair, defer, or acceptance from the
-current evidence. Do not manufacture test outcomes or extend the lifecycle into adjacent work.
+For `main_correction_decision` and `main_audit_decision`, classify current evidence before acting.
+An ordinary implementation defect receives a same-Node correction under the frozen acceptance
+contract. Revise design and reopen acceptance only for a real design error or product-semantics
+error. Otherwise defer or accept only when the evidence supports it. Do not manufacture test
+outcomes or extend the lifecycle into adjacent work.
 
 ## Quiet waiting
 

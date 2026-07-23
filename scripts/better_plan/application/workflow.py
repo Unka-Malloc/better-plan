@@ -124,14 +124,12 @@ def run_node_mutation(
 
 
 def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[str, Any]:
-    """Invalidate stale pre-execution approval and return the current bounded snapshot."""
+    """Invalidate a stale pre-execution freeze and return the current bounded snapshot."""
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance.get("phase"))
     freshness_phases = {
         "acceptance_designer_running",
-        "awaiting_acceptance_review",
-        "acceptance_reviewer_running",
-        "repair_required",
+        "correction_required",
         "executor_running",
         "awaiting_auditor",
         "auditor_running",
@@ -157,7 +155,7 @@ def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[s
             else ACCEPTANCE_STABLE_PREPARATION_FIELDS
         )
         stale = any(acceptance.get(field) != current[field] for field in compare_fields)
-    elif node.get("role") == "implementation" and phase in {"executor_running", "repair_required", "awaiting_auditor", "auditor_running"}:
+    elif node.get("role") == "implementation" and phase in {"executor_running", "correction_required", "awaiting_auditor", "auditor_running"}:
         stale = any(
             acceptance.get(field) != current[field] for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS
         )
@@ -346,8 +344,6 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
     preparation_incomplete = phase in {
         "awaiting_acceptance_design",
         "acceptance_designer_running",
-        "awaiting_acceptance_review",
-        "acceptance_reviewer_running",
     }
     if phase == "acceptance_revision_required":
         resumed_phase = "acceptance_revision_required"
@@ -464,7 +460,6 @@ def dispatch_command(args: argparse.Namespace) -> int:
 
     running_roles = {
         "acceptance_designer_running": "acceptance_designer",
-        "acceptance_reviewer_running": "acceptance_reviewer",
         "executor_running": "executor",
         "auditor_running": "auditor",
     }
@@ -477,10 +472,6 @@ def dispatch_command(args: argparse.Namespace) -> int:
             binding = preparation_fingerprints(location)
             if dispatch.get("design_digest") != binding["design_digest"]:
                 raise ToolError("the outstanding acceptance designer dispatch is stale")
-        elif expected_role == "acceptance_reviewer":
-            binding = preparation_fingerprints(location)
-            if any(dispatch.get(field) != binding[field] for field in binding):
-                raise ToolError("the outstanding acceptance reviewer dispatch is stale")
         elif expected_role == "auditor":
             binding = current_regression_binding(location)
             if any(dispatch.get(field) != binding[field] for field in binding):
@@ -506,21 +497,8 @@ def dispatch_command(args: argparse.Namespace) -> int:
             },
             "outcome": "none",
         }
-    elif args.role == "acceptance_reviewer":
-        if phase != "awaiting_acceptance_review" or node.get("status") != "in_progress":
-            raise ToolError("acceptance reviewer dispatch is out of order for the current acceptance phase")
-        binding = preparation_fingerprints(location)
-        if any(acceptance.get(field) != value for field, value in binding.items()):
-            raise ToolError("acceptance reviewer dispatch requires current designer fingerprints")
-        acceptance = {
-            "phase": acceptance_transition(str(phase), "acceptance-reviewer-dispatched", "acceptance_reviewer"),
-            "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {"id": generate_id(), "role": "acceptance_reviewer", **binding},
-            "outcome": "none",
-            **binding,
-        }
     elif args.role == "executor":
-        if node_role != "implementation" or phase not in {"awaiting_executor", "repair_required"}:
+        if node_role != "implementation" or phase not in {"awaiting_executor", "correction_required"}:
             raise ToolError("executor dispatch is out of order for the current acceptance phase")
         ensure_node_can_start(location, node)
         node["status"] = "in_progress"
@@ -589,61 +567,15 @@ def advance_acceptance_design_exit(location: _NodeLocation, dispatch_id: str) ->
     if dispatch.get("design_digest") != binding["design_digest"]:
         raise ToolError("acceptance designer exit does not match the current design fingerprint")
     node["acceptance"] = {
-        "phase": acceptance_transition(
+        "phase": (
+            "awaiting_regression"
+            if node.get("role") == "final_validation"
+            else acceptance_transition(
             "acceptance_designer_running",
             "acceptance-designer-exited",
             "acceptance_designer",
+            )
         ),
-        "attempt": int(acceptance.get("attempt", 0)),
-        "outcome": "none",
-        **binding,
-    }
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_acceptance_review(
-    location: _NodeLocation,
-    dispatch_id: str,
-    *,
-    passed: bool,
-) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    node_role = automated_node_role(node)
-    acceptance = acceptance_snapshot(node, required=True)
-    dispatch = ensure_matching_dispatch(
-        acceptance,
-        expected_phase="acceptance_reviewer_running",
-        expected_role="acceptance_reviewer",
-        dispatch_id=dispatch_id,
-    )
-    binding = preparation_fingerprints(location)
-    if any(dispatch.get(field) != value for field, value in binding.items()):
-        raise ToolError("acceptance reviewer verdict does not match current preparation fingerprints")
-    if not passed:
-        node["acceptance"] = {
-            "phase": acceptance_transition(
-                "acceptance_reviewer_running",
-                "acceptance-rejected",
-                "acceptance_reviewer",
-            ),
-            "attempt": int(acceptance.get("attempt", 0)),
-            "outcome": "acceptance_rejected",
-        }
-        node["status"] = "pending"
-        node.pop("status_reason", None)
-        write_location_and_sync_plan(location)
-        return node
-
-    next_phase = acceptance_transition(
-        "acceptance_reviewer_running",
-        "acceptance-approved",
-        "acceptance_reviewer",
-    )
-    if node_role == "final_validation":
-        next_phase = "awaiting_regression"
-    node["acceptance"] = {
-        "phase": next_phase,
         "attempt": int(acceptance.get("attempt", 0)),
         "outcome": "none",
         **binding,
@@ -906,12 +838,6 @@ def advance_command(args: argparse.Namespace) -> int:
     if args.event == "acceptance-designer-exited":
         assert dispatch_id is not None
         node = advance_acceptance_design_exit(location, dispatch_id)
-    elif args.event == "acceptance-approved":
-        assert dispatch_id is not None
-        node = advance_acceptance_review(location, dispatch_id, passed=True)
-    elif args.event == "acceptance-rejected":
-        assert dispatch_id is not None
-        node = advance_acceptance_review(location, dispatch_id, passed=False)
     elif args.event == "executor-exited":
         assert dispatch_id is not None
         node = advance_executor_exit(location, dispatch_id)

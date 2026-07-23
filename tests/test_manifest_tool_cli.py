@@ -279,36 +279,9 @@ def prepare_node_with_acceptance(root: Path, node_id: str = NODE_ID) -> str:
     if designer_exit.returncode != 0:
         raise AssertionError(f"acceptance-designer-exited failed: {designer_exit.stderr or designer_exit.stdout}")
 
-    reviewer = run_command(
-        sys.executable,
-        PYTHON_TOOL,
-        "dispatch",
-        node_id,
-        str(root),
-        "--role",
-        "acceptance_reviewer",
-    )
-    if reviewer.returncode != 0:
-        raise AssertionError(f"dispatch acceptance_reviewer failed: {reviewer.stderr or reviewer.stdout}")
-
-    review_id = json.loads(reviewer.stdout)["dispatch_id"]
-    approved = run_command(
-        sys.executable,
-        PYTHON_TOOL,
-        "advance",
-        node_id,
-        str(root),
-        "--event",
-        "acceptance-approved",
-        "--dispatch-id",
-        review_id,
-    )
-    if approved.returncode != 0:
-        raise AssertionError(f"acceptance-approved failed: {approved.stderr or approved.stdout}")
-
     next_action = run_command(sys.executable, PYTHON_TOOL, "next-action", node_id, str(root))
     if next_action.returncode != 0:
-        raise AssertionError(f"next-action after acceptance approval failed: {next_action.stderr or next_action.stdout}")
+        raise AssertionError(f"next-action after acceptance freeze failed: {next_action.stderr or next_action.stdout}")
     return json.loads(next_action.stdout)["action"]
 
 
@@ -614,40 +587,12 @@ class ManifestToolCliTests(unittest.TestCase):
                 designer_id,
             )
             self.assertEqual(exit_event.returncode, 0, exit_event.stderr)
-            self.assertEqual(json.loads(exit_event.stdout)["phase"], "awaiting_acceptance_review")
-            review_gate = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(json.loads(review_gate.stdout)["action"], "dispatch_acceptance_reviewer")
-
-            executor_blocked = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertNotEqual(executor_blocked.returncode, 0, executor_blocked.stdout)
-
-            reviewer = run_command(sys.executable, PYTHON_TOOL, "dispatch", NODE_ID, tmpdir, "--role", "acceptance_reviewer")
-            self.assertEqual(reviewer.returncode, 0, reviewer.stderr)
-            approved = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-approved",
-                "--dispatch-id",
-                json.loads(reviewer.stdout)["dispatch_id"],
-            )
-            self.assertEqual(approved.returncode, 0, approved.stderr)
+            self.assertEqual(json.loads(exit_event.stdout)["phase"], "awaiting_executor")
             prepared = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             self.assertEqual(json.loads(prepared.stdout)["action"], "dispatch_executor")
 
-    def test_reviewer_and_preparation_changes_have_freshness_gates(self) -> None:
+    def test_frozen_preparation_changes_have_freshness_gates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             node = checkpoint_node(NODE_ID, status="pending")
@@ -706,49 +651,10 @@ class ManifestToolCliTests(unittest.TestCase):
                 designer_id,
             )
             self.assertEqual(designer_exit.returncode, 0, designer_exit.stderr)
-            reviewer = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "acceptance_reviewer",
-            )
-            self.assertEqual(reviewer.returncode, 0, reviewer.stderr)
-            review_id = json.loads(reviewer.stdout)["dispatch_id"]
-            self.assertTrue(UUID4_PATTERN.fullmatch(review_id))
-            self.assertNotEqual(review_id, designer_id)
-            approved = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-approved",
-                "--dispatch-id",
-                review_id,
-            )
-            self.assertEqual(approved.returncode, 0, approved.stderr)
             self.assertEqual(
                 json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
                 "dispatch_executor",
             )
-
-            wrong_event = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-approved",
-                "--dispatch-id",
-                designer_id,
-            )
-            self.assertNotEqual(wrong_event.returncode, 0, wrong_event.stdout)
-
             stale_acceptance = (root / "tests/acceptance-fixture/acceptance.md")
             stale_acceptance.write_text("updated cases", encoding="utf-8")
             self.assertEqual(
@@ -757,229 +663,6 @@ class ManifestToolCliTests(unittest.TestCase):
             )
             self.assertEqual(read_nodes(root)[0]["acceptance"]["phase"], "acceptance_revision_required")
 
-    def test_rejected_acceptance_parks_for_main_and_allows_explicit_designer_dispatch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending")
-            node["design"] = {
-                "artifact": "tests/acceptance-fixture/design.md",
-                "owned_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "scaffold_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "acceptance_paths": ["tests/acceptance-fixture/acceptance.md"],
-                "symbols": [
-                    {
-                        "path": "tests/acceptance-fixture/scaffold.py",
-                        "kind": "module",
-                        "name": "acceptance_scaffold",
-                        "operation": "modify",
-                        "signature": "acceptance_scaffold(state: object) -> str",
-                    }
-                ],
-                "interfaces": [
-                    {
-                        "name": "acceptance_scaffold",
-                        "producer": "tests/acceptance-fixture/scaffold.py",
-                        "consumers": ["scripts/manifest_tool.py"],
-                        "inputs": "validated node and plan payload",
-                        "outputs": "next action and acceptance state",
-                        "errors": ["ValueError for malformed state"],
-                    }
-                ],
-                "dependencies": [],
-                "decisions": {
-                    "composition": "pure boundaries",
-                    "algorithms": "constant-time transition lookup",
-                    "data_structures": "normalized mappings",
-                    "state": "state file writer only",
-                    "isolation": "role-specific artifacts only",
-                    "concurrency": "serialized node mutation",
-                },
-                "test_seams": ["tests/acceptance-state-machine"],
-            }
-            write_design_artifacts(root, node["design"])
-            second_node = checkpoint_node(
-                SECOND_NODE_ID,
-                status="pending",
-                goal="Remain an eligible but untouched adjacent capability.",
-                checked=False,
-            )
-            second_node["design"] = default_acceptance_design("second-acceptance-fixture")
-            write_workspace(root, plan_status="pending", nodes=[node, second_node])
-            second_node_before = serialized_node_bytes(root, SECOND_NODE_ID)
-
-            designer = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "acceptance_designer",
-            )
-            self.assertEqual(designer.returncode, 0, designer.stderr)
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "await_acceptance_designer_exit",
-            )
-            run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-designer-exited",
-                "--dispatch-id",
-                json.loads(designer.stdout)["dispatch_id"],
-            )
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "dispatch_acceptance_reviewer",
-            )
-
-            reviewer = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "acceptance_reviewer",
-            )
-            self.assertEqual(reviewer.returncode, 0, reviewer.stderr)
-            reviewer_id = json.loads(reviewer.stdout)["dispatch_id"]
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "await_acceptance_reviewer_verdict",
-            )
-
-            before = (root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()
-            wrong = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-rejected",
-                "--dispatch-id",
-                "stale-review-id",
-            )
-            self.assertNotEqual(wrong.returncode, 0, wrong.stdout)
-            self.assertEqual(before, ((root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()))
-
-            reject = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-rejected",
-                "--dispatch-id",
-                reviewer_id,
-            )
-            self.assertEqual(reject.returncode, 0, reject.stderr)
-            self.assertEqual(
-                json.loads(reject.stdout)["phase"],
-                "acceptance_revision_required",
-            )
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "main_acceptance_decision",
-            )
-            node_state = read_nodes(root)[0]
-            serialized = json.dumps(node_state["acceptance"], sort_keys=True)
-            for forbidden in ("finding", "identity", "output", "prompt", "transcript"):
-                self.assertNotIn(forbidden, serialized)
-
-            before = (root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()
-            duplicate = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-rejected",
-                "--dispatch-id",
-                reviewer_id,
-            )
-            self.assertNotEqual(duplicate.returncode, 0, duplicate.stdout)
-            self.assertEqual(before, ((root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()))
-
-            fresh_designer = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "acceptance_designer",
-            )
-            self.assertEqual(fresh_designer.returncode, 0, fresh_designer.stderr)
-            self.assertEqual(read_nodes(root)[0]["acceptance"]["phase"], "acceptance_designer_running")
-
-            fresh_designer_id = json.loads(fresh_designer.stdout)["dispatch_id"]
-            fresh_designer_exit = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-designer-exited",
-                "--dispatch-id",
-                fresh_designer_id,
-            )
-            self.assertEqual(fresh_designer_exit.returncode, 0, fresh_designer_exit.stderr)
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "dispatch_acceptance_reviewer",
-            )
-
-            fresh_reviewer = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "acceptance_reviewer",
-            )
-            self.assertEqual(fresh_reviewer.returncode, 0, fresh_reviewer.stderr)
-            fresh_approval = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-approved",
-                "--dispatch-id",
-                json.loads(fresh_reviewer.stdout)["dispatch_id"],
-            )
-            self.assertEqual(fresh_approval.returncode, 0, fresh_approval.stderr)
-
-            executor_action = json.loads(
-                run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout
-            )
-            self.assertEqual(executor_action["node_id"], NODE_ID)
-            self.assertEqual(executor_action["action"], "dispatch_executor")
-            executor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertEqual(executor.returncode, 0, executor.stderr)
-            selected = read_nodes(root)[0]
-            self.assertEqual(selected["id"], NODE_ID)
-            self.assertEqual(selected["acceptance"]["phase"], "executor_running")
-            self.assertEqual(serialized_node_bytes(root, SECOND_NODE_ID), second_node_before)
 
     def test_completed_capability_is_terminal_without_enrolling_another_eligible_node(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1276,10 +959,10 @@ class ManifestToolCliTests(unittest.TestCase):
             )
 
             self.assertEqual(advance.returncode, 0, advance.stderr)
-            self.assertEqual(json.loads(advance.stdout)["action"], "main_repair_decision")
+            self.assertEqual(json.loads(advance.stdout)["action"], "main_correction_decision")
             self.assertNotIn(sentinel, advance.stdout + advance.stderr)
             stored = read_nodes(root)[0]
-            self.assertEqual(stored["acceptance"]["phase"], "repair_required")
+            self.assertEqual(stored["acceptance"]["phase"], "correction_required")
             self.assertEqual(stored["acceptance"]["outcome"], "regression_failed")
             self.assertFalse(stored["acceptance_criteria"][0]["checked"])
             self.assertNotIn("evidence_refs", stored["acceptance_criteria"][0])
@@ -1503,8 +1186,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertIn("awaiting_repair", node_schema["acceptance_phases"])
         self.assertIn("awaiting_acceptance_design", node_schema["acceptance_phases"])
         self.assertIn("acceptance_designer_running", node_schema["acceptance_phases"])
-        self.assertIn("awaiting_acceptance_review", node_schema["acceptance_phases"])
-        self.assertIn("acceptance_reviewer_running", node_schema["acceptance_phases"])
+        self.assertIn("awaiting_executor", node_schema["acceptance_phases"])
         self.assertIn("audit_failed", node_schema["acceptance_outcomes"])
         self.assertIn("any", node_schema["platforms"])
         self.assertEqual(node_schema["requirement_label_pattern"], r"^REQ(?:-[A-Za-z0-9]+)+$")

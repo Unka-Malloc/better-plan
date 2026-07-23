@@ -159,8 +159,6 @@ class AgentCompletionHookTests(unittest.TestCase):
         self.cli("next-action", NODE_ID)
         designer = self.dispatch("acceptance_designer")
         self.advance("acceptance-designer-exited", designer)
-        reviewer = self.dispatch("acceptance_reviewer")
-        self.advance("acceptance-approved", reviewer)
         self.dispatch("executor")
 
     def run_completion_hook(self) -> dict[str, object]:
@@ -202,9 +200,9 @@ class AgentCompletionHookTests(unittest.TestCase):
 
         response = self.run_completion_hook()
 
-        self.assertEqual(self.state()["acceptance"]["phase"], "repair_required")
+        self.assertEqual(self.state()["acceptance"]["phase"], "correction_required")
         self.assertIn(
-            "action main_repair_decision",
+            "action main_correction_decision",
             response["hookSpecificOutput"]["additionalContext"],
         )
         self.assertNotIn(
@@ -224,7 +222,11 @@ class AgentCompletionHookTests(unittest.TestCase):
         self.assertEqual(self.state()["acceptance"]["phase"], "auditor_running")
         context = response["hookSpecificOutput"]["additionalContext"]
         self.assertIn("action main_audit_decision", context)
-        self.assertIn("choose audit-passed, audit-failed for repair, or pause to defer", context)
+        self.assertIn(
+            "choose audit-passed, same-Node implementation correction, design repair only for a "
+            "real design or product-semantics error, or pause to defer",
+            context,
+        )
 
 
 if __name__ == "__main__":

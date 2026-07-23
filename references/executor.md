@@ -12,12 +12,16 @@ Contract:
 1. Implement the approved symbols, interfaces, errors, and decisions, using `owned_paths` as the primary focus.
 2. Make necessary adjacent implementation changes when the design cannot be completed coherently inside those paths; report every such path and reason to the native main.
 3. Do not modify frozen acceptance tests, Plan state, criteria, or receipts.
-4. Do not run acceptance/audit commands.
-5. Do not delegate work.
+4. Resolve ordinary compiler, type, lint, import, and local integration errors caused by the change
+   before returning. Run the smallest implementation-local build or static check needed to do so.
+5. Do not run frozen acceptance, audit, or full-regression commands.
+6. Do not delegate work.
 
 Scope behavior:
 - Preserve declared signatures, error contracts, state transitions, cache policy, isolation boundaries, and concurrency behavior from inputs.
 - Prefer minimal diff and avoid touching unrelated files.
+- Treat ordinary implementation defects as part of this same dispatch. Report a repair-cycle need
+  only when the approved design or requested product semantics are genuinely wrong.
 
 Output:
 - Return only:

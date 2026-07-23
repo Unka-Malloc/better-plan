@@ -87,11 +87,9 @@ def reduce_agent_completion(manifest: Path) -> AgentCompletionDirective | None:
         if (phase, role) == ("executor_running", "executor"):
             updated = advance_executor_exit(location, dispatch_id)
             acceptance = acceptance_snapshot(updated, required=True)
-            if acceptance.get("phase") == "repair_required":
-                return _directive(updated, action="main_repair_decision")
+            if acceptance.get("phase") == "correction_required":
+                return _directive(updated, action="main_correction_decision")
             return _directive(updated)
-        if (phase, role) == ("acceptance_reviewer_running", "acceptance_reviewer"):
-            return _directive(node, action="main_acceptance_decision")
         if (phase, role) == ("auditor_running", "auditor"):
             return _directive(node, action="main_audit_decision")
     except (ToolError, ValueError, KeyError, TypeError):
