@@ -19,6 +19,8 @@ Field semantics and examples are in the canonical plan/schema output from `scrip
 
 ## Install
 
+Better Plan supports Python 3.8 or newer and uses only the Python standard library at runtime.
+
 Install or update Better Plan for all supported local agents:
 
 ```sh

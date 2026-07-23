@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final, Mapping, Tuple
 
 
-TransitionKey = tuple[str, str, str]
+TransitionKey = Tuple[str, str, str]
 
 
 _TRANSITION_TABLE: Final[Mapping[TransitionKey, str]] = MappingProxyType(
