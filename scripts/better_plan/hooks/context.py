@@ -5,16 +5,9 @@ from __future__ import annotations
 MAX_CONTEXT_LENGTH = 2048
 AUDITOR_REFERENCE = "references/auditor.md"
 INTENT_GUIDANCE = (
-    "Prioritize understanding the user's request and follow their direction. Consider Better "
-    "Plan only for explicit implementation, align only the relevant Plan before selecting "
-    "executable work, and bind one user-visible capability to one lifecycle identified by its "
-    "selected Node. Complete that capability end to end in one pass: freeze acceptance once, "
-    "handle ordinary build errors during implementation, run only focused tests for the Node, "
-    "and use one independent post-implementation review. Open a repair cycle only for a real "
-    "design or product-semantics error, and run one full regression only after all Nodes finish. "
-    "A selector refusal returns control to the native main and does not end the user's task. "
-    "Completion must not select or start another Node; revisions, failures, findings, and new "
-    "scope return to native-main judgment."
+    "Prioritize the user's request. For planning, coding, or explicit implementation work, "
+    "enter Better Plan. Otherwise, follow the user's instructions and perform the requested work "
+    "or answer the user's question accordingly."
 )
 
 

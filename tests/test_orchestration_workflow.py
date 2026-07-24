@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = REPO_ROOT / "SKILL.md"
+OPENAI_AGENT_PATH = REPO_ROOT / "agents" / "openai.yaml"
 ORCHESTRATION_MAIN_PATH = REPO_ROOT / "references" / "orchestration-main.md"
 ACCEPTANCE_DESIGNER_PATH = REPO_ROOT / "references" / "acceptance-designer.md"
 EXECUTOR_PATH = REPO_ROOT / "references" / "executor.md"
@@ -33,6 +34,14 @@ class OrchestrationWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.skill = SKILL_PATH.read_text(encoding="utf-8")
+        cls.openai_agent = OPENAI_AGENT_PATH.read_text(encoding="utf-8")
+        default_prompt_match = re.search(
+            r'(?m)^\s*default_prompt:\s*"([^"]*)"\s*$',
+            cls.openai_agent,
+        )
+        if default_prompt_match is None:
+            raise AssertionError("agents/openai.yaml must declare one quoted default_prompt")
+        cls.openai_default_prompt = default_prompt_match.group(1)
         cls.readme = README_PATH.read_text(encoding="utf-8")
         cls.hook_tool = HOOK_TOOL_PATH.read_text(encoding="utf-8")
         cls.hook_config = HOOK_CONFIG_PATH.read_text(encoding="utf-8")
@@ -54,6 +63,111 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("references/executor.md", self.skill)
         self.assertIn("references/auditor.md", self.skill)
         self.assertIn("role references", self.skill)
+
+    def test_entry_surfaces_route_work_without_disclosing_lifecycle_policy(self) -> None:
+        from scripts.better_plan.hooks.context import INTENT_GUIDANCE
+
+        lifecycle_policy_terms = (
+            "acceptance",
+            "node",
+            "lifecycle",
+            "focused test",
+            "regression",
+            "repair",
+            "audit",
+            "completion",
+            "selector",
+        )
+        for name, payload in (
+            ("Hook intent guidance", INTENT_GUIDANCE),
+            ("OpenAI Skill default prompt", self.openai_default_prompt),
+        ):
+            with self.subTest(surface=name):
+                normalized = " ".join(payload.lower().split())
+                self.assertRegex(normalized, r"\bbetter[- ]plan\b")
+                self.assertRegex(normalized, r"\bplanning\b")
+                self.assertRegex(normalized, r"\b(?:code|coding)\b")
+                self.assertRegex(normalized, r"\bexplicit implementation\b")
+                self.assertRegex(
+                    normalized,
+                    r"\b(?:otherwise|other (?:requests?|work|tasks?)|all other)\b",
+                )
+                self.assertRegex(
+                    normalized,
+                    r"\buser(?:'s)? (?:request|instructions?|direction)\b",
+                )
+                self.assertRegex(normalized, r"\b(?:answer|respond|native workflow)\b")
+                self.assertRegex(normalized, r"\botherwise\b[^.]*\baccordingly\b")
+                self.assertNotRegex(normalized, r"\bnormally\b")
+                for policy_term in lifecycle_policy_terms:
+                    self.assertNotIn(policy_term, normalized)
+
+    def test_readme_entry_routing_uses_accordingly_without_normally(self) -> None:
+        routing_statements = [
+            line.strip()
+            for line in self.readme.splitlines()
+            if "entry guidance activates Better Plan" in line
+            or "Session and prompt duties share one short routing instruction" in line
+        ]
+
+        self.assertEqual(len(routing_statements), 2)
+        for statement in routing_statements:
+            with self.subTest(statement=statement):
+                lowered = statement.lower()
+                self.assertRegex(lowered, r"\bplanning\b")
+                self.assertRegex(lowered, r"\bcoding\b")
+                self.assertRegex(lowered, r"\bexplicit implementation\b")
+                self.assertRegex(
+                    lowered,
+                    r"\b(?:otherwise|every other request)\b[^.]*\baccordingly\b",
+                )
+                self.assertNotRegex(lowered, r"\bnormally\b")
+
+    def test_planning_coding_and_implementation_activation_is_consistent(self) -> None:
+        from scripts.better_plan.hooks.context import INTENT_GUIDANCE
+
+        for name, payload in (
+            ("Hook intent guidance", INTENT_GUIDANCE),
+            ("OpenAI Skill default prompt", self.openai_default_prompt),
+            ("Skill", self.skill),
+            ("native-main contract", self.reference_main),
+            ("README", self.readme),
+        ):
+            with self.subTest(surface=name):
+                activation_clause = next(
+                    (
+                        paragraph
+                        for paragraph in normalized_paragraphs(payload)
+                        if re.search(r"\bbetter[- ]plan\b", paragraph)
+                        and re.search(r"\bplanning\b", paragraph)
+                        and re.search(r"\b(?:code|coding)\b", paragraph)
+                        and re.search(r"\bexplicit implementation\b", paragraph)
+                    ),
+                    "",
+                )
+                self.assertTrue(
+                    activation_clause,
+                    f"{name} must state one planning/coding/explicit-implementation activation boundary",
+                )
+
+    def test_activated_skill_and_isolated_roles_retain_lifecycle_policy(self) -> None:
+        skill = " ".join(self.skill.lower().split())
+        main = " ".join(self.reference_main.lower().split())
+        designer = " ".join(self.reference_acceptance_designer.lower().split())
+        executor = " ".join(self.reference_executor.lower().split())
+        auditor = " ".join(self.reference_auditor.lower().split())
+
+        self.assertIn("one user-visible capability", skill)
+        self.assertIn("run the full regression exactly once", skill)
+        self.assertIn("never auto-dispatch or loop", skill)
+        self.assertIn("executor exit runs the declared focused regression", skill)
+        self.assertIn("freeze acceptance once", main)
+        self.assertIn("executor exit runs focused regression", main)
+        self.assertIn("single acceptance freeze", designer)
+        self.assertIn("ordinary compiler", executor)
+        self.assertIn("implementation-local build or static check", executor)
+        self.assertIn("do not run frozen acceptance", executor)
+        self.assertIn("only independent review", auditor)
 
     def test_role_references_are_leaf_and_separated(self) -> None:
         for payload in (
