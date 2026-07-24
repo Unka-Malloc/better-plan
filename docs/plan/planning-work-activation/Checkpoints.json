@@ -1,0 +1,208 @@
+[
+  {
+    "id": "a1a9c157-ebdc-4a42-98b8-de23fef70db9",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "low",
+    "goal": "Activate Better Plan for planning work.",
+    "description": "Scope: Closure: capability - route planning, coding, and explicit implementation into Better Plan while preserving native handling for all other requests. Context: progressive entry guidance currently omits planning, and adding it only at the Hook would conflict with Skill activation. Target: Hook, Skill metadata, Skill, native-main contract, and README share one activation predicate. Design Considerations: keep entry guidance routing-only and preserve every lifecycle and host boundary. Design Value: makes planning an intentional Better Plan entry without prompt duplication. Constraints & Risks: no state-machine, role, Hook protocol, or full-regression change.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003"
+    ],
+    "design": {
+      "artifact": "docs/plan/planning-work-activation/Architecture.md",
+      "owned_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "SKILL.md",
+        "references/orchestration-main.md",
+        "README.md"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "SKILL.md",
+        "references/orchestration-main.md",
+        "README.md"
+      ],
+      "acceptance_paths": [
+        "docs/plan/planning-work-activation/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/hooks/context.py",
+          "kind": "type",
+          "name": "INTENT_GUIDANCE",
+          "operation": "modify",
+          "signature": "planning-coding-implementation entrance guidance"
+        },
+        {
+          "path": "SKILL.md",
+          "kind": "module",
+          "name": "Activation",
+          "operation": "modify",
+          "signature": "planning or explicit implementation activation policy"
+        },
+        {
+          "path": "references/orchestration-main.md",
+          "kind": "module",
+          "name": "Intent and lifecycle boundary",
+          "operation": "modify",
+          "signature": "planning or explicit implementation native-main routing"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "Better Plan activation predicate",
+          "producer": "SKILL.md",
+          "consumers": [
+            "scripts/better_plan/hooks/context.py",
+            "agents/openai.yaml",
+            "references/orchestration-main.md",
+            "README.md"
+          ],
+          "inputs": "latest user request",
+          "outputs": "Better Plan for planning/coding/implementation or native handling otherwise",
+          "errors": [
+            "activation surfaces disagree"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/hooks/context.py",
+          "to": "SKILL.md",
+          "reason": "entry routing must match canonical activation"
+        },
+        {
+          "from": "references/orchestration-main.md",
+          "to": "SKILL.md",
+          "reason": "native-main activation must match canonical Skill policy"
+        }
+      ],
+      "decisions": {
+        "composition": "one activation predicate mirrored by bounded entry surfaces",
+        "algorithms": "agent semantic judgment with no parser",
+        "data_structures": "static guidance strings",
+        "state": "no new state",
+        "isolation": "entry remains separate from lifecycle policy",
+        "concurrency": "no change"
+      },
+      "test_seams": [
+        "planning positive activation",
+        "cross-surface predicate consistency",
+        "entry lifecycle-policy absence"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Planning, coding, and explicit implementation requests activate Better Plan across Hook, Skill metadata, Skill, native-main, and README surfaces.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "All other requests still follow the user or receive a normal answer.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Entry guidance remains routing-only and contains no lifecycle implementation policy.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:28:56Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: activate Better Plan for planning work",
+      "target": "Better Plan activation surfaces"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_orchestration_workflow",
+        "python3 scripts/manifest_tool.py validate docs/plan"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "SKILL.md",
+        "references/orchestration-main.md",
+        "README.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "docs/plan/planning-work-activation/Requirements.md",
+        "docs/plan/planning-work-activation/Architecture.md",
+        "docs/plan/planning-work-activation/Validation.md",
+        "docs/plan/planning-work-activation/Evidence.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-24T07:28:56Z",
+        "contract_digest": "e032cba95077d3c442242b718abe243dd8b78400c225700c0850a60ad6e4e055",
+        "content_fingerprint": "582689e65197fb682a4c1e11e0f9cabb468c525a982bb384305247198ad32e3c"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-24T07:30:45Z",
+        "contract_digest": "e032cba95077d3c442242b718abe243dd8b78400c225700c0850a60ad6e4e055",
+        "content_fingerprint": "582689e65197fb682a4c1e11e0f9cabb468c525a982bb384305247198ad32e3c"
+      },
+      "design_digest": "7e46af28ddec0ab6f463da8fe3c2123d77a10f1b0f1a7a3f9f26cd7f6157274e",
+      "acceptance_fingerprint": "5909f34d350fde3e54457d9a9ca26a25ce07b2f3c5729ffd8896cb274928b0fa"
+    }
+  }
+]

@@ -1,0 +1,199 @@
+[
+  {
+    "id": "e501ef7e-8cf9-416e-8ef4-ea6dc405537f",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "low",
+    "goal": "Apply progressive disclosure to Better Plan entry guidance.",
+    "description": "Scope: Closure: capability - route coding and explicit implementation into Better Plan while leaving questions and other work in the native workflow. Context: static entry guidance currently preloads lifecycle implementation policy already owned by the Skill and role references. Target: Hook and skill-entry prompts make only the activation decision; the complete lifecycle remains canonical behind Better Plan activation. Design Considerations: preserve detector gating, host protocol responses, privacy boundaries, and isolated role contracts. Design Value: reduces repeated context and prevents premature workflow priming. Constraints & Risks: no lifecycle behavior change, no host configuration change, no compatibility text, no full regression.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002",
+      "REQ-003"
+    ],
+    "design": {
+      "artifact": "docs/plan/progressive-workflow-disclosure/Architecture.md",
+      "owned_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md"
+      ],
+      "acceptance_paths": [
+        "docs/plan/progressive-workflow-disclosure/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/hooks/context.py",
+          "kind": "type",
+          "name": "INTENT_GUIDANCE",
+          "operation": "modify",
+          "signature": "static entrance-only guidance"
+        },
+        {
+          "path": "agents/openai.yaml",
+          "kind": "type",
+          "name": "interface.default_prompt",
+          "operation": "modify",
+          "signature": "progressive-disclosure skill entry prompt"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "Better Plan entry guidance",
+          "producer": "scripts/better_plan/hooks/context.py",
+          "consumers": [
+            "session-start Hook",
+            "prompt-submit Hook",
+            "tests/test_hook_tool.py"
+          ],
+          "inputs": "structurally detected Better Plan workspace event",
+          "outputs": "bounded activation-only context",
+          "errors": [
+            "non-implementation requests must not be routed into Better Plan"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "from": "scripts/better_plan/hooks/context.py",
+          "to": "SKILL.md",
+          "reason": "entry guidance routes activation while the Skill owns lifecycle policy"
+        },
+        {
+          "from": "agents/openai.yaml",
+          "to": "SKILL.md",
+          "reason": "skill metadata exposes activation without duplicating the loaded Skill workflow"
+        }
+      ],
+      "decisions": {
+        "composition": "thin entry routing followed by Skill and role disclosure",
+        "algorithms": "constant static guidance lookup",
+        "data_structures": "one immutable guidance string",
+        "state": "no new state",
+        "isolation": "entry routing is separate from lifecycle and role policy",
+        "concurrency": "no change"
+      },
+      "test_seams": [
+        "exact INTENT_GUIDANCE content",
+        "workflow retention in Skill and role references",
+        "skill metadata default prompt"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Session and prompt guidance tells the agent to enter Better Plan for coding or explicit implementation and otherwise follow the user or answer normally.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Entry guidance and skill metadata contain no acceptance, execution, focused-test, repair, audit, full-regression, completion, or next-Node workflow policy.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "The complete lifecycle remains covered in SKILL.md and isolated role references, and documentation explains the progressive-disclosure boundary.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:15:02Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "refactor: progressively disclose Better Plan workflow",
+      "target": "Better Plan entry guidance and lifecycle prompt boundaries"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_orchestration_workflow",
+        "python3 scripts/manifest_tool.py validate docs/plan"
+      ],
+      "criteria": [
+        0,
+        1,
+        2
+      ],
+      "paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md",
+        "SKILL.md",
+        "references/orchestration-main.md",
+        "references/acceptance-designer.md",
+        "references/executor.md",
+        "references/auditor.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "docs/plan/progressive-workflow-disclosure/Requirements.md",
+        "docs/plan/progressive-workflow-disclosure/Architecture.md",
+        "docs/plan/progressive-workflow-disclosure/Validation.md",
+        "docs/plan/progressive-workflow-disclosure/Evidence.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-24T07:15:02Z",
+        "contract_digest": "072cf0c5f030138abd5cc4d545fdb3fd4aae2a2d181ba4cf9ae98f48fbb29860",
+        "content_fingerprint": "e2e69dfbbc2f33e525be808e55feb56df71788c82f3e2c914ed46f48a5d160ed"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 2,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-24T07:17:32Z",
+        "contract_digest": "072cf0c5f030138abd5cc4d545fdb3fd4aae2a2d181ba4cf9ae98f48fbb29860",
+        "content_fingerprint": "e2e69dfbbc2f33e525be808e55feb56df71788c82f3e2c914ed46f48a5d160ed"
+      },
+      "design_digest": "09b1ee3889057695b26801f9ee936b37dc79f88c42d1fb398e6695be3af6f2dd",
+      "acceptance_fingerprint": "5dc2f091edaea51d6869438714ead5f61d6057e21e9406d300e1fda95a9ccbf4"
+    }
+  }
+]

@@ -5,17 +5,17 @@ description: Design-first Better Plan workflow guide for structured workspaces w
 
 # Better Plan
 
-Better Plan is a guidance and state-transition aid for explicit implementation work. The latest
-user request is authoritative; a Plan is a revisable model of that request, never an independent
-instruction.
+Better Plan is a guidance and state-transition aid for planning, coding, or explicit implementation
+work. The latest user request is authoritative; a Plan is a revisable model of that request, never
+an independent instruction.
 
 ## Activation
 
 1. At session start, detect a structured workspace with
    `scripts/manifest_tool.py discover <project-root>`.
 2. If no unique valid workspace exists, silently continue with ordinary project handling.
-3. Even when a workspace exists, consider Better Plan only when the user explicitly asks for
-   implementation. Never infer work from a pending or active Node.
+3. Even when a workspace exists, consider Better Plan only for planning, coding, or explicit
+   implementation work. Never infer work from a pending or active Node.
 4. Use repository-relative paths and exclude secrets, machine identity, personal data, and backend
    runtime output from plans, prompts, evidence, and responses.
 
@@ -46,7 +46,7 @@ latest user request before deciding what to do.
 
 ## Native-main alignment
 
-For explicit implementation:
+For planning, coding, or explicit implementation work:
 
 1. Derive the requested outcome, constraints, observable acceptance target, and non-goals before
    reading planning state.
@@ -58,8 +58,10 @@ For explicit implementation:
    structures, state, cache, isolation, and concurrency—as heuristic candidates. Select only those
    applicable to the change's behavior and material risk; do not invent decisions or boilerplate
    merely to fill headings.
-5. Use execution selection only to authorize a leaf dispatch for that Node. Invalid authority or
-   no eligible work returns to native-main planning; repair relevant planning state if useful, but
+5. For planning-only requests, finish the requested Plan work and return to the user without
+   selecting executable work. When the request authorizes implementation, use execution selection
+   only to authorize a leaf dispatch for that Node. Invalid authority or no eligible work returns
+   to native-main planning; repair relevant planning state if useful, but
    never auto-dispatch or loop.
 
 ## Bounded lifecycle routing

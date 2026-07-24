@@ -324,5 +324,60 @@
     "goal": "Make Python 3.8 the tested minimum runtime for every Better Plan command and test surface.",
     "description": "One runtime-compatibility delivery that declares Python 3.8+, proves the complete suite on the lower bound, and continuously tests both the minimum and current Python lines.",
     "checkpoints": "python38-compatibility/Checkpoints.json"
+  },
+  {
+    "id": "3d373a7b-efb3-4a14-9f56-5dc6c25548ae",
+    "status": "completed",
+    "title": "Progressively disclose the Better Plan workflow",
+    "directory": "progressive-workflow-disclosure",
+    "source_files": [
+      "SKILL.md",
+      "README.md",
+      "agents/openai.yaml",
+      "references/orchestration-main.md",
+      "references/acceptance-designer.md",
+      "references/executor.md",
+      "references/auditor.md",
+      "scripts/better_plan/hooks/context.py",
+      "tests/test_hook_tool.py",
+      "tests/test_orchestration_workflow.py"
+    ],
+    "goal": "Keep Better Plan entry guidance limited to activation while disclosing lifecycle policy only after coding work enters the workflow.",
+    "description": "One progressive-disclosure correction that separates static request routing from the complete Better Plan lifecycle and its active-role contracts.",
+    "checkpoints": "progressive-workflow-disclosure/Checkpoints.json"
+  },
+  {
+    "id": "2308a94c-d007-486d-b983-59c1633a66de",
+    "status": "completed",
+    "title": "Activate Better Plan for planning work",
+    "directory": "planning-work-activation",
+    "source_files": [
+      "SKILL.md",
+      "README.md",
+      "agents/openai.yaml",
+      "references/orchestration-main.md",
+      "scripts/better_plan/hooks/context.py",
+      "tests/test_hook_tool.py",
+      "tests/test_orchestration_workflow.py"
+    ],
+    "goal": "Route planning work into Better Plan alongside coding and explicit implementation without expanding entry guidance.",
+    "description": "One activation-policy update that keeps Hook, Skill metadata, Skill activation, and native-main routing semantically consistent.",
+    "checkpoints": "planning-work-activation/Checkpoints.json"
+  },
+  {
+    "id": "fe0d7635-3c06-492e-bd0a-688ae514239a",
+    "status": "completed",
+    "title": "Use accordingly in Better Plan fallback guidance",
+    "directory": "accordingly-fallback-wording",
+    "source_files": [
+      "README.md",
+      "agents/openai.yaml",
+      "scripts/better_plan/hooks/context.py",
+      "tests/test_hook_tool.py",
+      "tests/test_orchestration_workflow.py"
+    ],
+    "goal": "Use accordingly instead of normally across Better Plan entry fallback wording.",
+    "description": "One copy-consistency correction across the routing-only Hook, Skill metadata, and README surfaces.",
+    "checkpoints": "accordingly-fallback-wording/Checkpoints.json"
   }
 ]

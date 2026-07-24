@@ -1,0 +1,161 @@
+[
+  {
+    "id": "72a2c82b-480e-41f6-8280-ed3c026505d2",
+    "status": "completed",
+    "role": "implementation",
+    "prerequisites": [],
+    "platform": "any",
+    "difficulty": "low",
+    "goal": "Replace normally with accordingly in Better Plan fallback guidance.",
+    "description": "Scope: Closure: capability - use accordingly across routing-only fallback wording. Context: the current progressive-disclosure entry surfaces say normally. Target: Hook, Skill metadata, and README use accordingly while preserving the activation predicate and native fallback semantics. Design Considerations: exact copy consistency only. Design Value: matches the requested tone without adding prompt policy. Constraints & Risks: no Skill workflow, state, role, protocol, or full-regression change.",
+    "requirements": [
+      "REQ-001",
+      "REQ-002"
+    ],
+    "design": {
+      "artifact": "docs/plan/accordingly-fallback-wording/Architecture.md",
+      "owned_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md"
+      ],
+      "scaffold_paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md"
+      ],
+      "acceptance_paths": [
+        "docs/plan/accordingly-fallback-wording/Validation.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py"
+      ],
+      "symbols": [
+        {
+          "path": "scripts/better_plan/hooks/context.py",
+          "kind": "type",
+          "name": "INTENT_GUIDANCE",
+          "operation": "modify",
+          "signature": "accordingly fallback wording"
+        },
+        {
+          "path": "agents/openai.yaml",
+          "kind": "type",
+          "name": "interface.default_prompt",
+          "operation": "modify",
+          "signature": "accordingly fallback wording"
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "entry fallback copy",
+          "producer": "scripts/better_plan/hooks/context.py",
+          "consumers": [
+            "agents/openai.yaml",
+            "README.md"
+          ],
+          "inputs": "non-Better-Plan request",
+          "outputs": "user-directed handling described with accordingly",
+          "errors": [
+            "entry surfaces use inconsistent adverbs"
+          ]
+        }
+      ],
+      "dependencies": [],
+      "decisions": {
+        "composition": "literal copy replacement",
+        "algorithms": "none",
+        "data_structures": "static strings",
+        "state": "no change",
+        "isolation": "entry copy only",
+        "concurrency": "no change"
+      },
+      "test_seams": [
+        "entry surface exact vocabulary",
+        "existing activation and progressive-disclosure tests"
+      ]
+    },
+    "acceptance_criteria": [
+      {
+        "checked": true,
+        "text": "Hook guidance, Skill metadata, and README use accordingly for non-Better-Plan fallback handling.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:42:04Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:42:04Z"
+          }
+        ]
+      },
+      {
+        "checked": true,
+        "text": "Those entry surfaces no longer use normally, while activation and lifecycle behavior remain unchanged.",
+        "evidence_refs": [
+          {
+            "type": "command",
+            "command_sha256": "bd3dd1362439593712e7bb0c33229dd2b5e9f98460fb1dbcc279e1cb5f2e922e",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:42:04Z"
+          },
+          {
+            "type": "command",
+            "command_sha256": "ed8d1d3ddee621662fc70aae53384c5455133dc7560ab8151e5b78b6578e5646",
+            "exit_code": 0,
+            "recorded_at": "2026-07-24T07:42:04Z"
+          }
+        ]
+      }
+    ],
+    "commit": {
+      "repository": ".git",
+      "message": "docs: use accordingly in Better Plan fallback",
+      "target": "Better Plan entry fallback wording"
+    },
+    "regression": {
+      "scope": "focused",
+      "commands": [
+        "python3 -m unittest tests.test_hook_tool tests.test_orchestration_workflow",
+        "python3 scripts/manifest_tool.py validate docs/plan"
+      ],
+      "criteria": [
+        0,
+        1
+      ],
+      "paths": [
+        "scripts/better_plan/hooks/context.py",
+        "agents/openai.yaml",
+        "README.md",
+        "tests/test_hook_tool.py",
+        "tests/test_orchestration_workflow.py",
+        "docs/plan/accordingly-fallback-wording/Requirements.md",
+        "docs/plan/accordingly-fallback-wording/Architecture.md",
+        "docs/plan/accordingly-fallback-wording/Validation.md",
+        "docs/plan/accordingly-fallback-wording/Evidence.md"
+      ],
+      "last_pass": {
+        "recorded_at": "2026-07-24T07:42:04Z",
+        "contract_digest": "2e57ea674341c00e34f41d072d8dcad83cbe6f1b3db23f9ea791da878445ce09",
+        "content_fingerprint": "a3d43834c75593d43f3c63eea1d58e747af3af11a81190589181eb5d5fdc3709"
+      }
+    },
+    "next": [],
+    "acceptance": {
+      "phase": "accepted",
+      "attempt": 1,
+      "outcome": "accepted",
+      "audit": {
+        "recorded_at": "2026-07-24T07:43:26Z",
+        "contract_digest": "2e57ea674341c00e34f41d072d8dcad83cbe6f1b3db23f9ea791da878445ce09",
+        "content_fingerprint": "a3d43834c75593d43f3c63eea1d58e747af3af11a81190589181eb5d5fdc3709"
+      },
+      "design_digest": "b01700665ad08068a57336b9553e0a93e2f7063082fec00330b3d033a2871873",
+      "acceptance_fingerprint": "ae6561503a1e904427bc140d3b4af16586fbeeb463037d1af3fe1bdf0501049a"
+    }
+  }
+]

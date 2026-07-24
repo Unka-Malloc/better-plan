@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shlex
 import subprocess
 import sys
@@ -18,6 +17,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOK_TOOL = REPO_ROOT / "scripts" / "hook_tool.py"
 PLAN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 NODE_A_ID = "11111111-1111-4111-8111-111111111111"
+ENTRY_LIFECYCLE_POLICY_TERMS = (
+    "acceptance",
+    "node",
+    "lifecycle",
+    "focused test",
+    "regression",
+    "repair",
+    "audit",
+    "completion",
+    "selector",
+)
 
 
 def command_line(*values: str) -> str:
@@ -150,6 +160,25 @@ def run_hook(
 
 
 class HookToolTests(unittest.TestCase):
+    def assert_entry_only_guidance(self, context: str) -> None:
+        lowered = " ".join(context.lower().split())
+
+        self.assertLessEqual(len(context.split()), 50)
+        self.assertIn("better plan", lowered)
+        self.assertRegex(lowered, r"\bplanning\b")
+        self.assertRegex(lowered, r"\b(?:code|coding)\b")
+        self.assertRegex(lowered, r"\bexplicit implementation\b")
+        self.assertRegex(
+            lowered,
+            r"\b(?:otherwise|other (?:requests?|work|tasks?)|all other)\b",
+        )
+        self.assertRegex(lowered, r"\buser(?:'s)? (?:request|instructions?|direction)\b")
+        self.assertRegex(lowered, r"\b(?:answer|respond|native workflow)\b")
+        self.assertRegex(lowered, r"\botherwise\b[^.]*\baccordingly\b")
+        self.assertNotRegex(lowered, r"\bnormally\b")
+        for policy_term in ENTRY_LIFECYCLE_POLICY_TERMS:
+            self.assertNotIn(policy_term, lowered)
+
     def make_project(self, root: Path) -> Path:
         project = root / "project"
         project.mkdir()
@@ -191,22 +220,12 @@ class HookToolTests(unittest.TestCase):
                 self.assertEqual(specific["hookEventName"], "SessionStart")
                 context = specific["additionalContext"]
                 self.assertEqual(context, hook_context.INTENT_GUIDANCE)
-                self.assertIn("before selecting executable work", context)
-                self.assertIn("does not end the user's task", context)
+                self.assert_entry_only_guidance(context)
 
-    def test_intent_guidance_bounds_one_generic_lifecycle_without_a_timing_policy(self) -> None:
-        context = hook_context.INTENT_GUIDANCE.lower()
+    def test_intent_guidance_contains_only_progressive_entry_routing(self) -> None:
+        context = hook_context.INTENT_GUIDANCE
 
-        self.assertIn("one user-visible capability", context)
-        self.assertIn("one lifecycle", context)
-        self.assertRegex(
-            context,
-            re.compile(
-                r"complet(?:e|ion)[\s\S]{0,200}(?:must not|does not|never)[\s\S]{0,100}"
-                r"(?:next|another|different) node"
-            ),
-        )
-        self.assertNotRegex(context, r"\b\d+\s*(?:seconds?|minutes?|hours?)\b")
+        self.assert_entry_only_guidance(context)
         for concrete_name in (
             "licolite",
             "kimi",
@@ -236,7 +255,7 @@ class HookToolTests(unittest.TestCase):
                 self.assertEqual(response["hookEventName"], "UserPromptSubmit")
                 context = response["additionalContext"]
                 self.assertEqual(context, hook_context.INTENT_GUIDANCE)
-                self.assertIn("returns control to the native main", context)
+                self.assert_entry_only_guidance(context)
                 self.assertNotIn(sentinel, context)
 
     def test_hook_cli_rejects_unknown_event_and_keeps_stdout_empty(self) -> None:
