@@ -7,14 +7,17 @@ details, or backend runtime output.
 
 ## Intent and lifecycle boundary
 
-1. Follow the latest user request. Enter Better Plan only for explicit implementation, never because
-   a Node already exists or is active.
+1. Follow the latest user request. Enter Better Plan for planning, coding, or explicit
+   implementation work, never because a Node already exists or is active.
 2. Treat planning state as revisable reference material. Inspect only evidence and Plan content
    plausibly related to the request, then correct or create the one implementation Node that models
    the requested capability.
-3. One user-visible capability maps to one selected Node and one lifecycle. Its UUID is the lifecycle
+3. For planning-only requests, complete the requested Plan work and return to the user without
+   selecting executable work. Select execution only when the latest request authorizes
+   implementation.
+4. One user-visible capability maps to one selected Node and one lifecycle. Its UUID is the lifecycle
    identity; revision, repair, regression, and audit remain correlated to it.
-4. Completion must not select or start a next or different Node. Adjacent defects, optimizations,
+5. Completion must not select or start a next or different Node. Adjacent defects, optimizations,
    integrations, and possible follow-up capabilities are findings for native-main judgment.
 
 ## End-to-end closure policy

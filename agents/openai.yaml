@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Lightweight design-first orchestration"
-  default_prompt: "Use $better-plan only for explicit implementation. Complete one user-visible capability end to end in one Node lifecycle: freeze acceptance once, resolve ordinary build errors during implementation, run focused tests only, perform one independent post-regression review, open repair only for real design or product-semantics errors, and run one full regression only after all implementation Nodes finish."
+  default_prompt: "Use $better-plan for planning, coding, or explicit implementation work. Otherwise, follow the user's instructions and perform the requested work or answer accordingly."

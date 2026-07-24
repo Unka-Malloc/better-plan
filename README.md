@@ -201,7 +201,8 @@ Only supported-callback contexts continue orchestration. The native parent then 
 - Executor
 - Auditor
 
-Better Plan is considered only after the user explicitly asks for implementation. The native main first understands and follows that request, then inspects relevant Plans as fallible references and aligns one selected Node to one user-visible capability. An existing or active Node never authorizes work by itself.
+For planning, coding, or explicit implementation work, the entry guidance activates Better Plan. For every other request, the agent follows the user's instructions and performs the requested work or answers accordingly. The entry guidance contains no lifecycle policy: after activation, the native main loads `SKILL.md`, and each active role loads only its own reference from `references/`. This progressive disclosure keeps implementation, acceptance, regression, and audit details out of unrelated conversations.
+The native main first understands and follows the request, then inspects relevant Plans as fallible references and aligns one selected Node to one user-visible capability. A planning-only request ends after the requested Plan work; execution selection requires user authorization for implementation. An existing or active Node never authorizes work by itself.
 The parent reads `next-action`, then dispatches `dispatch_acceptance_designer`, `dispatch_executor`, or `dispatch_auditor` by the returned role with role isolation.
 When a native Agent tool returns, the completion Hook submits the correlated write-role exit to the state reducer before the parent receives its next model step. The acceptance designer freezes the contract once and routes directly to execution. Executor exit runs the declared focused regression: success selects the lifecycle's single independent auditor, while failure returns to native-main classification. Ordinary implementation defects stay inside the same Node and frozen acceptance; only real design or product-semantics errors open a repair cycle. The Hook never launches an agent itself and never continues the stopped child.
 
@@ -209,9 +210,9 @@ Read-only verdicts remain main-thread decisions. Approval may continue the same 
 
 Waiting cadence is a communication heuristic. While delegated state is unchanged, the native main uses the host waiting facility without repeating status reports. Better Plan does not time, poll, interrupt, replace, or decide the lifetime of a delegated agent, and waiting is never an execution, completion, or failure gate.
 
-Codex, Claude, and Kimi Code receive only the short intent guidance at prompt submit; no Plan list, Plan prose, active Node, workspace label, or role contract is injected ahead of the main agent's judgment.
+Codex, Claude, and Kimi Code receive only the short routing guidance at prompt submit; no lifecycle policy, Plan list, Plan prose, active Node, workspace label, or role contract is injected ahead of the main agent's judgment. After Better Plan activates, `SKILL.md` discloses the workflow and the active role discloses exactly one applicable role reference.
 - Cursor `sessionStart` supplies `additional_context`. Its `beforeSubmitPrompt` callback returns only `continue: true`; the standing session duty therefore carries intent-alignment responsibility without denying the prompt.
-- Session and prompt duties share one short instruction: prioritize the user's request, and consider Better Plan only after an explicit implementation request.
+- Session and prompt duties share one short routing instruction: enter Better Plan for planning, coding, or explicit implementation work; otherwise perform the requested work or answer accordingly.
 - Recognized Codex and Claude subagent lifecycle callbacks are no-ops to prevent orchestration recursion without misclassifying ordinary named main sessions.
 
 “Node start” is an internal acceptance transition, not a host Hook. Session and prompt callbacks stop after returning bounded context or explicit prompt allowance. Only the Agent-completion callback reads the unique correlated dispatch, and duplicate, unrelated, ambiguous, or out-of-phase callbacks are successful no-ops.
