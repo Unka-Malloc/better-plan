@@ -32,6 +32,13 @@ ROLE_REFERENCES: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
+VISUAL_ROLE_REFERENCES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "dispatch_verifier": "references/visual-verifier.md",
+        "dispatch_reviewer": "references/visual-reviewer.md",
+    }
+)
+
 # Knowledge references supplement one role contract without becoming another role.
 # Designer receives the complete local catalog on every fresh dispatch so pattern
 # decisions never depend on network access or inherited conversation history.
@@ -54,11 +61,13 @@ def _is_safe_token(value: str) -> bool:
     )
 
 
-def reference_for_action(action: str) -> str | None:
+def reference_for_action(action: str, verification_profile: str = "code") -> str | None:
     """Return the leaf reference for an action, otherwise none."""
 
     if not _is_safe_token(action) or action in MAIN_ACTIONS:
         return None
+    if verification_profile in {"visual", "hybrid"}:
+        return VISUAL_ROLE_REFERENCES.get(action, ROLE_REFERENCES.get(action))
     return ROLE_REFERENCES.get(action)
 
 

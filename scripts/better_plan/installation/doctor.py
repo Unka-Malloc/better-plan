@@ -66,14 +66,18 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
     ):
         checks.append(check_skill_tree("implementation", implementation))
     if "codex" in agents:
+        checks.append(check_native_roles(paths, "codex"))
         checks.append(check_shared_scan_agent(paths, "codex"))
         checks.append(check_agent_hooks(paths, "codex"))
     if "claude" in agents:
+        checks.append(check_native_roles(paths, "claude"))
         checks.append(check_claude(paths))
         checks.append(check_agent_hooks(paths, "claude"))
     if "opencode" in agents:
+        checks.append(check_native_roles(paths, "opencode"))
         checks.extend(check_opencode(paths))
     if "cursor" in agents:
+        checks.append(check_native_roles(paths, "cursor"))
         checks.append(check_shared_scan_agent(paths, "cursor"))
         checks.append(check_agent_hooks(paths, "cursor"))
     if "copilot" in agents:
@@ -88,6 +92,11 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_shared_scan_agent(paths, "kimi"))
         checks.append(check_agent_hooks(paths, "kimi"))
     return checks
+
+
+def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
+    ok, message = _targets.native_role_status(paths, target)
+    return _Check("OK" if ok else "FAIL", f"{target} native roles", message)
 
 
 def check_claude(paths: _InstallPaths) -> _Check:

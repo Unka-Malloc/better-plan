@@ -22,3 +22,16 @@
   while editing; run the complete repository suite once after the change is integrated.
 - Avoid exhaustive permutations of incidental formatting, equivalent invalid inputs, or host
   templates. Add a case only when it protects a user-visible principle or a security/state boundary.
+
+## Native agent replacement
+
+- Treat the current Better Plan native role matrix as the only supported generation and one
+  receipt-managed unit. Do not retain legacy aliases, compatibility adapters, translated receipts,
+  mixed generations, or runtime fallback to an older role shape.
+- Normal install and update remain fail-closed for unowned same-name files. An explicit user request
+  to replace an older Better Plan setup authorizes removing only that setup from the active agent
+  directory and installing the complete current matrix with a fresh receipt.
+- A recoverable copy may be kept solely for manual file recovery; Better Plan must never read,
+  import, restore, or treat it as a compatible configuration. Never displace unrelated local agents.
+- Verify the resulting selectors, receipt inventory, skill structure, and installer Doctor result
+  before reporting success.

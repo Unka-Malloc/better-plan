@@ -57,6 +57,11 @@ Before execution, align each Node's design, acceptance criteria, focus paths, an
 with its closure. Use task difficulty (`routine`, `standard`, `complex`, `critical`) to describe
 scope, ambiguity, and consequence—not model reasoning effort.
 
+Separately assign every Node `verification_profile: code|visual|hybrid`. Code work uses the rigorous
+code Verifier/Reviewer. Visual and hybrid work requires the Visual Verifier/Reviewer plus real
+browser execution, vision, and rendered evidence; never infer visual success from source, DOM text,
+snapshots, or build output. Mixed implementation profiles require a hybrid final-validation Node.
+
 ## Role sequence
 
 ### Group opening: Designer
@@ -111,8 +116,8 @@ direct user request.
 
 Do not recommend or select a model at dispatch time. The installer pins native role files once.
 Codex uses this fixed default matrix for any role not replaced by a qualifying local configuration:
-Designer and Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
-`gpt-5.6-luna/max`; Verifier uses `gpt-5.6-sol/high`. This is a Codex-specific user preference,
+Designer, Reviewer, and Visual Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
+`gpt-5.6-luna/max`; Verifier and Visual Verifier use `gpt-5.6-sol/high`. This is a Codex-specific user preference,
 not a cross-host recommendation. Other hosts retain local-first benchmark routing. Missing table
 entries are ignored rather than guessed.
 
@@ -135,6 +140,7 @@ inherit the parent's conversation. Construct the child task from only:
 - the selected Node, or the entire task group for Designer and Reviewer;
 - the bounded capability scope returned by the state tool, which omits known untouched descendants;
 - exactly one role reference returned by `next-action`;
+- the declared verification profile and every required capability/evidence item returned by dispatch;
 - every action-specific local knowledge reference returned by `knowledge_references`; and
 - the necessary repository-relative files.
 

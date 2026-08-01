@@ -12,7 +12,7 @@ from scripts.better_plan.installation.assignments import (
     CODEX_FINDER_MATRIX,
     select_role_assignments,
 )
-from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallPaths
+from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallError, InstallPaths
 from scripts.better_plan.installation.targets import NATIVE_ROLE_FILES, install_role_templates
 
 
@@ -24,7 +24,9 @@ DELIVERY_ROLE_NAMES = {
     "worker-complex",
     "worker-critical",
     "verifier",
+    "visual-verifier",
     "reviewer",
+    "visual-reviewer",
 }
 CODEX_AGENT_NAMES = DELIVERY_ROLE_NAMES | {"finder", "fallback_finder"}
 CATALOG_PATTERNS = (
@@ -87,6 +89,8 @@ class AgentTemplateTests(unittest.TestCase):
         worker = (ROOT / "references" / "worker.md").read_text(encoding="utf-8").lower()
         verifier = (ROOT / "references" / "verifier.md").read_text(encoding="utf-8").lower()
         reviewer = (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower()
+        visual_verifier = (ROOT / "references" / "visual-verifier.md").read_text(encoding="utf-8").lower()
+        visual_reviewer = (ROOT / "references" / "visual-reviewer.md").read_text(encoding="utf-8").lower()
         self.assertIn("whole group in one pass", designer)
         self.assertIn("progression between nodes", designer)
         self.assertIn("task difficulty", worker)
@@ -95,6 +99,10 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("decision_issues", reviewer)
         self.assertIn("immediate", reviewer)
         self.assertIn("deferred", reviewer)
+        self.assertIn("real ui", visual_verifier)
+        self.assertIn("rendered evidence", visual_verifier)
+        self.assertIn("real ui", visual_reviewer)
+        self.assertIn("decision_issues", visual_reviewer)
 
     def test_local_pattern_catalog_is_complete_and_installed(self) -> None:
         catalog_path = ROOT / "references" / "design-patterns.md"
@@ -176,7 +184,7 @@ class AgentTemplateTests(unittest.TestCase):
             self.assertIn("price ignored", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(receipt["schema_version"], 2)
+            self.assertEqual(receipt["schema_version"], 3)
             self.assertEqual(set(receipt["assignments"]), set(NATIVE_ROLE_FILES["codex"]))
 
     def test_codex_default_matrix_matches_the_explicit_user_preference(self) -> None:
@@ -192,7 +200,9 @@ class AgentTemplateTests(unittest.TestCase):
                 "worker-complex": ("gpt-5.6-luna", "max"),
                 "worker-critical": ("gpt-5.6-luna", "max"),
                 "verifier": ("gpt-5.6-sol", "high"),
+                "visual-verifier": ("gpt-5.6-sol", "high"),
                 "reviewer": ("gpt-5.6-sol", "max"),
+                "visual-reviewer": ("gpt-5.6-sol", "max"),
             },
         )
         self.assertEqual(
@@ -282,7 +292,7 @@ class AgentTemplateTests(unittest.TestCase):
                 excluded_names=NATIVE_ROLE_FILES["codex"],
             )
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "verifier", "reviewer"):
+            for role in ("designer", "verifier", "visual-verifier", "reviewer", "visual-reviewer"):
                 self.assertEqual(assignments[role].model, "gemini-3-6-flash")
                 self.assertIsNone(assignments[role].reasoning_effort)
                 self.assertEqual(assignments[role].source, "local-config")
@@ -314,7 +324,7 @@ class AgentTemplateTests(unittest.TestCase):
             )
 
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "verifier", "reviewer"):
+            for role in ("designer", "verifier", "visual-verifier", "reviewer", "visual-reviewer"):
                 self.assertEqual(assignments[role].source, "codex-default-matrix")
             for role in (
                 "worker-routine",
@@ -326,37 +336,47 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertEqual(assignments[role].model, "gpt-5.6-luna")
                 self.assertEqual(assignments[role].reasoning_effort, "max")
 
-    def test_existing_receipt_adds_new_codex_finders_without_retuning_delivery_roles(self) -> None:
+    def test_claude_visual_scope_keeps_code_and_vision_models_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_paths = paths(Path(tmpdir))
+            directory = install_paths.claude_home / "agents"
+            directory.mkdir(parents=True)
+            (directory / "code-model.md").write_text(
+                "---\nname: code-model\nmodel: deepseek-v4-flash\nreasoning_effort: max\n---\n",
+                encoding="utf-8",
+            )
+            (directory / "vision-model.md").write_text(
+                "---\nname: vision-model\nmodel: k3-256k\nreasoning_effort: max\n"
+                "better_plan_scope: visual\n---\n",
+                encoding="utf-8",
+            )
+
+            assignments = select_role_assignments(
+                install_paths,
+                "claude",
+                excluded_names=NATIVE_ROLE_FILES["claude"],
+            )
+
+            for role in ("designer", "verifier", "reviewer"):
+                self.assertEqual(assignments[role].model, "deepseek-v4-flash")
+            for role in ("visual-verifier", "visual-reviewer"):
+                self.assertEqual(assignments[role].model, "k3-256k")
+                self.assertEqual(assignments[role].source, "local-config")
+
+    def test_obsolete_receipt_is_rejected_without_translation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             install_paths = paths(Path(tmpdir))
             install_role_templates(install_paths, "codex", dry_run=False)
             receipt_path = install_paths.codex_home / "agents.better-plan.json"
-            directory = install_paths.codex_home / "agents"
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            delivery_before = {
-                filename: value
-                for filename, value in receipt["assignments"].items()
-                if Path(filename).stem in DELIVERY_ROLE_NAMES
-            }
-            for filename in ("finder.toml", "fallback_finder.toml"):
+            receipt["schema_version"] = 2
+            for filename in ("visual-verifier.toml", "visual-reviewer.toml"):
                 receipt["files"].pop(filename)
                 receipt["assignments"].pop(filename)
-                (directory / filename).unlink()
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
-            install_role_templates(install_paths, "codex", dry_run=False)
-
-            updated = json.loads(receipt_path.read_text(encoding="utf-8"))
-            self.assertEqual(
-                {
-                    filename: value
-                    for filename, value in updated["assignments"].items()
-                    if Path(filename).stem in DELIVERY_ROLE_NAMES
-                },
-                delivery_before,
-            )
-            self.assertTrue((directory / "finder.toml").is_file())
-            self.assertTrue((directory / "fallback_finder.toml").is_file())
+            with self.assertRaises(InstallError):
+                install_role_templates(install_paths, "codex", dry_run=False)
 
     def test_update_keeps_the_original_assignment_even_if_new_local_models_appear(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

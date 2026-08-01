@@ -29,7 +29,16 @@ HOST_HARNESSES = {
     "cursor": "cursor-cli",
 }
 DIFFICULTIES = ("routine", "standard", "complex", "critical")
-INTELLIGENCE_ROLES = ("designer", "verifier", "reviewer")
+INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "designer": "designer",
+        "verifier": "verifier",
+        "visual-verifier": "verifier",
+        "reviewer": "reviewer",
+        "visual-reviewer": "reviewer",
+    }
+)
+INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
@@ -38,7 +47,9 @@ CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingPr
         "worker-complex": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-critical": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "verifier": ("verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
+        "visual-verifier": ("visual-verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
+        "visual-reviewer": ("visual-reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
     }
 )
 CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -52,13 +63,21 @@ _TOML_MODEL = re.compile(r'(?m)^model\s*=\s*"([A-Za-z0-9._:/+-]{1,128})"\s*$')
 _TOML_EFFORT = re.compile(r'(?m)^model_reasoning_effort\s*=\s*"([A-Za-z0-9._+-]{1,64})"\s*$')
 _YAML_MODEL = re.compile(r"(?m)^model:\s*['\"]?([A-Za-z0-9._:/+-]{1,128})['\"]?\s*$")
 _YAML_EFFORT = re.compile(r"(?m)^(?:reasoning_effort|model_reasoning_effort):\s*['\"]?([A-Za-z0-9._+-]{1,64})['\"]?\s*$")
+_TOML_SCOPE = re.compile(r'(?m)^better_plan_scope\s*=\s*"(all|visual)"\s*$')
+_YAML_SCOPE = re.compile(r"(?m)^better_plan_scope:\s*['\"]?(all|visual)['\"]?\s*$")
 _EFFORT_SUFFIXES = ("non-reasoning", "minimal", "medium", "xhigh", "high", "low", "max")
+_MODEL_SELECTOR_ALIASES: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "k3-256k": ("kimi-k3",),
+    }
+)
 
 
 @dataclass(frozen=True)
 class LocalModel:
     model: str
     reasoning_effort: str | None
+    better_plan_scope: str = "all"
 
 
 @dataclass(frozen=True)
@@ -151,7 +170,7 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
         return ()
     excluded = set(excluded_names)
     values: list[LocalModel] = []
-    seen: set[tuple[str, str | None]] = set()
+    seen: set[tuple[str, str | None, str]] = set()
     for path in sorted(directory.iterdir(), key=lambda item: item.name):
         if path.name in excluded or path.is_symlink() or path.suffix not in {".toml", ".md"}:
             continue
@@ -163,16 +182,18 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
             continue
         model_match = _TOML_MODEL.search(text) or _YAML_MODEL.search(text)
         effort_match = _TOML_EFFORT.search(text) or _YAML_EFFORT.search(text)
+        scope_match = _TOML_SCOPE.search(text) or _YAML_SCOPE.search(text)
         if model_match is None:
             continue
         model = model_match.group(1)
         effort = effort_match.group(1) if effort_match is not None else None
+        scope = scope_match.group(1) if scope_match is not None else "all"
         if _SAFE_VALUE.fullmatch(model) is None or (effort is not None and _SAFE_VALUE.fullmatch(effort) is None):
             continue
-        key = (model, effort)
+        key = (model, effort, scope)
         if key not in seen:
             seen.add(key)
-            values.append(LocalModel(model, effort))
+            values.append(LocalModel(model, effort, scope))
     return tuple(values)
 
 
@@ -206,6 +227,9 @@ def _local_model_ids(
     """Map one native selector to its best model-only benchmark row."""
 
     base = _normalized_model(local.model)
+    aliases = _MODEL_SELECTOR_ALIASES.get(base)
+    if aliases is not None:
+        return tuple(model_id for model_id in aliases if model_id in models_by_id)
     known_ids = set(models_by_id)
     effort = local.reasoning_effort
     suffixes = {
@@ -330,8 +354,11 @@ def select_role_assignments(
 
     model_by_id = {model.model_id: model for model in model_catalog.models}
     configs_by_model_id: dict[str, tuple[str, str | None, str]] = {}
+    code_local_models = tuple(model for model in local_models if model.better_plan_scope == "all")
+    visual_local_models = tuple(model for model in local_models if model.better_plan_scope == "visual")
+    visual_candidates = visual_local_models or (code_local_models if target == "codex" else ())
     if local_models:
-        for local in local_models:
+        for local in code_local_models:
             for model_id in _local_model_ids(local, model_by_id):
                 configs_by_model_id.setdefault(
                     model_id,
@@ -346,15 +373,26 @@ def select_role_assignments(
                 )
     available_model_ids = set(configs_by_model_id)
     for role in INTELLIGENCE_ROLES:
+        role_configs = configs_by_model_id
+        role_model_ids = available_model_ids
+        if role.startswith("visual-"):
+            role_configs = {}
+            for local in visual_candidates:
+                for model_id in _local_model_ids(local, model_by_id):
+                    role_configs.setdefault(
+                        model_id,
+                        (local.model, local.reasoning_effort, "local-config"),
+                    )
+            role_model_ids = set(role_configs)
         try:
             model: ModelRecord = select_intelligence_model_from_catalog(
                 model_catalog,
-                role,
-                available_model_ids=available_model_ids,
+                INTELLIGENCE_ROLE_BASE[role],
+                available_model_ids=role_model_ids,
             )
         except ToolError:
             continue
-        configured_model, configured_effort, assignment_source = configs_by_model_id[
+        configured_model, configured_effort, assignment_source = role_configs[
             model.model_id
         ]
         assignments[role] = RoleAssignment(

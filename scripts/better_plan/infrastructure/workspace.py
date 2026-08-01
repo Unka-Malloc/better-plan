@@ -446,6 +446,24 @@ def plan_snapshot_issues(
                     issues.append(Issue(path, f"plan[{index}]: final_validation must appear after every implementation node"))
                 if final_node.get("difficulty") != "critical":
                     issues.append(Issue(path, f"plan[{index}] node[{final_index}].difficulty: final_validation must use 'critical'"))
+                implementation_profiles = {
+                    str(node.get("verification_profile"))
+                    for _, node in implementation_nodes
+                    if node.get("status") != "skipped"
+                }
+                required_profile = (
+                    "hybrid"
+                    if "hybrid" in implementation_profiles or len(implementation_profiles) > 1
+                    else next(iter(implementation_profiles), "code")
+                )
+                if final_node.get("verification_profile") != required_profile:
+                    issues.append(
+                        Issue(
+                            path,
+                            f"plan[{index}] node[{final_index}].verification_profile: final_validation must use "
+                            f"{required_profile!r} to cover the non-skipped implementation nodes",
+                        )
+                    )
 
         node_statuses = [
             node.get("status")

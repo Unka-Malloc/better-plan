@@ -31,10 +31,10 @@ from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "verifier.toml", "reviewer.toml", "finder.toml", "fallback_finder.toml"),
-    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
-    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
-    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
+    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "verifier.toml", "visual-verifier.toml", "reviewer.toml", "visual-reviewer.toml", "finder.toml", "fallback_finder.toml"),
+    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
 }
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
 
@@ -108,7 +108,7 @@ def _load_native_receipt(path: Path, target: str) -> dict[str, object] | None:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise _InstallError("native role template receipt is invalid")
-    if not isinstance(value, dict) or value.get("schema_version") != 2 or value.get("target") != target or set(value) != {"schema_version", "target", "files", "assignments"}:
+    if not isinstance(value, dict) or value.get("schema_version") != 3 or value.get("target") != target or set(value) != {"schema_version", "target", "files", "assignments"}:
         raise _InstallError("native role template receipt is invalid")
     files = value.get("files")
     if not isinstance(files, dict) or any(
@@ -145,7 +145,7 @@ def _assignment_payload(assignment: _RoleAssignment) -> dict[str, object]:
 
 def _write_native_receipt(path: Path, target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> None:
     value = {
-        "schema_version": 2,
+        "schema_version": 3,
         "target": target,
         "files": {filename: _content_digest(content) for filename, content, _ in payload},
         "assignments": {filename: _assignment_payload(assignment) for filename, _, assignment in payload},
@@ -243,18 +243,6 @@ def _native_payload(
         if not isinstance(receipt_assignments, dict):
             raise _InstallError("native role template receipt is invalid")
         assignments = dict(receipt_assignments)
-        if target == "codex":
-            try:
-                current_defaults = _select_role_assignments(
-                    paths,
-                    target,
-                    excluded_names=NATIVE_ROLE_FILES[target],
-                )
-            except ToolError as exc:
-                raise _InstallError("native role assignments could not be selected") from exc
-            for utility_name in ("finder", "fallback_finder"):
-                if utility_name not in assignments and utility_name in current_defaults:
-                    assignments[utility_name] = current_defaults[utility_name]
     payload: list[tuple[str, bytes, _RoleAssignment]] = []
     extension = ".toml" if target == "codex" else ".md"
     for agent_name, assignment in sorted(assignments.items()):
@@ -343,6 +331,36 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
         f"{assignment.agent_name} -> {assignment.role}, {assignment.model}/{effort}, "
         f"{basis} {metric}, source {assignment.source}"
     )
+
+
+def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
+    """Verify the complete receipt-owned native role matrix without exposing selectors."""
+
+    destination = _native_role_directory(paths, target)
+    try:
+        receipt = _load_native_receipt(_native_receipt_path(destination), target)
+    except _InstallError:
+        return False, "native role receipt is missing, obsolete, or invalid"
+    if receipt is None:
+        return False, "native role receipt is missing"
+    files = receipt.get("files")
+    if not isinstance(files, dict) or not files or not set(files).issubset(NATIVE_ROLE_FILES[target]):
+        return False, "native role inventory is invalid"
+    agent_names = {Path(filename).stem for filename in files}
+    for code_role, visual_role in (
+        ("verifier", "visual-verifier"),
+        ("reviewer", "visual-reviewer"),
+    ):
+        if visual_role in agent_names and code_role not in agent_names:
+            return False, "a visual verification role is installed without its code-role base"
+    try:
+        for filename, digest in files.items():
+            path = destination / filename
+            if path.is_symlink() or not path.is_file() or _content_digest(path.read_bytes()) != digest:
+                return False, "native role files do not match the managed receipt"
+    except OSError:
+        return False, "native role files are unreadable"
+    return True, "current native role generation and pinned selectors verified"
 
 
 def remove_role_templates(

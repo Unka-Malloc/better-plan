@@ -7,9 +7,9 @@ four isolated native roles:
 ```text
 task group
   Designer once
-    implementation Node -> Worker -> Verifier -> focused regression once
-    implementation Node -> Worker -> Verifier -> focused regression once
-  Reviewer once -> developer decisions -> full regression once
+    code Node -> Worker -> Verifier -> focused regression once
+    visual/hybrid Node -> Worker -> Visual Verifier -> focused regression once
+  Reviewer or Visual Reviewer once -> developer decisions -> full regression once
 ```
 
 Designer and Reviewer close the two ends of a task group. Designer predicts cross-node problems and
@@ -72,7 +72,9 @@ paths and stable interfaces and never gain an artificial prerequisite merely to 
 | Designer | once at group opening | predicts risks and writes/refines group design and executable acceptance across multiple Nodes | strongest locally callable model-only Intelligence Index |
 | Worker | once or more per implementation Node | implements frozen design and resolves ordinary build/integration defects | cheapest measured LLM + Agent combination above the Node difficulty floor |
 | Verifier | after each Worker | inspects and directly repairs one Node, then its one focused regression runs | next distinct locally callable Intelligence tier when possible |
+| Visual Verifier | after a visual or hybrid Worker | exercises the real UI with browser and vision, repairs code and presentation defects, and returns rendered evidence | same Verifier intelligence tier, in a role that requires vision and browser capability |
 | Reviewer | once after all implementation Nodes | reviews the bound capability end to end plus actually impacted shared paths, repairs autonomous issues, and returns developer choices; known untouched branches stay outside scope | strongest locally callable model-only Intelligence Index |
+| Visual Reviewer | once when final validation is visual or hybrid | performs the one full-chain code and rendered-UI review and repairs autonomous findings | same Reviewer intelligence tier, in a role that requires vision and browser capability |
 
 The model-policy column describes benchmark-routed hosts. Codex applies the explicit default matrix
 below for any delivery role without a qualifying local override.
@@ -113,8 +115,10 @@ Codex has one explicit user-preference default matrix for roles without a qualif
 | --- | --- |
 | Designer | `gpt-5.6-sol/max` |
 | Reviewer | `gpt-5.6-sol/max` |
+| Visual Reviewer | `gpt-5.6-sol/max` |
 | Worker (`routine` through `critical`) | `gpt-5.6-luna/max` |
 | Verifier | `gpt-5.6-sol/high` |
+| Visual Verifier | `gpt-5.6-sol/high` |
 
 Codex installation also adds two read-only utility agents outside the delivery lifecycle:
 `finder` uses `gpt-5.3-codex-spark/xhigh`, while `fallback_finder` uses
@@ -129,6 +133,12 @@ and stores a receipt beside the native agent directory. Normal updates preserve 
 assignments even when the packaged tables change; they may append a newly bundled utility agent such
 as Finder. To intentionally reselect delivery roles, uninstall the managed native role files and
 install again.
+
+For hosts whose code and visual models differ, a local selector agent may declare
+`better_plan_scope: visual` beside its public `model` and `reasoning_effort` fields. That selector is
+considered only for Visual Verifier/Reviewer assignments; ordinary local selectors continue to
+supply code roles. The Kimi Claude Code alias `k3-256k` maps to the packaged Kimi K3 intelligence
+record. Codex keeps its fixed all-vision default matrix unchanged.
 
 Installation output lists every created role with its pinned model, reasoning setting, and selection
 basis. Delivery roles also list benchmark score, measured Worker cost when applicable, and
@@ -170,6 +180,19 @@ those hosts do not currently receive benchmark-pinned native Better Plan role fi
 The installer fails closed on same-name native agent files it does not own. Update preserves user
 changes outside the Better Plan-owned receipt. Uninstall removes only files whose current digest
 still matches that receipt.
+
+### Breaking replacement of older role files
+
+The current native role matrix is the only supported generation. Better Plan does not preserve or
+translate older aliases, receipts, role shapes, mixed-generation configurations, or runtime
+fallbacks. When the user explicitly authorizes replacement, remove only the older Better Plan setup
+from the active agent directory, install the complete current matrix, and create a fresh receipt.
+Never displace unrelated local agents.
+
+A displaced copy may be retained only for manual file recovery; the current release never reads or
+restores it as configuration. Successful replacement leaves only the current role names active and
+passes installer Doctor plus selector/receipt verification. Ordinary install and update still fail
+closed on unowned collisions.
 
 ## Workspace state
 
@@ -217,6 +240,12 @@ Designer's dispatch always names `references/design-patterns.md` and
 requires a `design_pattern_assessment`; the native main attaches the local content instead of
 requesting the source website.
 
+Every Node declares `verification_profile: code|visual|hybrid`. `code` routes to the rigorous code
+Verifier/Reviewer. `visual` and `hybrid` route to the visual roles and add explicit `vision`,
+`browser`, and rendered-evidence requirements. Source inspection, DOM text, snapshots, and build
+success never substitute for exercising the real rendered UI. A final-validation Node must cover
+all non-skipped implementation profiles: mixed code and visual work requires `hybrid`.
+
 ```sh
 python3 scripts/manifest_tool.py next-action <node-id> <workspace>
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role designer
@@ -249,11 +278,13 @@ correlation uses the bound child ID rather than a singleton.
 
 ## Implementation and group closure
 
-Worker completion routes directly to Verifier. Verifier is expected to repair, not merely report,
-and its completion runs the declared focused regression once. A passing run completes the
+Worker completion routes directly to the Verifier selected by `verification_profile`. Both code and
+visual Verifiers repair rather than merely report; visual/hybrid work must additionally exercise
+the real UI with browser and vision. Completion runs the declared focused regression once. A passing run completes the
 implementation Node; failure returns `main_correction_decision`.
 
-After all implementation Nodes complete, dispatch Reviewer directly. Reviewer runs once, repairs
+After all implementation Nodes complete, dispatch the code or visual Reviewer selected by final
+validation directly. That Reviewer runs once, repairs
 the whole group, and returns structured choices. After those choices are recorded, the native main
 submits:
 
@@ -302,7 +333,9 @@ lifetime and cancellation remain outside Better Plan.
 - [Design-pattern decision catalog](references/design-patterns.md)
 - [Worker](references/worker.md)
 - [Verifier](references/verifier.md)
+- [Visual Verifier](references/visual-verifier.md)
 - [Reviewer](references/reviewer.md)
+- [Visual Reviewer](references/visual-reviewer.md)
 
 ## Development
 
