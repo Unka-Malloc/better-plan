@@ -276,8 +276,23 @@ rather than following leaderboard changes, while a later release may append a ne
 agent such as Finder. Installation output and each child's injected assignment line tell the user the
 role, model, reasoning setting, and selection basis. Delivery roles also report benchmark score,
 measured Worker cost when applicable, and whether the choice came from local configuration or catalog
-fallback; read-only utilities report their fixed selector and mode. Runtime dispatch reads the pinned
-native role and never reselects a model.
+fallback; read-only utilities report their fixed selector and mode. Routine runtime dispatch reads
+the pinned native role and does not reselect a model; the child-spawn recovery heuristic below is
+the only temporary exception.
+
+### Child-spawn recovery reminder
+
+Apply this heuristic only when a child-agent spawn is refused or fails before a child ID is
+returned; do not repeat it in delegated prompts or routine progress updates. First use a bounded,
+read-only host check to distinguish remote model-provider reachability from a local policy,
+permission, configuration, quota, or role-selection error. Never inspect or expose credentials or
+backend runtime data. If the remote provider is unreachable, stop all further work and report the
+blocker to the user. If it is reachable, retry the same spawn once. If that retry also fails, retry
+once with a locally callable equivalent model that preserves the role's required capabilities and
+quality tier; treat this as a temporary spawn fallback, not a mutation of the installed role matrix
+or receipt. If no equivalent model is available or the fallback fails, stop all further work and
+report the blocker and attempted recovery steps to the user. Never advance or bind the dispatch
+without a real child ID.
 
 Treat the current installed role matrix as the only supported generation and one managed unit. If
 the user explicitly asks to replace an older Better Plan setup, remove that setup from the active

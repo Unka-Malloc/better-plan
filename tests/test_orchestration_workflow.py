@@ -220,6 +220,17 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("state mutations", normalized)
         self.assertIn("serialized", normalized)
 
+    def test_skill_load_once_reminds_main_how_to_recover_failed_spawns(self) -> None:
+        normalized = " ".join(self.skill.lower().split())
+        self.assertIn("child-spawn recovery reminder", normalized)
+        self.assertIn("do not repeat it in delegated prompts or routine progress updates", normalized)
+        self.assertIn("remote model-provider reachability", normalized)
+        self.assertIn("if the remote provider is unreachable, stop all further work", normalized)
+        self.assertIn("if it is reachable, retry the same spawn once", normalized)
+        self.assertIn("locally callable equivalent model", normalized)
+        self.assertIn("temporary spawn fallback, not a mutation of the installed role matrix", normalized)
+        self.assertIn("never advance or bind the dispatch without a real child id", normalized)
+
     def test_docs_require_offline_pattern_assessment_without_pattern_forcing(self) -> None:
         designer = (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower()
         normalized = " ".join((self.skill + self.main + self.readme + designer).lower().split())
