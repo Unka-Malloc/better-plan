@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 AGENTS = (
     "codex",
     "claude",
@@ -44,7 +44,9 @@ CURRENT_SKILL_FILES = (
     "references/design-patterns.md",
     "references/worker.md",
     "references/verifier.md",
+    "references/visual-verifier.md",
     "references/reviewer.md",
+    "references/visual-reviewer.md",
     "scripts/__init__.py",
     "scripts/manifest_tool.py",
     "scripts/hook_tool.py",
@@ -90,7 +92,9 @@ CURRENT_SKILL_FILES = (
     "agents/codex/worker-complex.toml",
     "agents/codex/worker-critical.toml",
     "agents/codex/verifier.toml",
+    "agents/codex/visual-verifier.toml",
     "agents/codex/reviewer.toml",
+    "agents/codex/visual-reviewer.toml",
     "agents/codex/finder.toml",
     "agents/codex/fallback_finder.toml",
     "agents/claude-code/designer.md",
@@ -99,21 +103,27 @@ CURRENT_SKILL_FILES = (
     "agents/claude-code/worker-complex.md",
     "agents/claude-code/worker-critical.md",
     "agents/claude-code/verifier.md",
+    "agents/claude-code/visual-verifier.md",
     "agents/claude-code/reviewer.md",
+    "agents/claude-code/visual-reviewer.md",
     "agents/opencode/designer.md",
     "agents/opencode/worker-routine.md",
     "agents/opencode/worker-standard.md",
     "agents/opencode/worker-complex.md",
     "agents/opencode/worker-critical.md",
     "agents/opencode/verifier.md",
+    "agents/opencode/visual-verifier.md",
     "agents/opencode/reviewer.md",
+    "agents/opencode/visual-reviewer.md",
     "agents/cursor/designer.md",
     "agents/cursor/worker-routine.md",
     "agents/cursor/worker-standard.md",
     "agents/cursor/worker-complex.md",
     "agents/cursor/worker-critical.md",
     "agents/cursor/verifier.md",
+    "agents/cursor/visual-verifier.md",
     "agents/cursor/reviewer.md",
+    "agents/cursor/visual-reviewer.md",
 )
 
 

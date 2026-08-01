@@ -98,6 +98,7 @@ class GroupLifecycleTests(unittest.TestCase):
         prerequisites: list[str],
         *,
         difficulty: str,
+        verification_profile: str = "code",
     ) -> dict[str, object]:
         node: dict[str, object] = {
             "id": node_id,
@@ -106,6 +107,7 @@ class GroupLifecycleTests(unittest.TestCase):
             "prerequisites": prerequisites,
             "platform": "any",
             "difficulty": difficulty,
+            "verification_profile": verification_profile,
             "goal": f"Exercise the {role} lifecycle.",
             "description": (
                 f"Scope: Closure: scenario - {stem}; isolated fixture files. "
@@ -192,6 +194,18 @@ class GroupLifecycleTests(unittest.TestCase):
         else:
             self.assertNotEqual(result.returncode, 0)
         return result
+
+    def test_final_validation_profile_covers_implementation_profiles(self) -> None:
+        checkpoints = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        checkpoints[1]["verification_profile"] = "visual"
+        self.checkpoints.write_text(json.dumps(checkpoints), encoding="utf-8")
+
+        rejected = self.cli("validate", str(self.root), ok=False)
+        self.assertIn("final_validation must use 'visual'", rejected.stderr)
+
+        checkpoints[-1]["verification_profile"] = "visual"
+        self.checkpoints.write_text(json.dumps(checkpoints), encoding="utf-8")
+        self.cli("validate", str(self.root))
 
     def state(self, node_id: str) -> dict[str, object]:
         values = json.loads(self.checkpoints.read_text(encoding="utf-8"))

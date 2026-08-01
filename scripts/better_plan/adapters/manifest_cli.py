@@ -13,7 +13,7 @@ from .capability_cli import capability_projection, register_capability_commands
 from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
 from ..domain.capabilities import capability_schema_payload
 from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
-from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
 from ..domain.tree import render_workspace_tree
 from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
 from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches
@@ -453,6 +453,7 @@ def add_node_command(args: argparse.Namespace) -> int:
         "prerequisites": prerequisites,
         "platform": args.platform,
         "difficulty": args.difficulty,
+        "verification_profile": args.verification_profile,
         "goal": args.goal,
         "description": args.description,
     }
@@ -545,6 +546,7 @@ def edit_node_command(args: argparse.Namespace) -> int:
         "description": args.description,
         "difficulty": args.difficulty,
         "platform": args.platform,
+        "verification_profile": args.verification_profile,
     }
     commit_updates: dict[str, str | None] = {
         "repository": args.commit_repository,
@@ -975,6 +977,7 @@ def next_command(args: argparse.Namespace) -> int:
                 "goal": public_summary(node.get("goal"), "[redacted]"),
                 "role": node.get("role"),
                 "difficulty": node.get("difficulty"),
+                "verification_profile": node.get("verification_profile"),
                 "platform": node.get("platform"),
             }
 
@@ -1024,7 +1027,10 @@ def next_command(args: argparse.Namespace) -> int:
         for entry in active:
             print(f"  active: {entry['id']} {entry['goal']}")
         for entry in eligible:
-            print(f"  next: {entry['id']} {entry['goal']} (difficulty {entry['difficulty']}, platform {entry['platform']})")
+            print(
+                f"  next: {entry['id']} {entry['goal']} "
+                f"(difficulty {entry['difficulty']}, verification {entry['verification_profile']}, platform {entry['platform']})"
+            )
     if not printed:
         print(f"No executable nodes found for platform {platform}.")
     return 0
@@ -1075,6 +1081,7 @@ def schema_command(args: argparse.Namespace) -> int:
             "roles": sorted(VALID_NODE_ROLES),
             "reserved_tags": sorted(RESERVED_NODE_TAGS),
             "difficulties": sorted(VALID_DIFFICULTIES),
+            "verification_profiles": sorted(VALID_VERIFICATION_PROFILES),
             "platforms": sorted(VALID_PLATFORMS),
             "requirement_label_pattern": REQUIREMENT_LABEL_PATTERN.pattern,
             "template": NODE_TEMPLATE,
@@ -1252,6 +1259,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="task difficulty; defaults to standard",
     )
     add_node.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS), help="platform; defaults to any")
+    add_node.add_argument("--verification-profile", default="code", choices=sorted(VALID_VERIFICATION_PROFILES), help="required verification capability; defaults to code")
     add_node.add_argument(
         "--requirements",
         help="comma-separated canonical labels that begin with REQ, such as REQ-001,REQ-002",
@@ -1294,6 +1302,7 @@ def build_parser() -> argparse.ArgumentParser:
     edit_node.add_argument("--description", help="replace the node description")
     edit_node.add_argument("--difficulty", choices=sorted(VALID_DIFFICULTIES), help="replace the node difficulty")
     edit_node.add_argument("--platform", choices=sorted(VALID_PLATFORMS), help="replace the node platform")
+    edit_node.add_argument("--verification-profile", choices=sorted(VALID_VERIFICATION_PROFILES), help="replace the node verification capability")
     edit_node.add_argument(
         "--requirements",
         help="replace requirement labels with a comma-separated canonical REQ-... list; pass '' to clear",

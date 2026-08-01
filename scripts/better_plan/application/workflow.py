@@ -472,13 +472,15 @@ def bounded_acceptance_payload(
     if capability_context is not None:
         payload["capability_scope"] = capability_context
     if action.startswith("dispatch_"):
+        verification_profile = str(node.get("verification_profile"))
+        visual_verification = verification_profile in {"visual", "hybrid"}
         agent_type = {
             "dispatch_designer": "designer",
             "dispatch_worker": f"worker-{node.get('difficulty')}",
-            "dispatch_verifier": "verifier",
-            "dispatch_reviewer": "reviewer",
+            "dispatch_verifier": "visual-verifier" if visual_verification else "verifier",
+            "dispatch_reviewer": "visual-reviewer" if visual_verification else "reviewer",
         }.get(action)
-        role_reference = _reference_for_action(action)
+        role_reference = _reference_for_action(action, verification_profile)
         if agent_type is None or role_reference is None:
             raise ToolError("unsupported leaf dispatch action")
         payload.update(
@@ -487,8 +489,21 @@ def bounded_acceptance_payload(
                 "fork_turns": "none",
                 "role_reference": role_reference,
                 "repository_paths": _relative_leaf_paths(node),
+                "verification_profile": verification_profile,
             }
         )
+        if action in {"dispatch_verifier", "dispatch_reviewer"}:
+            payload["required_capabilities"] = (
+                ["code_reasoning", "vision", "browser"]
+                if visual_verification
+                else ["code_reasoning"]
+            )
+            if visual_verification:
+                payload["required_evidence"] = [
+                    "rendered browser output",
+                    "declared viewport and interaction states",
+                    "visual acceptance findings",
+                ]
         knowledge_references = _knowledge_references_for_action(action)
         if knowledge_references:
             payload["knowledge_references"] = list(knowledge_references)
