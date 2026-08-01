@@ -6,10 +6,12 @@ from typing import Any
 from pathlib import Path
 import argparse
 import json
-from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, GIT_SHA_PATTERN, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
+import os
+from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, GIT_SHA_PATTERN, MAX_DELEGATION_FAILURES, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
 from ..domain.roles import knowledge_references_for_action as _knowledge_references_for_action, reference_for_action as _reference_for_action
 from ..domain.transitions import next_action as acceptance_next_action, transition as acceptance_transition
 from ..infrastructure.regression import current_platform, ensure_node_regression, evidence_timestamp, platform_matches, preparation_fingerprints, regression_receipt_status, run_node_regression, run_regression_at_location as _run_regression_at_location, validated_design_contract, validated_regression_contract
+from ..infrastructure.native_roles import NativeRoleSelector, resolve_codex_role
 from ..infrastructure.workspace import NodeLocation as _NodeLocation, capability_scope_for_plan, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_lock, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
 
 
@@ -444,22 +446,41 @@ def _relative_leaf_paths(node: dict[str, Any]) -> list[str]:
     return sorted(values)
 
 
+def _resolved_payload_action(node: dict[str, Any], action: str | None) -> str:
+    if action is not None:
+        return action
+    acceptance = acceptance_snapshot(node)
+    phase = str(acceptance["phase"])
+    return (
+        "none"
+        if node.get("status") == "deferred"
+        or node.get("status") in WORKFLOW_STATE_MACHINE.terminal_statuses
+        else acceptance_next_action(phase, str(node.get("role")))
+    )
+
+
+def _agent_type_for_action(node: dict[str, Any], action: str) -> str | None:
+    verification_profile = str(node.get("verification_profile"))
+    visual_verification = verification_profile in {"visual", "hybrid"}
+    return {
+        "dispatch_designer": "designer",
+        "dispatch_worker": f"worker-{node.get('difficulty')}",
+        "dispatch_verifier": "visual-verifier" if visual_verification else "verifier",
+        "dispatch_reviewer": "visual-reviewer" if visual_verification else "reviewer",
+    }.get(action)
+
+
 def bounded_acceptance_payload(
     node: dict[str, Any],
     *,
     action: str | None = None,
     group_nodes: list[Any] | None = None,
     capability_context: dict[str, Any] | None = None,
+    native_role_selector: NativeRoleSelector | None = None,
 ) -> dict[str, Any]:
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance["phase"])
-    if action is None:
-        action = (
-            "none"
-            if node.get("status") == "deferred"
-            or node.get("status") in WORKFLOW_STATE_MACHINE.terminal_statuses
-            else acceptance_next_action(phase, str(node.get("role")))
-        )
+    action = _resolved_payload_action(node, action)
     payload: dict[str, Any] = {
         "node_id": node.get("id"),
         "phase": phase,
@@ -469,18 +490,18 @@ def bounded_acceptance_payload(
     dispatch = acceptance.get("dispatch")
     if isinstance(dispatch, dict) and isinstance(dispatch.get("id"), str):
         payload["dispatch_id"] = dispatch["id"]
+        if isinstance(dispatch.get("delegation_failures"), int):
+            payload["delegation_failures"] = dispatch["delegation_failures"]
     if capability_context is not None:
         payload["capability_scope"] = capability_context
-    if action.startswith("dispatch_"):
+    dispatch_action = action
+    if action == "retry_delegation" and isinstance(dispatch, dict):
+        dispatch_action = f"dispatch_{dispatch.get('role')}"
+    if dispatch_action.startswith("dispatch_"):
         verification_profile = str(node.get("verification_profile"))
         visual_verification = verification_profile in {"visual", "hybrid"}
-        agent_type = {
-            "dispatch_designer": "designer",
-            "dispatch_worker": f"worker-{node.get('difficulty')}",
-            "dispatch_verifier": "visual-verifier" if visual_verification else "verifier",
-            "dispatch_reviewer": "visual-reviewer" if visual_verification else "reviewer",
-        }.get(action)
-        role_reference = _reference_for_action(action, verification_profile)
+        agent_type = _agent_type_for_action(node, dispatch_action)
+        role_reference = _reference_for_action(dispatch_action, verification_profile)
         if agent_type is None or role_reference is None:
             raise ToolError("unsupported leaf dispatch action")
         payload.update(
@@ -492,7 +513,24 @@ def bounded_acceptance_payload(
                 "verification_profile": verification_profile,
             }
         )
-        if action in {"dispatch_verifier", "dispatch_reviewer"}:
+        selector_values = dispatch if isinstance(dispatch, dict) and isinstance(dispatch.get("model"), str) else None
+        if selector_values is not None:
+            for source_field, payload_field in (
+                ("model", "model"),
+                ("reasoning_effort", "reasoning_effort"),
+                ("model_provider", "model_provider"),
+                ("selector_source", "selector_source"),
+            ):
+                if isinstance(selector_values.get(source_field), str):
+                    payload[payload_field] = selector_values[source_field]
+        elif native_role_selector is not None:
+            payload["model"] = native_role_selector.model
+            payload["selector_source"] = native_role_selector.source
+            if native_role_selector.reasoning_effort is not None:
+                payload["reasoning_effort"] = native_role_selector.reasoning_effort
+            if native_role_selector.model_provider is not None:
+                payload["model_provider"] = native_role_selector.model_provider
+        if dispatch_action in {"dispatch_verifier", "dispatch_reviewer"}:
             payload["required_capabilities"] = (
                 ["code_reasoning", "vision", "browser"]
                 if visual_verification
@@ -504,11 +542,11 @@ def bounded_acceptance_payload(
                     "declared viewport and interaction states",
                     "visual acceptance findings",
                 ]
-        knowledge_references = _knowledge_references_for_action(action)
+        knowledge_references = _knowledge_references_for_action(dispatch_action)
         if knowledge_references:
             payload["knowledge_references"] = list(knowledge_references)
             payload["required_outputs"] = ["design_pattern_assessment"]
-        if action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None:
+        if dispatch_action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None:
             group_ids: list[str] = []
             group_paths: set[str] = set(payload["repository_paths"])
             for group_node in group_nodes:
@@ -533,19 +571,42 @@ def print_acceptance_payload(
     action: str | None = None,
     group_nodes: list[Any] | None = None,
     location: _NodeLocation | None = None,
+    native_host: str | None = None,
+    codex_home: str | None = None,
 ) -> None:
     capability_context = None
     if location is not None:
         plan = location.manifest_data[location.plan_index]
         if isinstance(plan, dict):
             capability_context = capability_scope_for_plan(location.manifest, plan)
+    resolved_action = _resolved_payload_action(node, action)
+    dispatch = acceptance_snapshot(node).get("dispatch")
+    dispatch_action = resolved_action
+    if resolved_action == "retry_delegation" and isinstance(dispatch, dict):
+        dispatch_action = f"dispatch_{dispatch.get('role')}"
+    selector = None
+    if native_host == "codex" and dispatch_action.startswith("dispatch_") and not (
+        isinstance(dispatch, dict) and isinstance(dispatch.get("model"), str)
+    ):
+        agent_type = _agent_type_for_action(node, dispatch_action)
+        if agent_type is not None:
+            home = Path(codex_home).expanduser() if codex_home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+            selector = resolve_codex_role(agent_type, home)
     payload = bounded_acceptance_payload(
         node,
-        action=action,
+        action=resolved_action,
         group_nodes=group_nodes,
         capability_context=capability_context,
+        native_role_selector=selector,
     )
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+
+
+def _native_host_options(args: argparse.Namespace) -> dict[str, str | None]:
+    return {
+        "native_host": getattr(args, "native_host", None),
+        "codex_home": getattr(args, "codex_home", None),
+    }
 
 
 def next_action_command(args: argparse.Namespace) -> int:
@@ -555,7 +616,7 @@ def next_action_command(args: argparse.Namespace) -> int:
     node = location.checkpoints_data[location.node_index]
     automated_node_role(node)
     if node.get("status") == "deferred":
-        print_acceptance_payload(node, action="none", group_nodes=location.checkpoints_data, location=location)
+        print_acceptance_payload(node, action="none", group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
         return 0
     if node.get("status") in {"pending", "blocked", "in_progress"} and "acceptance" not in node:
         ensure_node_can_start(location, node)
@@ -564,7 +625,7 @@ def next_action_command(args: argparse.Namespace) -> int:
     after = json.dumps(node, sort_keys=True, separators=(",", ":"))
     if after != before:
         write_location_and_sync_plan(location)
-    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
     return 0
 
 
@@ -593,7 +654,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
             binding = preparation_fingerprints(location)
             if dispatch.get("design_digest") != binding["design_digest"]:
                 raise ToolError("the outstanding Designer dispatch is stale")
-        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
         return 0
 
     if args.role == "designer":
@@ -660,9 +721,34 @@ def dispatch_command(args: argparse.Namespace) -> int:
     else:
         raise ToolError("unsupported delivery dispatch role")
 
+    dispatch = acceptance["dispatch"]
+    assert isinstance(dispatch, dict)
+    selector_missing = False
+    if getattr(args, "native_host", None) == "codex":
+        dispatch_action = f"dispatch_{args.role}"
+        agent_type = _agent_type_for_action(node, dispatch_action)
+        home_value = getattr(args, "codex_home", None)
+        home = Path(home_value).expanduser() if home_value else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+        selector = resolve_codex_role(agent_type, home) if agent_type is not None else None
+        if selector is None:
+            dispatch["delegation_failures"] = MAX_DELEGATION_FAILURES
+            selector_missing = True
+        else:
+            dispatch.update({"model": selector.model, "selector_source": selector.source})
+            if selector.reasoning_effort is not None:
+                dispatch["reasoning_effort"] = selector.reasoning_effort
+            if selector.model_provider is not None:
+                dispatch["model_provider"] = selector.model_provider
+
     node["acceptance"] = acceptance
     write_location_and_sync_plan(location)
-    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    print_acceptance_payload(
+        node,
+        action="main_thread_fallback" if selector_missing else None,
+        group_nodes=location.checkpoints_data,
+        location=location,
+        **_native_host_options(args),
+    )
     return 0
 
 
@@ -700,9 +786,77 @@ def bind_agent_command(args: argparse.Namespace) -> int:
             raise ToolError("bind-agent cannot replace an existing host identity")
         print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
         return 0
+    if int(dispatch.get("delegation_failures", 0)) >= MAX_DELEGATION_FAILURES:
+        raise ToolError("bind-agent cannot start another child after the delegation failure ceiling")
     dispatch["host_agent_id"] = agent_id
     write_location_and_sync_plan(location)
     print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    return 0
+
+
+def delegation_failed_command(args: argparse.Namespace) -> int:
+    """Record one conclusive delegation failure without confusing silence with failure."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    ensure_location_is_valid(location)
+    dispatch_id = ensure_event_id(args.dispatch_id)
+    node = location.checkpoints_data[location.node_index]
+    acceptance = acceptance_snapshot(node, required=True)
+    dispatch = acceptance.get("dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id:
+        raise ToolError("delegation-failed does not match the outstanding dispatch")
+    if acceptance.get("phase") not in {"designer_running", "worker_running", "verifier_running", "reviewer_running"}:
+        raise ToolError("delegation-failed is out of order for the current delivery phase")
+
+    bound_agent_id = dispatch.get("host_agent_id")
+    failed_agent_id = getattr(args, "agent_id", None)
+    if bound_agent_id is not None:
+        if failed_agent_id is None or ensure_host_agent_id(failed_agent_id) != bound_agent_id:
+            raise ToolError("a bound delegation failure requires its exact terminal host agent id")
+        dispatch.pop("host_agent_id", None)
+    elif failed_agent_id is not None:
+        raise ToolError("--agent-id is valid only for a conclusively failed bound child")
+
+    failures = int(dispatch.get("delegation_failures", 0))
+    if failures >= MAX_DELEGATION_FAILURES:
+        action = "main_thread_fallback"
+    else:
+        failures = MAX_DELEGATION_FAILURES if bool(args.unavailable) else failures + 1
+        dispatch["delegation_failures"] = failures
+        write_location_and_sync_plan(location)
+        action = "main_thread_fallback" if failures >= MAX_DELEGATION_FAILURES else "retry_delegation"
+    print_acceptance_payload(node, action=action, group_nodes=location.checkpoints_data, location=location)
+    return 0
+
+
+def main_complete_command(args: argparse.Namespace) -> int:
+    """Complete one delegated role in the native main after bounded failures."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    ensure_location_is_valid(location)
+    dispatch_id = ensure_event_id(args.dispatch_id)
+    node = location.checkpoints_data[location.node_index]
+    acceptance = acceptance_snapshot(node, required=True)
+    dispatch = acceptance.get("dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id or dispatch.get("role") != args.role:
+        raise ToolError("main-complete does not match the outstanding role dispatch")
+    if dispatch.get("host_agent_id") is not None:
+        raise ToolError("main-complete cannot replace a live bound child")
+    if int(dispatch.get("delegation_failures", 0)) < MAX_DELEGATION_FAILURES:
+        raise ToolError(f"main-complete requires {MAX_DELEGATION_FAILURES} recorded delegation failures or an unavailable host")
+
+    completers = {
+        "designer": advance_designer_exit,
+        "worker": advance_worker_exit,
+        "verifier": advance_verifier_exit,
+        "reviewer": advance_reviewer_exit,
+    }
+    updated = completers[str(args.role)](location, dispatch_id)
+    updated_acceptance = acceptance_snapshot(updated, required=True)
+    action = acceptance_next_action(str(updated_acceptance["phase"]), automated_node_role(updated))
+    print_acceptance_payload(updated, action=action, group_nodes=location.checkpoints_data, location=location)
     return 0
 
 

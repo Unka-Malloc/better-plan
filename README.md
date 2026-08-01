@@ -254,12 +254,18 @@ success never substitute for exercising the real rendered UI. A final-validation
 all non-skipped implementation profiles: mixed code and visual work requires `hybrid`.
 
 ```sh
-python3 scripts/manifest_tool.py next-action <node-id> <workspace>
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role designer
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role worker
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role verifier
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role reviewer
+python3 scripts/manifest_tool.py next-action <node-id> <workspace> --native-host codex
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role designer --native-host codex
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role worker --native-host codex
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role verifier --native-host codex
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role reviewer --native-host codex
 ```
+
+For Codex, the payload resolves the exact installed role TOML first and freezes its model, reasoning
+effort, and public provider selector. A missing or invalid installed role falls back to the packaged
+Codex recommendation. The native main passes the returned explicit model and effort to the spawn;
+it never relies on stale host metadata. If neither configuration exists, the payload enters
+`main_thread_fallback` without attempting a child.
 
 After a real native spawn, bind its opaque child-agent identity:
 
@@ -267,6 +273,26 @@ After a real native spawn, bind its opaque child-agent identity:
 python3 scripts/manifest_tool.py bind-agent <node-id> <workspace> \
   --dispatch-id <better-plan-dispatch-id> --agent-id <native-child-id>
 ```
+
+A short wait or temporary lack of output is not failure and never authorizes redispatch. When the
+host conclusively refuses a spawn or terminates the exact child unsuccessfully, record the failure:
+
+```sh
+python3 scripts/manifest_tool.py delegation-failed <node-id> <workspace> \
+  --dispatch-id <better-plan-dispatch-id> [--agent-id <failed-child-id>] [--unavailable]
+```
+
+One dispatch permits at most three delegation attempts: pinned role, one same-role retry, and one
+capability-equivalent temporary fallback. At the ceiling, the native main performs the same role
+contract from the bounded payload and records completion without inventing a child identity:
+
+```sh
+python3 scripts/manifest_tool.py main-complete <node-id> <workspace> \
+  --dispatch-id <better-plan-dispatch-id> --role designer|worker|verifier|reviewer
+```
+
+This preserves all acceptance, visual evidence, regression, and one-Reviewer boundaries while
+preventing endless redispatch or task interruption caused solely by delegation failure.
 
 Spawn return is not completion. State advances only when the host sends
 an unambiguous final callback for that exact bound child:

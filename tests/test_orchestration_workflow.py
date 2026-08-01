@@ -220,16 +220,17 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("state mutations", normalized)
         self.assertIn("serialized", normalized)
 
-    def test_skill_load_once_reminds_main_how_to_recover_failed_spawns(self) -> None:
-        normalized = " ".join(self.skill.lower().split())
-        self.assertIn("child-spawn recovery reminder", normalized)
+    def test_docs_bound_delegation_retries_and_fallback_to_native_main(self) -> None:
+        normalized = " ".join((self.skill + self.main + self.readme).lower().split())
+        self.assertIn("bounded delegation recovery", normalized)
         self.assertIn("do not repeat it in delegated prompts or routine progress updates", normalized)
-        self.assertIn("remote model-provider reachability", normalized)
-        self.assertIn("if the remote provider is unreachable, stop all further work", normalized)
-        self.assertIn("if it is reachable, retry the same spawn once", normalized)
-        self.assertIn("locally callable equivalent model", normalized)
-        self.assertIn("temporary spawn fallback, not a mutation of the installed role matrix", normalized)
-        self.assertIn("never advance or bind the dispatch without a real child id", normalized)
+        self.assertIn("a short wait", normalized)
+        self.assertIn("at most three delegation attempts", normalized)
+        self.assertIn("main-complete", normalized)
+        self.assertIn("never bind a fabricated main-thread agent id", normalized)
+        self.assertIn("delegation failure alone never interrupts the task", normalized)
+        for role in ("designer", "worker", "verifier", "reviewer"):
+            self.assertIn(role, normalized)
 
     def test_docs_require_offline_pattern_assessment_without_pattern_forcing(self) -> None:
         designer = (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower()
