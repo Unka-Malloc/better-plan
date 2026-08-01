@@ -19,6 +19,11 @@ from ..domain.model_routing import (
     select_worker_agent_from_catalog,
 )
 from ..domain.models import ToolError
+from ..domain.webdev_routing import (
+    WebDevCatalog,
+    load_webdev_catalog,
+    select_webdev_model_from_catalog,
+)
 from .models import InstallPaths as _InstallPaths
 
 
@@ -30,15 +35,10 @@ HOST_HARNESSES = {
 }
 DIFFICULTIES = ("routine", "standard", "complex", "critical")
 INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
-    {
-        "designer": "designer",
-        "verifier": "verifier",
-        "visual-verifier": "verifier",
-        "reviewer": "reviewer",
-        "visual-reviewer": "reviewer",
-    }
+    {"designer": "designer", "verifier": "verifier", "reviewer": "reviewer"}
 )
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
+VISUAL_ROLES = ("visual-verifier", "visual-reviewer")
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
@@ -47,9 +47,9 @@ CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingPr
         "worker-complex": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-critical": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "verifier": ("verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
-        "visual-verifier": ("visual-verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
+        "visual-verifier": ("visual-verifier", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
-        "visual-reviewer": ("visual-reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
+        "visual-reviewer": ("visual-reviewer", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
     }
 )
 CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -97,8 +97,9 @@ class RoleAssignment:
 def _codex_default_delivery_assignments(
     agent_catalog: CodingAgentCatalog,
     model_catalog: ModelCatalog,
+    webdev_catalog: WebDevCatalog,
 ) -> dict[str, RoleAssignment]:
-    """Resolve the fixed Codex preference matrix against packaged benchmark rows."""
+    """Resolve Codex defaults against the role-specific packaged benchmarks."""
 
     variants = {variant.variant_id: variant for variant in agent_catalog.variants}
     models = {model.model_id: model for model in model_catalog.models}
@@ -110,6 +111,13 @@ def _codex_default_delivery_assignments(
                 raise ToolError("the Codex default Worker benchmark is unavailable")
             index_score = benchmark.index_score
             cost_per_task_usd = benchmark.cost_per_task_usd
+        elif role.startswith("visual-"):
+            benchmark = select_webdev_model_from_catalog(
+                webdev_catalog,
+                available_model_ids={benchmark_id},
+            )
+            index_score = round(benchmark.score)
+            cost_per_task_usd = None
         else:
             benchmark = models.get(benchmark_id)
             if benchmark is None:
@@ -124,7 +132,11 @@ def _codex_default_delivery_assignments(
             benchmark_id=benchmark_id,
             index_score=index_score,
             cost_per_task_usd=cost_per_task_usd,
-            source="codex-default-matrix",
+            source=(
+                "codex-default-webdev"
+                if role.startswith("visual-")
+                else "codex-default-matrix"
+            ),
         )
     return assignments
 
@@ -311,10 +323,15 @@ def select_role_assignments(
         raise ToolError("native role assignments are unavailable for this target")
     agent_catalog = load_coding_agent_catalog()
     model_catalog = load_model_catalog()
+    webdev_catalog = load_webdev_catalog()
     harness_variants = tuple(variant for variant in agent_catalog.variants if variant.harness == harness)
     local_models = _read_local_models(native_role_directory(paths, target), excluded_names)
     if target == "codex" and not local_models:
-        assignments = _codex_default_delivery_assignments(agent_catalog, model_catalog)
+        assignments = _codex_default_delivery_assignments(
+            agent_catalog,
+            model_catalog,
+            webdev_catalog,
+        )
         assignments.update(_codex_finder_assignments())
         return assignments
     eligible_variants = _matching_variants(harness_variants, local_models)
@@ -373,26 +390,15 @@ def select_role_assignments(
                 )
     available_model_ids = set(configs_by_model_id)
     for role in INTELLIGENCE_ROLES:
-        role_configs = configs_by_model_id
-        role_model_ids = available_model_ids
-        if role.startswith("visual-"):
-            role_configs = {}
-            for local in visual_candidates:
-                for model_id in _local_model_ids(local, model_by_id):
-                    role_configs.setdefault(
-                        model_id,
-                        (local.model, local.reasoning_effort, "local-config"),
-                    )
-            role_model_ids = set(role_configs)
         try:
             model: ModelRecord = select_intelligence_model_from_catalog(
                 model_catalog,
                 INTELLIGENCE_ROLE_BASE[role],
-                available_model_ids=role_model_ids,
+                available_model_ids=available_model_ids,
             )
         except ToolError:
             continue
-        configured_model, configured_effort, assignment_source = role_configs[
+        configured_model, configured_effort, assignment_source = configs_by_model_id[
             model.model_id
         ]
         assignments[role] = RoleAssignment(
@@ -405,10 +411,40 @@ def select_role_assignments(
             cost_per_task_usd=None,
             source=assignment_source,
         )
+    visual_configs: dict[str, tuple[str, str | None, str]] = {}
+    for local in visual_candidates:
+        for model_id in _local_model_ids(local, model_by_id):
+            visual_configs.setdefault(
+                model_id,
+                (local.model, local.reasoning_effort, "local-config"),
+            )
+    try:
+        visual_model = select_webdev_model_from_catalog(
+            webdev_catalog,
+            available_model_ids=set(visual_configs),
+        )
+    except ToolError:
+        pass
+    else:
+        configured_model, configured_effort, assignment_source = visual_configs[
+            visual_model.model_id
+        ]
+        for role in VISUAL_ROLES:
+            assignments[role] = RoleAssignment(
+                role=role,
+                agent_name=role,
+                model=configured_model,
+                reasoning_effort=configured_effort,
+                benchmark_id=visual_model.model_id,
+                index_score=round(visual_model.score),
+                cost_per_task_usd=None,
+                source=assignment_source,
+            )
     if target == "codex":
         for agent_name, assignment in _codex_default_delivery_assignments(
             agent_catalog,
             model_catalog,
+            webdev_catalog,
         ).items():
             assignments.setdefault(agent_name, assignment)
         assignments.update(_codex_finder_assignments())

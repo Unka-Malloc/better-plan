@@ -178,7 +178,7 @@ an explicit release policy, or a direct user request.
 
 ## Model and agent assignment
 
-Better Plan packages two versioned, network-free benchmark snapshots. They are references, not a
+Better Plan packages three versioned, network-free benchmark snapshots. They are references, not a
 per-dispatch recommendation list:
 
 - `coding_agent_catalog.json` contains measured LLM plus coding-harness combinations. Worker
@@ -189,10 +189,16 @@ per-dispatch recommendation list:
 - `model_catalog.json` contains the model-only Intelligence Index. Designer and Reviewer choose the
   highest locally callable score without considering price. Verifier chooses the next distinct
   score when available, otherwise the highest callable score.
+- `webdev_model_catalog.json` contains a complete pinned Arena WebDev Overall snapshot. Visual
+  Verifier and Visual Reviewer choose the highest WebDev score among locally callable selectors,
+  without considering price and without falling back to the general Intelligence Index. Arena
+  WebDev is a frontend implementation benchmark; rendered browser evidence remains the independent
+  visual acceptance contract.
 
-Codex has a user-preference default matrix: Designer, Reviewer, and Visual Reviewer use `gpt-5.6-sol/max`, all four
-Worker difficulty agents use `gpt-5.6-luna/max`, and Verifier uses
-`gpt-5.6-sol/high`; Visual Verifier uses the same selector in its vision-and-browser role. A qualifying existing local Codex selector supplies every role whose measured
+Codex has a user-preference default matrix: Designer and Reviewer use `gpt-5.6-sol/max`, all four
+Worker difficulty agents use `gpt-5.6-luna/max`, and Verifier uses `gpt-5.6-sol/high`. Visual
+Verifier and Visual Reviewer use `gpt-5.6-sol/xhigh`, selected from the packaged Arena WebDev
+snapshot. A qualifying existing local Codex selector supplies every role whose measured
 combination it exactly matches; the fixed matrix fills the remaining roles. This exception is
 Codex-only and is not a recommendation for other hosts.
 
@@ -210,9 +216,11 @@ for that native harness. An omitted Worker reasoning setting is not guessed. Unk
 combinations are omitted.
 
 A non-Codex local selector may declare `better_plan_scope: visual`. The installer considers that
-selector only for Visual Verifier and Visual Reviewer, keeping it out of code-role selection. This
+selector only for Visual Verifier and Visual Reviewer, ranks it through Arena WebDev, and keeps it
+out of code-role selection. This
 supports one provider gateway exposing a rigorous code model and a separate vision-capable model.
-Codex retains its fixed all-vision matrix and does not require scoped selectors.
+Codex does not require scoped selectors and ranks its callable visual candidates through Arena
+WebDev.
 
 The installation receipt pins every created delivery role; normal updates preserve those assignments
 rather than following leaderboard changes, while a later release may append a newly bundled utility

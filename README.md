@@ -89,9 +89,9 @@ records whether a pattern earns its complexity, the concrete benefit, the simple
 smallest correct application, and the costs. `none` is valid—patterns may not be used to manufacture
 layers, classes, services, Plans, or Nodes.
 
-## Two benchmark tables
+## Three benchmark tables
 
-The repository packages two complete, versioned, network-free snapshots from Artificial Analysis:
+The repository packages three complete, versioned, network-free benchmark snapshots:
 
 - [`coding_agent_catalog.json`](scripts/better_plan/domain/coding_agent_catalog.json) is the Worker
   reference. It contains measured model plus coding-harness combinations. Task-difficulty floors
@@ -100,14 +100,20 @@ The repository packages two complete, versioned, network-free snapshots from Art
 - [`model_catalog.json`](scripts/better_plan/domain/model_catalog.json) is the Designer, Verifier,
   and Reviewer reference. It contains the model-only Intelligence Index, including current Gemini
   Flash rows. Price is not considered for these roles.
+- [`webdev_model_catalog.json`](scripts/better_plan/domain/webdev_model_catalog.json) is the Visual
+  Verifier and Visual Reviewer reference. It is a complete pinned snapshot of the Arena WebDev
+  Overall leaderboard, which ranks models from human pairwise votes on real interactive web-app
+  generation. Visual roles choose the highest WebDev score among locally callable selectors;
+  price is not considered and the Intelligence Index is not used as fallback.
 
 The tables are not a hard-coded recommendation list. Better Plan first looks for public model and
 reasoning selectors in the user's existing native agent configurations. Worker considers only local
 selectors whose model and reasoning setting exactly match a measured Coding Agent combination; an
-omitted Worker reasoning setting is not guessed. The other roles independently consider local
-selectors found in the model-only table. If no local configuration exists, it considers only
-combinations measured for the selected native harness. It never assumes that a host can call every
-model and never guesses an unlisted combination.
+omitted Worker reasoning setting is not guessed. Designer, Verifier, and Reviewer independently
+consider local selectors found in the model-only table; Visual Verifier and Visual Reviewer use the
+Arena WebDev table. If no local configuration exists, Better Plan considers only combinations
+measured for the selected native harness. It never assumes that a host can call every model and
+never guesses an unlisted combination.
 
 Codex has one explicit user-preference default matrix for roles without a qualifying local match:
 
@@ -115,10 +121,10 @@ Codex has one explicit user-preference default matrix for roles without a qualif
 | --- | --- |
 | Designer | `gpt-5.6-sol/max` |
 | Reviewer | `gpt-5.6-sol/max` |
-| Visual Reviewer | `gpt-5.6-sol/max` |
+| Visual Reviewer | `gpt-5.6-sol/xhigh` (Arena WebDev) |
 | Worker (`routine` through `critical`) | `gpt-5.6-luna/max` |
 | Verifier | `gpt-5.6-sol/high` |
-| Visual Verifier | `gpt-5.6-sol/high` |
+| Visual Verifier | `gpt-5.6-sol/xhigh` (Arena WebDev) |
 
 Codex installation also adds two read-only utility agents outside the delivery lifecycle:
 `finder` uses `gpt-5.3-codex-spark/xhigh`, while `fallback_finder` uses
@@ -137,8 +143,9 @@ install again.
 For hosts whose code and visual models differ, a local selector agent may declare
 `better_plan_scope: visual` beside its public `model` and `reasoning_effort` fields. That selector is
 considered only for Visual Verifier/Reviewer assignments; ordinary local selectors continue to
-supply code roles. The Kimi Claude Code alias `k3-256k` maps to the packaged Kimi K3 intelligence
-record. Codex keeps its fixed all-vision default matrix unchanged.
+supply code roles. The Kimi Claude Code alias `k3-256k` maps to the packaged Kimi K3 identity shared
+by the local-capability and Arena snapshots. Codex ranks locally callable visual selectors through
+the Arena WebDev snapshot.
 
 Installation output lists every created role with its pinned model, reasoning setting, and selection
 basis. Delivery roles also list benchmark score, measured Worker cost when applicable, and

@@ -180,9 +180,11 @@ class AgentTemplateTests(unittest.TestCase):
             )
             self.assertIn("Coding Agent", assignment_message)
             self.assertIn("Intelligence Index", assignment_message)
+            self.assertIn("Arena WebDev", assignment_message)
             self.assertIn("Codex read-only utility", assignment_message)
             self.assertIn("price ignored", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
+            self.assertIn("source codex-default-webdev", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
             self.assertEqual(receipt["schema_version"], 3)
             self.assertEqual(set(receipt["assignments"]), set(NATIVE_ROLE_FILES["codex"]))
@@ -200,9 +202,9 @@ class AgentTemplateTests(unittest.TestCase):
                 "worker-complex": ("gpt-5.6-luna", "max"),
                 "worker-critical": ("gpt-5.6-luna", "max"),
                 "verifier": ("gpt-5.6-sol", "high"),
-                "visual-verifier": ("gpt-5.6-sol", "high"),
+                "visual-verifier": ("gpt-5.6-sol", "xhigh"),
                 "reviewer": ("gpt-5.6-sol", "max"),
-                "visual-reviewer": ("gpt-5.6-sol", "max"),
+                "visual-reviewer": ("gpt-5.6-sol", "xhigh"),
             },
         )
         self.assertEqual(
@@ -231,7 +233,15 @@ class AgentTemplateTests(unittest.TestCase):
                         assignment.benchmark_id,
                         assignment.source,
                     ),
-                    (role, model, effort, benchmark_id, "codex-default-matrix"),
+                    (
+                        role,
+                        model,
+                        effort,
+                        benchmark_id,
+                        "codex-default-webdev"
+                        if role.startswith("visual-")
+                        else "codex-default-matrix",
+                    ),
                 )
         for agent_name, (model, effort) in CODEX_FINDER_MATRIX.items():
             with self.subTest(agent_name=agent_name):
@@ -265,10 +275,18 @@ class AgentTemplateTests(unittest.TestCase):
                 excluded_names=NATIVE_ROLE_FILES["codex"],
             )
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            local = [assignments[name] for name in DELIVERY_ROLE_NAMES]
+            local = [
+                assignments[name]
+                for name in DELIVERY_ROLE_NAMES
+                if not name.startswith("visual-")
+            ]
             self.assertTrue(all(value.model == "gpt-5.6-sol" for value in local))
             self.assertTrue(all(value.reasoning_effort == "high" for value in local))
             self.assertTrue(all(value.source == "local-config" for value in local))
+            for role in ("visual-verifier", "visual-reviewer"):
+                self.assertEqual(assignments[role].model, "gpt-5.6-sol")
+                self.assertEqual(assignments[role].reasoning_effort, "xhigh")
+                self.assertEqual(assignments[role].source, "codex-default-webdev")
             self.assertTrue(
                 all(assignments[name].source == "codex-default-matrix" for name in CODEX_FINDER_MATRIX)
             )
@@ -324,8 +342,10 @@ class AgentTemplateTests(unittest.TestCase):
             )
 
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "verifier", "visual-verifier", "reviewer", "visual-reviewer"):
+            for role in ("designer", "verifier", "reviewer"):
                 self.assertEqual(assignments[role].source, "codex-default-matrix")
+            for role in ("visual-verifier", "visual-reviewer"):
+                self.assertEqual(assignments[role].source, "codex-default-webdev")
             for role in (
                 "worker-routine",
                 "worker-standard",
