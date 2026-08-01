@@ -71,12 +71,46 @@ class OrchestrationWorkflowTests(unittest.TestCase):
 
     def test_first_use_mentions_native_templates_but_hooks_do_not(self) -> None:
         skill = self.skill.lower()
-        self.assertIn("first better plan use", skill)
+        normalized = " ".join(skill.split())
+        self.assertIn("first better plan activation", skill)
         for host in ("codex", "claude code", "opencode", "cursor"):
             self.assertIn(host, skill)
+        self.assertIn("first-use role confirmation gate", normalized)
+        self.assertIn("inspect the current host's installed better plan role files and receipt read-only", normalized)
+        self.assertIn("show the user one markdown table containing every role", normalized)
+        self.assertIn("installed and recommended model provider when explicitly pinned", normalized)
+        self.assertIn("never infer a provider or inspect credentials", normalized)
+        self.assertIn("ask whether to keep the installed matrix or use the recommended matrix", normalized)
+        self.assertIn("then stop and wait for an explicit choice", normalized)
+        self.assertIn("does not authorize replacing existing files", normalized)
+        self.assertIn(
+            "before discovering or mutating plan state or dispatching any role agent",
+            normalized,
+        )
         hook = self.hook_context.lower()
         self.assertNotIn("template", hook)
         self.assertNotIn("manually imported", hook)
+
+    def test_host_integration_is_strictly_additive(self) -> None:
+        normalized = " ".join(self.skill.lower().split())
+        self.assertIn("additive host integration — iron rule", normalized)
+        self.assertIn("every pre-existing host or user file as immutable", normalized)
+        self.assertIn("never converts a pre-existing file into a managed file", normalized)
+        self.assertIn("fail closed, leave the original untouched", normalized)
+        self.assertIn("general installation, update, provider, model, or routing requests never do", normalized)
+
+    def test_every_role_change_repeats_the_full_comparison_and_waits(self) -> None:
+        normalized = " ".join(self.skill.lower().split())
+        self.assertIn("role-change reconfirmation gate", normalized)
+        self.assertIn("whenever the user requests any change to a native role configuration", normalized)
+        self.assertIn("repeat the complete installed-versus-recommended role table", normalized)
+        self.assertIn("include every role, not only the requested roles", normalized)
+        self.assertIn("client-specific overrides and the package recommendation as separate", normalized)
+        self.assertIn("never describe a local override as a recommendation change", normalized)
+        self.assertIn("ask the user to confirm them, then stop and wait", normalized)
+        self.assertIn("a prior confirmation never satisfies a later role-change request", normalized)
+        self.assertIn("this gate always repeats", normalized)
+        self.assertIn("do not edit role files, provider configuration, receipts, templates", normalized)
 
     def test_worker_payload_uses_difficulty_agent_and_fresh_context_without_model(self) -> None:
         payload = bounded_acceptance_payload(

@@ -21,15 +21,64 @@ releases. Use temporary fixtures only when explicitly testing Better Plan behavi
 For other repositories:
 
 1. Consider Better Plan only for planning, coding, or explicit implementation work.
-2. Run `scripts/manifest_tool.py discover <project-root>`.
-3. If there is no unique valid workspace, continue with ordinary project handling.
-4. Never infer authorization from an existing pending or active Node.
-5. Keep secrets, personal or machine identity, backend runtime data, and absolute local paths out
+2. Complete the first-use role confirmation gate below unless it was already completed in this
+   conversation.
+3. Run `scripts/manifest_tool.py discover <project-root>`.
+4. If there is no unique valid workspace, continue with ordinary project handling.
+5. Never infer authorization from an existing pending or active Node.
+6. Keep secrets, personal or machine identity, backend runtime data, and absolute local paths out
    of Plan state, delegated prompts, evidence, and responses.
 
-On the first Better Plan use after installation, tell the user once that ready-made native role
-configurations are bundled for Codex, Claude Code, OpenCode, and Cursor and may be installed or
-manually imported from `agents/<host>/`. Do not repeat this notice and do not inject it from Hooks.
+### First-use role confirmation gate
+
+On the first Better Plan activation in a conversation, inspect the current host's installed Better
+Plan role files and receipt read-only, and compare them with the role matrix recommended by this
+skill package. Before discovering or mutating Plan state or dispatching any role agent, show the
+user one Markdown table containing every role, its purpose, installed model, reasoning effort,
+installed and recommended model provider when explicitly pinned, recommended model and effort, and
+whether they differ. Mark missing roles and unpinned providers explicitly; never infer a provider
+or inspect credentials.
+
+Ask whether to keep the installed matrix or use the recommended matrix, then stop and wait for an
+explicit choice. Treat that choice as authorization only for the selected workflow; it does not
+authorize replacing existing files. If no native matrix is installed, show every installed value
+as `not installed` and ask whether to install or manually import the recommendation. Also tell the
+user that ready-made native role configurations are bundled for Codex, Claude Code, OpenCode, and
+Cursor under `agents/<host>/`. Do not repeat this gate in the same conversation and do not inject it
+from Hooks.
+
+### Role-change reconfirmation gate
+
+Whenever the user requests any change to a native role configuration, repeat the complete
+installed-versus-recommended role table before editing anything, even if the first-use table or an
+earlier role-change table was already shown in the same conversation. Include every role, not only
+the requested roles, with purpose, installed provider/model/reasoning effort, packaged recommended
+provider/model/reasoning effort, and an explicit difference status. Label client-specific overrides
+and the package recommendation as separate configuration layers; never describe a local override as
+a recommendation change.
+
+After the table, restate the exact requested mutations, ask the user to confirm them, then stop and
+wait. Until that fresh confirmation arrives, do not edit role files, provider configuration,
+receipts, templates, recommendation matrices, or any other host or repository state. A prior
+confirmation never satisfies a later role-change request. This gate always repeats and overrides
+the first-use gate's same-conversation non-repetition rule.
+
+### Additive host integration — iron rule
+
+Treat every pre-existing host or user file as immutable during model-provider, agent, Hook, MCP,
+skill, or other host adaptation. A request to configure, enable, route, or test an integration never
+authorizes replacing, overwriting, renaming, moving, deleting, taking receipt ownership of, or
+wholesale rewriting an existing file, including an existing Better Plan native role file.
+
+Integrate additively: create a new uniquely named Better Plan-owned file, or add only the smallest
+new namespaced table, key, or list entry when the host format supports a non-destructive merge and
+the user authorized that configuration. Preserve every unrelated byte and existing entry. A receipt
+may cover only artifacts or entries Better Plan created itself; it never converts a pre-existing
+file into a managed file. Uninstall removes only those additive artifacts or entries. If the host
+requires replacing an existing file or a same-name collision prevents additive installation, fail
+closed, leave the original untouched, and report the blocker. Only an explicit request naming the
+specific file and exact mutation can authorize editing that existing file; general installation,
+update, provider, model, or routing requests never do.
 
 ## Source-grounded authority
 
