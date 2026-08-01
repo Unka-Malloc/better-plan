@@ -357,8 +357,10 @@ Plan consistency rules:
 | `platform [--json]` | print the normalized current runtime platform |
 | `transition <current> <target>` | check one single-step status transition |
 | `next-action <node-id> [root]` | return an automated delivery Node's bounded phase, sole next action, fresh-context requirement, role reference, capability scope with known untouched descendants omitted, native agent type, and necessary paths without choosing a model |
-| `dispatch <node-id> [root] --role designer\|worker\|verifier\|reviewer` | create or reuse one correlated native-agent dispatch when that role is required; the installed native role already owns its pinned model assignment |
+| `dispatch <node-id> [root] --role designer\|worker\|verifier\|reviewer [--native-host codex]` | create or reuse one correlated native-agent dispatch; Codex freezes the installed role selector first and falls back to the packaged recommendation |
 | `bind-agent <node-id> [root] --dispatch-id <id> --agent-id <id>` | bind the validated opaque native host identity returned by the real spawn call |
+| `delegation-failed <node-id> [root] --dispatch-id <id> [--agent-id <id>] [--unavailable]` | record one conclusive delegation failure and enter native-main fallback at the retry ceiling |
+| `main-complete <node-id> [root] --dispatch-id <id> --role designer\|worker\|verifier\|reviewer` | record completion of the exact role by the native main after bounded delegation failure |
 | `agent-complete <node-id> [root] --agent-id <id> --final` | consume one exact final host callback; unbound, ambiguous, mismatched, and replayed callbacks are no-ops |
 | `advance <node-id> [root] --event <event> [--dispatch-id <id>] [--repair-node <id>]` | consume `reviewer-finished`, `repair-registered`, or `repair-completed`; guarded events run the post-review full regression, route repair, and auto complete |
 | `start <node-id> [root]` | start a non-delivery foundation Node; rejected for group-design, implementation, and final-validation lifecycles |

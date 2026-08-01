@@ -269,9 +269,17 @@ ACCEPTANCE_DISPATCH_REQUIRED_FIELDS = {"id", "role"}
 
 
 ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS = {
+    "delegation_failures",
     "design_digest",
     "host_agent_id",
+    "model",
+    "model_provider",
+    "reasoning_effort",
+    "selector_source",
 }
+
+
+MAX_DELEGATION_FAILURES = 3
 
 
 DESIGNER_DISPATCH_REQUIRED_FIELDS = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | {"design_digest"}

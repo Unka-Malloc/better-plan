@@ -68,6 +68,7 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/infrastructure/__init__.py",
     "scripts/better_plan/infrastructure/workspace.py",
     "scripts/better_plan/infrastructure/regression.py",
+    "scripts/better_plan/infrastructure/native_roles.py",
     "scripts/better_plan/application/__init__.py",
     "scripts/better_plan/application/agent_completion.py",
     "scripts/better_plan/application/workflow.py",

@@ -133,6 +133,15 @@ local-or-fallback source. For Finder utilities, include the fixed selector and r
 child also repeats its injected `assignment:` line. Normal skill updates preserve delivery-role
 assignments and may append newly bundled utilities; do not continuously retune assignments.
 
+Codex runtime lookup is separate from selection. Invoke `next-action` and `dispatch` with
+`--native-host codex`. The state tool reads the exact installed role TOML first and returns its
+public selector with `selector_source: installed-codex-role`; only a missing or invalid installed
+role falls back to the packaged matrix with `selector_source: project-recommendation`. Use the
+payload's explicit `model` and `reasoning_effort` in the native spawn call. Never use a selector from
+conversation memory, an earlier role table, or cached host metadata. If the payload reports
+`main_thread_fallback` because neither layer resolved, perform the role in the native main and do
+not attempt a child spawn.
+
 ## Fresh child context and exact completion
 
 Every role is a fresh child. Use the host's child-agent facility with `fork_turns: "none"`; never
@@ -149,13 +158,28 @@ Knowledge references supplement the one role contract; they are not additional r
 complete local contents to the fresh child context. Do not substitute a network request or inherited
 conversation memory.
 
-After `dispatch`, spawn the named native `agent_type`, then immediately call `bind-agent` with the
-opaque host child-agent ID and Better Plan dispatch ID. An asynchronous spawn return means only
+After `dispatch`, spawn the named native `agent_type` with its returned explicit model and reasoning
+effort, then immediately call `bind-agent` with the opaque host child-agent ID and Better Plan
+dispatch ID. An asynchronous spawn return means only
 that the child exists. Wait for an unambiguous final completion notification. Only a final callback
 whose host ID matches the bound dispatch may reduce state; early, mismatched, unrelated, or replayed
 notifications are no-ops. Multiple independent implementation Nodes in the same group, as well as
 Nodes in different groups, may have active children concurrently; never require the group or the
 whole workspace to have only one active Node in order to correlate a callback.
+
+Do not mistake one short wait, silence, or a wait result with no new output for child failure. Keep
+waiting through bounded host waits after a child ID exists. Record `delegation-failed` only for a
+refused spawn with no ID or an exact bound child that the host conclusively reports as terminally
+failed. Limit each dispatch to three delegation attempts: pinned role, one same-role retry, then one
+capability-equivalent temporary model fallback. If delegation is conclusively unavailable, record
+`--unavailable` instead of retrying. At the failure ceiling, stop spawning and perform the exact
+Designer, Worker, Verifier, or Reviewer contract yourself from the existing bounded payload, then
+record `main-complete`. Never bind a fabricated main-thread agent ID. Preserve visual/browser
+evidence, frozen acceptance, regression timing, and the one-Reviewer rule. Delegation failure is not
+a task blocker when the native main can perform the role.
+
+For read-only discovery, try Finder and Fallback Finder once each; if both fail conclusively, do the
+bounded read-only lookup in the native main rather than looping.
 
 Do not paste one role contract into another, ask a child to mutate Better Plan state, or continue a
 stopped child. Completion of one Node never selects or starts another Node automatically.

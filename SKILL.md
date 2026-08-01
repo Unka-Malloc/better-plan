@@ -277,22 +277,41 @@ agent such as Finder. Installation output and each child's injected assignment l
 role, model, reasoning setting, and selection basis. Delivery roles also report benchmark score,
 measured Worker cost when applicable, and whether the choice came from local configuration or catalog
 fallback; read-only utilities report their fixed selector and mode. Routine runtime dispatch reads
-the pinned native role and does not reselect a model; the child-spawn recovery heuristic below is
+the pinned native role and does not reselect a model; the bounded delegation recovery rule below is
 the only temporary exception.
 
-### Child-spawn recovery reminder
+On Codex, call `next-action` and `dispatch` with `--native-host codex`. Runtime selector resolution
+must read the exact installed `agents/<agent_type>.toml` first and freeze its public model, reasoning
+effort, and explicitly pinned provider into the dispatch payload. If that file is absent, unreadable,
+unsafe, or lacks a model, use the matching project recommendation from the packaged Codex matrix.
+This is deterministic configuration lookup, not benchmark reselection. Spawn the returned
+`agent_type` with the payload's explicit `model` and `reasoning_effort`; never substitute a cached,
+remembered, or previously advertised selector. If neither installed nor recommended configuration
+exists, do not spawn: enter the native-main fallback for that exact role.
 
-Apply this heuristic only when a child-agent spawn is refused or fails before a child ID is
-returned; do not repeat it in delegated prompts or routine progress updates. First use a bounded,
-read-only host check to distinguish remote model-provider reachability from a local policy,
-permission, configuration, quota, or role-selection error. Never inspect or expose credentials or
-backend runtime data. If the remote provider is unreachable, stop all further work and report the
-blocker to the user. If it is reachable, retry the same spawn once. If that retry also fails, retry
-once with a locally callable equivalent model that preserves the role's required capabilities and
-quality tier; treat this as a temporary spawn fallback, not a mutation of the installed role matrix
-or receipt. If no equivalent model is available or the fallback fails, stop all further work and
-report the blocker and attempted recovery steps to the user. Never advance or bind the dispatch
-without a real child ID.
+### Bounded delegation recovery
+
+Apply this rule to Designer, every Worker, Verifier, Visual Verifier, Reviewer, and Visual Reviewer;
+do not repeat it in delegated prompts or routine progress updates. A short wait timeout, a quiet
+child, or a wait call returning no new output is not a delegation failure. Once a real child ID is
+returned, keep waiting through bounded host waits and never redispatch merely because one wait was
+too short. Record `delegation-failed` only when spawn is refused before an ID or the host
+unambiguously reports that the exact bound child has terminated unsuccessfully.
+
+Allow at most three delegation attempts for one outstanding dispatch: the pinned role once, the
+same role once more, then one locally callable equivalent model that preserves the required
+capabilities and quality tier. Record every conclusive failure. If the host or provider is known to
+be unavailable, record `--unavailable` and skip pointless retries. After the third failure, do not
+spawn again: the native main reads the same role reference and bounded payload, performs that role
+directly in its current thread, and records `main-complete`. This is a per-dispatch execution
+fallback, not a role-matrix or receipt mutation. The main must preserve role boundaries, frozen
+acceptance, visual/browser evidence requirements, focused regression timing, and the one-Reviewer
+invariant. Delegation failure alone never interrupts the task; stop only for a genuine external or
+product decision blocker that the native main cannot satisfy.
+
+Finder utilities are lifecycle-independent: after the preferred Finder and its one Fallback Finder
+both fail conclusively, the native main performs the bounded read-only discovery itself. Never loop
+on Finder delegation.
 
 Treat the current installed role matrix as the only supported generation and one managed unit. If
 the user explicitly asks to replace an older Better Plan setup, remove that setup from the active
@@ -311,6 +330,9 @@ For every leaf dispatch:
    necessary repository-relative files; `capability_scope` omits known untouched descendants;
 3. bind the real opaque child-agent ID returned by the host with `bind-agent`; and
 4. wait for the host's unambiguous final child completion notification.
+
+If bounded delegation fails before completion, use `delegation-failed` and then `main-complete` at
+the retry ceiling; never invent a child ID or bind the native main as a child.
 
 Spawn return is not completion. Only a final callback whose child-agent
 ID matches the bound outstanding dispatch may advance state. Early, unrelated, mismatched, and
@@ -346,6 +368,8 @@ decision. It must:
 - maximize safe Plan parallelism and launch every eligible independent Worker without waiting for
   another independent Worker to finish;
 - serialize state-tool mutations while allowing bound child executions to overlap;
+- take over the exact role after bounded delegation failure instead of looping or abandoning the
+  authorized task;
 - run focused checks during Node closure and the full suite only at the group boundary;
 - report immediate decisions promptly and deferred decisions at final handoff; and
 - never treat completion, adjacent findings, or a pending Node as authority to start more work.
@@ -369,9 +393,11 @@ prompt, poll work, or select another Node. The native host owns child lifetime a
 - `scripts/manifest_tool.py promote-capability <key> [workspace] --touch in_scope|modified`
 - `scripts/manifest_tool.py bind-plan-capability [workspace] --plan ... --capability ...`
 - `scripts/manifest_tool.py capability-tree [workspace] [--details]`
-- `scripts/manifest_tool.py next-action <node-id> [workspace]`
-- `scripts/manifest_tool.py dispatch <node-id> [workspace] --role designer|worker|verifier|reviewer`
+- `scripts/manifest_tool.py next-action <node-id> [workspace] [--native-host codex]`
+- `scripts/manifest_tool.py dispatch <node-id> [workspace] --role designer|worker|verifier|reviewer [--native-host codex]`
 - `scripts/manifest_tool.py bind-agent <node-id> [workspace] --dispatch-id ... --agent-id ...`
+- `scripts/manifest_tool.py delegation-failed <node-id> [workspace] --dispatch-id ... [--agent-id ...] [--unavailable]`
+- `scripts/manifest_tool.py main-complete <node-id> [workspace] --dispatch-id ... --role designer|worker|verifier|reviewer`
 - `scripts/manifest_tool.py agent-complete <node-id> [workspace] --agent-id ... --final`
 - `scripts/manifest_tool.py advance <node-id> [workspace] --event ...`
 - `scripts/manifest_tool.py record-decision [workspace] --plan ... --urgency ... --question ... --context ... --option ... --option ...`
