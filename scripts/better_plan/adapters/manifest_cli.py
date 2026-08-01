@@ -10,7 +10,7 @@ import json
 import subprocess
 import sys
 from .capability_cli import capability_projection, register_capability_commands
-from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
+from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, delegation_failed_command, dispatch_command, invalidate_preparation_after_plan_edit, main_complete_command, next_action_command, pause_command, regress_command, skip_command, start_command
 from ..domain.capabilities import capability_schema_payload
 from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
 from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
@@ -1128,6 +1128,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     next_action_parser.add_argument("node_id", help="node UUID")
     next_action_parser.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    next_action_parser.add_argument("--native-host", choices=("codex",), help="resolve the current host's native role selector")
+    next_action_parser.add_argument("--codex-home", help=argparse.SUPPRESS)
     next_action_parser.set_defaults(func=next_action_command)
 
     dispatch = subparsers.add_parser(
@@ -1142,6 +1144,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("designer", "worker", "verifier", "reviewer"),
         help="fresh leaf-agent role",
     )
+    dispatch.add_argument("--native-host", choices=("codex",), help="freeze the current host's native role selector")
+    dispatch.add_argument("--codex-home", help=argparse.SUPPRESS)
     dispatch.set_defaults(func=dispatch_command)
 
     bind = subparsers.add_parser(
@@ -1153,6 +1157,27 @@ def build_parser() -> argparse.ArgumentParser:
     bind.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
     bind.add_argument("--agent-id", required=True, help="bounded opaque host agent id")
     bind.set_defaults(func=bind_agent_command)
+
+    delegation_failed = subparsers.add_parser(
+        "delegation-failed",
+        help="record one conclusive child delegation failure and bound retries",
+    )
+    delegation_failed.add_argument("node_id", help="node UUID")
+    delegation_failed.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    delegation_failed.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
+    delegation_failed.add_argument("--agent-id", help="exact host id of a conclusively failed bound child")
+    delegation_failed.add_argument("--unavailable", action="store_true", help="host conclusively reports that delegation is unavailable")
+    delegation_failed.set_defaults(func=delegation_failed_command)
+
+    main_complete = subparsers.add_parser(
+        "main-complete",
+        help="complete one role in the native main after bounded delegation failures",
+    )
+    main_complete.add_argument("node_id", help="node UUID")
+    main_complete.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    main_complete.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
+    main_complete.add_argument("--role", required=True, choices=("designer", "worker", "verifier", "reviewer"), help="role completed by the native main")
+    main_complete.set_defaults(func=main_complete_command)
 
     complete_agent = subparsers.add_parser(
         "agent-complete",

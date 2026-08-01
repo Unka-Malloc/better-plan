@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 from pathlib import Path
 from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
-from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
+from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MAX_DELEGATION_FAILURES, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
 
 
 def readable_summary_issue(value: Any) -> str | None:
@@ -292,6 +292,24 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
         host_agent_id = dispatch.get("host_agent_id")
         if "host_agent_id" in dispatch and (not isinstance(host_agent_id, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(host_agent_id)):
             issues.append(Issue(path, f"{prefix}.acceptance.dispatch.host_agent_id: must be a bounded opaque host id"))
+        delegation_failures = dispatch.get("delegation_failures")
+        if "delegation_failures" in dispatch and (
+            isinstance(delegation_failures, bool)
+            or not isinstance(delegation_failures, int)
+            or not 1 <= delegation_failures <= MAX_DELEGATION_FAILURES
+        ):
+            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.delegation_failures: must be an integer from 1 through {MAX_DELEGATION_FAILURES}"))
+        for selector_field in ("model", "model_provider", "reasoning_effort", "selector_source"):
+            selector_value = dispatch.get(selector_field)
+            if selector_field in dispatch and (
+                not isinstance(selector_value, str)
+                or not selector_value
+                or len(selector_value) > 128
+                or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/+-" for character in selector_value)
+            ):
+                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{selector_field}: must be a bounded public selector value"))
+        if any(field in dispatch for field in ("model_provider", "reasoning_effort", "selector_source")) and "model" not in dispatch:
+            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.model: selector metadata requires a model"))
         if expected_role == "designer":
             digest = dispatch.get("design_digest")
             if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):

@@ -304,6 +304,158 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(state["status"], "completed")
         self.assertEqual(state["acceptance"]["phase"], "accepted")
 
+    def test_native_main_takes_over_after_three_conclusive_delegation_failures(self) -> None:
+        dispatched = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        dispatch_id = str(dispatched["dispatch_id"])
+
+        early = self.cli(
+            "main-complete",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--role",
+            "designer",
+            ok=False,
+        )
+        self.assertIn("requires 3 recorded delegation failures", early.stderr)
+
+        for expected in (1, 2, 3):
+            failed = json.loads(
+                self.cli(
+                    "delegation-failed",
+                    DESIGN_ID,
+                    str(self.root),
+                    "--dispatch-id",
+                    dispatch_id,
+                ).stdout
+            )
+            self.assertEqual(failed["delegation_failures"], expected)
+            self.assertEqual(
+                failed["action"],
+                "main_thread_fallback" if expected == 3 else "retry_delegation",
+            )
+            if expected < 3:
+                self.assertEqual(failed["agent_type"], "designer")
+                self.assertEqual(failed["fork_turns"], "none")
+
+        completed = json.loads(
+            self.cli(
+                "main-complete",
+                DESIGN_ID,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--role",
+                "designer",
+            ).stdout
+        )
+        self.assertEqual(completed["action"], "complete_node")
+        self.assertEqual(self.state(DESIGN_ID)["status"], "completed")
+
+    def test_unavailable_delegation_skips_retries_and_enters_main_fallback(self) -> None:
+        dispatched = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        dispatch_id = str(dispatched["dispatch_id"])
+        unavailable = json.loads(
+            self.cli(
+                "delegation-failed",
+                DESIGN_ID,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--unavailable",
+            ).stdout
+        )
+        self.assertEqual(unavailable["delegation_failures"], 3)
+        self.assertEqual(unavailable["action"], "main_thread_fallback")
+        refused = self.cli(
+            "bind-agent",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--agent-id",
+            "host.designer.too-late",
+            ok=False,
+        )
+        self.assertIn("failure ceiling", refused.stderr)
+        completed = self.cli(
+            "main-complete",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--role",
+            "designer",
+        )
+        self.assertEqual(json.loads(completed.stdout)["action"], "complete_node")
+
+    def test_native_main_never_replaces_a_live_bound_child(self) -> None:
+        dispatched = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        dispatch_id = str(dispatched["dispatch_id"])
+        self.cli(
+            "bind-agent",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--agent-id",
+            "host.designer.live",
+        )
+        refused = self.cli(
+            "main-complete",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--role",
+            "designer",
+            ok=False,
+        )
+        self.assertIn("cannot replace a live bound child", refused.stderr)
+
+    def test_native_main_fallback_preserves_worker_verifier_and_reviewer_lifecycle(self) -> None:
+        self.complete_role(DESIGN_ID, "designer")
+
+        for node_id, role, expected_action in (
+            (WORK_ID, "worker", "dispatch_verifier"),
+            (WORK_ID, "verifier", "complete_node"),
+            (FINAL_ID, "reviewer", "main_reviewer_decision"),
+        ):
+            dispatched = json.loads(
+                self.cli("dispatch", node_id, str(self.root), "--role", role).stdout
+            )
+            dispatch_id = str(dispatched["dispatch_id"])
+            self.cli(
+                "delegation-failed",
+                node_id,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--unavailable",
+            )
+            completed = json.loads(
+                self.cli(
+                    "main-complete",
+                    node_id,
+                    str(self.root),
+                    "--dispatch-id",
+                    dispatch_id,
+                    "--role",
+                    role,
+                ).stdout
+            )
+            self.assertEqual(completed["action"], expected_action)
+
+        self.assertEqual(self.state(WORK_ID)["status"], "completed")
+        self.assertEqual(self.state(FINAL_ID)["acceptance"]["phase"], "reviewer_complete")
+
     def test_bound_capability_scope_omits_known_untouched_siblings(self) -> None:
         self.cli(
             "init-capabilities",
@@ -369,6 +521,61 @@ class GroupLifecycleTests(unittest.TestCase):
         state = self.state(WORK_ID)
         self.assertEqual(state["status"], "completed")
         self.assertTrue(state["acceptance_criteria"][0]["checked"])
+
+    def test_codex_dispatch_freezes_installed_critical_worker_selector(self) -> None:
+        self.complete_role(DESIGN_ID, "designer")
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "critical"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
+        codex_home = self.root / "codex-home"
+        agents = codex_home / "agents"
+        agents.mkdir(parents=True)
+        role_file = agents / "worker-critical.toml"
+        role_file.write_text(
+            'name = "worker-critical"\nmodel = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"\n',
+            encoding="utf-8",
+        )
+
+        preview = json.loads(
+            self.cli(
+                "next-action",
+                WORK_ID,
+                str(self.root),
+                "--native-host",
+                "codex",
+                "--codex-home",
+                str(codex_home),
+            ).stdout
+        )
+        self.assertEqual(preview["agent_type"], "worker-critical")
+        self.assertEqual((preview["model"], preview["reasoning_effort"]), ("gpt-5.6-sol", "medium"))
+        self.assertEqual(preview["selector_source"], "installed-codex-role")
+
+        dispatched = json.loads(
+            self.cli(
+                "dispatch",
+                WORK_ID,
+                str(self.root),
+                "--role",
+                "worker",
+                "--native-host",
+                "codex",
+                "--codex-home",
+                str(codex_home),
+            ).stdout
+        )
+        role_file.unlink()
+        failed = json.loads(
+            self.cli(
+                "delegation-failed",
+                WORK_ID,
+                str(self.root),
+                "--dispatch-id",
+                str(dispatched["dispatch_id"]),
+            ).stdout
+        )
+        self.assertEqual((failed["model"], failed["reasoning_effort"]), ("gpt-5.6-sol", "medium"))
+        self.assertEqual(failed["selector_source"], "installed-codex-role")
 
     def test_only_the_exact_bound_final_callback_advances_a_child(self) -> None:
         self.complete_role(DESIGN_ID, "designer")
