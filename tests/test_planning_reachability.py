@@ -60,6 +60,7 @@ def plan_entry(
         "title": title,
         "directory": directory,
         "source_files": [],
+        "purpose": f"Exercise {title} as one workspace planning branch.",
         "goal": f"Exercise {title} planning reachability.",
         "description": "Bounded planning-reachability acceptance fixture.",
         "checkpoints": f"{directory}/Checkpoints.json",
@@ -125,6 +126,20 @@ class PlanningReachabilityAcceptanceTests(unittest.TestCase):
         self.assertEqual(cycle[0], "2048")
         self.assertEqual(cycle[-1], "2048")
 
+    def test_task_group_requires_the_complete_automated_role_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            plan = plan_entry(PLAN_A_ID, "plan-a", "pending", title="Plan A")
+            plan["kind"] = "group"
+            write_multi_plan_workspace(root, [(plan, [foundation_node(NODE_A_ID)])])
+
+            validation = run_cli(root, "validate", "--no-git")
+
+            self.assertNotEqual(validation.returncode, 0)
+            self.assertIn("exactly one group_design node", validation.stderr)
+            self.assertIn("at least one implementation node", validation.stderr)
+            self.assertIn("exactly one final_validation node", validation.stderr)
+
     def test_deferred_node_is_visible_not_executable_and_explicitly_activatable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -171,10 +186,19 @@ class PlanningReachabilityAcceptanceTests(unittest.TestCase):
     def test_deferred_implementation_blocks_final_validation_and_plan_completion(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            group_design = checkpoint_node(
+                NODE_C_ID,
+                status="completed",
+                role="group_design",
+                checked=True,
+            )
+            group_design["difficulty"] = "critical"
             implementation = checkpoint_node(
                 NODE_A_ID,
                 status="deferred",
+                role="implementation",
                 checked=False,
+                prerequisites=[NODE_C_ID],
                 status_reason="Resume in the current delivery after review.",
             )
             implementation["design"] = default_acceptance_design("deferred-implementation")
@@ -183,14 +207,18 @@ class PlanningReachabilityAcceptanceTests(unittest.TestCase):
                 status="pending",
                 role="final_validation",
                 checked=False,
+                prerequisites=[NODE_A_ID],
             )
             final["design"] = default_acceptance_design("deferred-final")
+            plan = plan_entry(PLAN_A_ID, "plan-a", "deferred", title="Plan A")
+            plan["kind"] = "group"
+            plan["decision_issues"] = []
             write_multi_plan_workspace(
                 root,
                 [
                     (
-                        plan_entry(PLAN_A_ID, "plan-a", "deferred", title="Plan A"),
-                        [implementation, final],
+                        plan,
+                        [group_design, implementation, final],
                     )
                 ],
             )
@@ -200,13 +228,13 @@ class PlanningReachabilityAcceptanceTests(unittest.TestCase):
 
             dispatch = run_cli(
                 root,
-                "dispatch",
+                "advance",
                 NODE_B_ID,
-                "--role",
-                "acceptance_designer",
+                "--event",
+                "regression-requested",
             )
             self.assertNotEqual(dispatch.returncode, 0)
-            self.assertIn("non-skipped implementation", dispatch.stderr)
+            self.assertIn("prerequisites must be completed", dispatch.stderr)
 
             synced = run_cli(root, "sync-plan")
             self.assertEqual(synced.returncode, 0, synced.stderr)

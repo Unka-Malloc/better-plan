@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ from scripts.better_plan.installation import targets as install_targets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_TOOL_PATH = REPO_ROOT / "scripts" / "install.py"
+CURSOR_APP_BUNDLE_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
 
 def run_command(
     *args: str | Path,
@@ -36,10 +38,10 @@ def run_command(
     )
 
 
-def make_paths(root: Path) -> object:
+def make_paths(root: Path, *, repo_root: Path = REPO_ROOT) -> object:
     home = root / "home"
     return install_models.InstallPaths(
-        repo_root=REPO_ROOT,
+        repo_root=repo_root,
         codex_home=home / ".codex",
         shared_home=home / ".agents",
         claude_home=home / ".claude",
@@ -51,6 +53,22 @@ def make_paths(root: Path) -> object:
         craft_home=home / ".craft-agent",
         kimi_home=home / ".kimi-code",
     )
+
+
+NATIVE_ROLE_FILES = install_targets.NATIVE_ROLE_FILES
+
+
+def native_role_directory(paths: object, target: str) -> Path:
+    return {
+        "codex": paths.codex_home / "agents",
+        "claude": paths.claude_home / "agents",
+        "opencode": paths.opencode_config / "agents",
+        "cursor": paths.cursor_home / "agents",
+    }[target]
+
+
+def native_source_target(target: str) -> str:
+    return "claude-code" if target == "claude" else target
 
 
 class InstallToolTests(unittest.TestCase):
@@ -67,6 +85,95 @@ class InstallToolTests(unittest.TestCase):
     def test_retired_gemini_target_is_rejected(self) -> None:
         with self.assertRaises(install_models.InstallError):
             install_cli.parse_agents(["gemini"])
+
+    def test_native_role_templates_use_exact_user_paths_are_idempotent_and_uninstall_selectively(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            for target, filenames in NATIVE_ROLE_FILES.items():
+                with self.subTest(target=target):
+                    directory = native_role_directory(paths, target)
+                    directory.mkdir(parents=True, exist_ok=True)
+                    unrelated = directory / "user-owned-agent.md"
+                    unrelated.write_text("preserve me\n", encoding="utf-8")
+
+                    install_targets.install_role_templates(paths, target, dry_run=False)
+                    receipt = json.loads(
+                        native_role_directory(paths, target)
+                        .with_name("agents.better-plan.json")
+                        .read_text(encoding="utf-8")
+                    )
+                    installed_filenames = tuple(receipt["files"])
+                    first = {
+                        filename: (directory / filename).read_bytes()
+                        for filename in installed_filenames
+                    }
+                    self.assertTrue(first)
+                    self.assertTrue(all(b"ASSIGNMENT_PLACEHOLDER" not in content for content in first.values()))
+                    self.assertTrue(all(b"assignment:" in content for content in first.values()))
+                    self.assertEqual(
+                        {path.name for path in directory.iterdir()},
+                        set(installed_filenames) | {unrelated.name},
+                    )
+
+                    install_targets.install_role_templates(paths, target, dry_run=False)
+                    self.assertEqual(
+                        {
+                            filename: (directory / filename).read_bytes()
+                            for filename in installed_filenames
+                        },
+                        first,
+                    )
+                    self.assertEqual(unrelated.read_text(encoding="utf-8"), "preserve me\n")
+
+                    dry_run_messages = install_targets.remove_target(
+                        paths, target, dry_run=True
+                    )
+                    self.assertTrue(all((directory / name).is_file() for name in installed_filenames))
+                    self.assertTrue(unrelated.is_file())
+                    self.assertFalse(
+                        any(str(Path(tmpdir)) in message for message in dry_run_messages)
+                    )
+
+                    install_targets.remove_target(paths, target, dry_run=False)
+                    self.assertTrue(unrelated.is_file())
+                    self.assertFalse(
+                        any((directory / name).exists() for name in installed_filenames)
+                    )
+
+    def test_dry_run_validates_each_native_source_without_writing_destinations(self) -> None:
+        for target, filenames in NATIVE_ROLE_FILES.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                source_root = root / "source"
+                source_target = native_source_target(target)
+                shutil.copytree(
+                    REPO_ROOT / "agents" / source_target,
+                    source_root / "agents" / source_target,
+                )
+                (source_root / "agents" / source_target / filenames[1]).write_text(
+                    "malformed native agent payload\n",
+                    encoding="utf-8",
+                )
+                paths = make_paths(root, repo_root=source_root)
+
+                with self.assertRaises(install_models.InstallError) as error:
+                    install_targets.install_role_templates(paths, target, dry_run=True)
+
+                self.assertFalse(native_role_directory(paths, target).exists())
+                self.assertNotIn(tmpdir, str(error.exception))
+
+    def test_installing_one_target_does_not_create_other_hosts_native_agents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+
+            self.assertEqual(
+                {path.name for path in native_role_directory(paths, "codex").iterdir()},
+                set(NATIVE_ROLE_FILES["codex"]),
+            )
+            for target in ("claude", "opencode", "cursor"):
+                self.assertFalse(native_role_directory(paths, target).exists())
 
     def test_install_creates_all_current_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,6 +194,9 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any("copilot: using native skill" in message for message in messages), messages)
             self.assertTrue(any("kimi: using native skill" in message for message in messages), messages)
             self.assertTrue((paths.codex_skill / "SKILL.md").is_file())
+            self.assertTrue(
+                (paths.codex_skill / "references" / "design-patterns.md").is_file()
+            )
             self.assertTrue((paths.cursor_skill / "SKILL.md").is_file())
             self.assertTrue((paths.copilot_skill / "SKILL.md").is_file())
             self.assertTrue((paths.pi_skill / "SKILL.md").is_file())
@@ -104,7 +214,7 @@ class InstallToolTests(unittest.TestCase):
             claude = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
             cursor = json.loads((paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(set(codex["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
-            self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+            self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "SubagentStop"})
             self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
             self.assertTrue((paths.opencode_agent).is_file())
             self.assertTrue((paths.antigravity_plugin / "plugin.json").is_file())
@@ -156,7 +266,7 @@ class InstallToolTests(unittest.TestCase):
                 codex["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
                 claude["hooks"]["SessionStart"][0]["hooks"][0]["command"],
                 claude["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
-                claude["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+                claude["hooks"]["SubagentStop"][0]["hooks"][0]["command"],
                 cursor["hooks"]["sessionStart"][0]["command"],
                 cursor["hooks"]["beforeSubmitPrompt"][0]["command"],
                 cursor["hooks"]["postToolUse"][0]["command"],
@@ -202,6 +312,7 @@ class InstallToolTests(unittest.TestCase):
                         "title": "SessionStart fixture",
                         "directory": "main-plan",
                         "source_files": [],
+                        "purpose": "Exercise installed SessionStart context generation.",
                         "goal": "Test session-start context generation.",
                         "description": "Controlled hook invocation fixture.",
                         "checkpoints": "main-plan/Checkpoints.json",
@@ -397,56 +508,109 @@ class InstallToolTests(unittest.TestCase):
                 any(check.target == "opencode (WSL)" and check.status == "OK" for check in checks), checks
             )
 
-    def test_optional_client_cli_validation_has_explicit_success_warning_and_failure(self) -> None:
-        with mock.patch.object(install_doctor.shutil, "which", return_value=None):
-            warning = install_doctor.check_optional_client_cli("cursor")
-        self.assertEqual(warning.status, "WARN")
+    def test_optional_client_cli_probes_cursor_candidates_in_frozen_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle = Path(tmpdir) / "Cursor.app" / "Contents" / "Resources" / "app" / "bin" / "cursor"
+            table = {
+                "cursor": (
+                    ("cursor-agent", "--version"),
+                    ("cursor", "--version"),
+                    (str(bundle), "--version"),
+                ),
+                "copilot": (("copilot", "--version"),),
+                "kimi": (("kimi", "--version"),),
+            }
 
-        with ExitStack() as stack:
-            stack.enter_context(
-                mock.patch.object(
-                    install_doctor.shutil,
-                    "which",
-                    return_value="cursor",
-                )
-            )
-            stack.enter_context(
-                mock.patch.object(
-                    install_targets,
-                    "run_text_command",
-                    return_value=subprocess.CompletedProcess(
-                        ["cursor", "--version"],
-                        0,
-                        stdout="1.0\n",
-                        stderr="",
-                    ),
-                )
-            )
-            success = install_doctor.check_optional_client_cli("cursor")
-        self.assertEqual(success.status, "OK")
+            def probe(resolvable: set[str], returncode: int = 0):
+                def fake_which(name: str) -> str | None:
+                    if name in resolvable:
+                        return name
+                    if name == str(bundle) and bundle.is_file():
+                        return name
+                    return None
 
-        with ExitStack() as stack:
-            stack.enter_context(
-                mock.patch.object(
-                    install_doctor.shutil,
-                    "which",
-                    return_value="copilot",
-                )
-            )
-            stack.enter_context(
-                mock.patch.object(
-                    install_targets,
-                    "run_text_command",
-                    return_value=subprocess.CompletedProcess(
-                        ["copilot", "--version"],
-                        1,
-                        stdout="",
-                        stderr="failed",
-                    ),
-                )
-            )
-            failure = install_doctor.check_optional_client_cli("copilot")
-        self.assertEqual(failure.status, "FAIL")
+                calls: list[list[str]] = []
+
+                def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                    calls.append(command)
+                    return subprocess.CompletedProcess(command, returncode, stdout="x\n", stderr="")
+
+                with ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(install_doctor, "OPTIONAL_CLIENT_CLI_COMMANDS", table))
+                    stack.enter_context(mock.patch.object(install_models, "OPTIONAL_CLIENT_CLI_COMMANDS", table))
+                    stack.enter_context(mock.patch.object(install_doctor.shutil, "which", side_effect=fake_which))
+                    stack.enter_context(mock.patch.object(install_targets, "run_text_command", side_effect=fake_run))
+                    check = install_doctor.check_optional_client_cli("cursor")
+                return check, calls
+
+            first_hit, first_hit_calls = probe({"cursor-agent", "cursor"})
+            self.assertEqual(first_hit.status, "OK")
+            self.assertEqual(first_hit_calls, [["cursor-agent", "--version"]])
+
+            path_fallback, path_fallback_calls = probe({"cursor"})
+            self.assertEqual(path_fallback.status, "OK")
+            self.assertEqual(path_fallback_calls, [["cursor", "--version"]])
+
+            bundle.parent.mkdir(parents=True)
+            bundle.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            bundle_fallback, bundle_fallback_calls = probe(set())
+            self.assertEqual(bundle_fallback.status, "OK")
+            self.assertEqual(bundle_fallback_calls, [[str(bundle), "--version"]])
+            bundle.unlink()
+
+            missing, missing_calls = probe(set())
+            self.assertEqual(missing.status, "WARN")
+            self.assertEqual(missing_calls, [])
+
+            failing, failing_calls = probe({"cursor-agent"}, returncode=1)
+            self.assertEqual(failing.status, "FAIL")
+            self.assertEqual(failing_calls, [["cursor-agent", "--version"]])
+
+    def test_optional_client_cli_preserves_copilot_and_kimi_probing(self) -> None:
+        table = {
+            "cursor": (
+                ("cursor-agent", "--version"),
+                ("cursor", "--version"),
+                (CURSOR_APP_BUNDLE_CLI, "--version"),
+            ),
+            "copilot": (("copilot", "--version"),),
+            "kimi": (("kimi", "--version"),),
+        }
+
+        def fake_which(resolvable: set[str]):
+            def inner(name: str) -> str | None:
+                if name in resolvable:
+                    return name
+                if name == CURSOR_APP_BUNDLE_CLI and Path(name).is_file():
+                    return name
+                return None
+
+            return inner
+
+        for target, expected, resolvable, returncode in (
+            ("copilot", "OK", {"copilot"}, 0),
+            ("copilot", "FAIL", {"copilot"}, 1),
+            ("copilot", "WARN", set(), 0),
+            ("kimi", "OK", {"kimi"}, 0),
+            ("kimi", "FAIL", {"kimi"}, 1),
+            ("kimi", "WARN", set(), 0),
+        ):
+            with self.subTest(target=target, expected=expected):
+                calls: list[list[str]] = []
+
+                def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                    calls.append(command)
+                    return subprocess.CompletedProcess(command, returncode, stdout="x\n", stderr="")
+
+                with ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(install_doctor, "OPTIONAL_CLIENT_CLI_COMMANDS", table))
+                    stack.enter_context(mock.patch.object(install_models, "OPTIONAL_CLIENT_CLI_COMMANDS", table))
+                    stack.enter_context(mock.patch.object(install_doctor.shutil, "which", side_effect=fake_which(resolvable)))
+                    stack.enter_context(mock.patch.object(install_targets, "run_text_command", side_effect=fake_run))
+                    check = install_doctor.check_optional_client_cli(target)
+                self.assertEqual(check.status, expected)
+                self.assertEqual(check.target, target)
+                self.assertEqual(calls, [] if expected == "WARN" else [[target, "--version"]])
 
     def test_antigravity_doctor_requires_current_plugin_skill_and_hook(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -459,6 +623,22 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(set(hooks["better-plan"]), {"PreInvocation"})
 
     def test_installed_skill_inventory_requires_current_files(self) -> None:
+        expected_runtime_payload = {
+            "references/worker.md",
+            "scripts/better_plan/domain/model_catalog.json",
+            "scripts/better_plan/domain/coding_agent_catalog.json",
+            "scripts/better_plan/domain/model_routing.py",
+        }
+        for target, filenames in NATIVE_ROLE_FILES.items():
+            source_target = native_source_target(target)
+            expected_runtime_payload.update(
+                f"agents/{source_target}/{filename}" for filename in filenames
+            )
+        self.assertTrue(
+            expected_runtime_payload <= set(install_models.CURRENT_SKILL_FILES),
+            sorted(expected_runtime_payload - set(install_models.CURRENT_SKILL_FILES)),
+        )
+
         def build_complete_tree(root: Path) -> None:
             for relative in install_models.CURRENT_SKILL_FILES:
                 path = root / relative
@@ -827,10 +1007,14 @@ command = "notify"
 
             for agent, path in [("codex", paths.codex_hooks), ("claude", paths.claude_settings)]:
                 handlers = hook_config.nested_handlers(agent)
-                self.assertEqual(set(handlers.keys()), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+                completion_event = "PostToolUse" if agent == "codex" else "SubagentStop"
+                self.assertEqual(
+                    set(handlers.keys()),
+                    {"SessionStart", "UserPromptSubmit", completion_event},
+                )
                 for event, groups in handlers.items():
                     self.assertEqual(len(groups), 1)
-                    if event == "PostToolUse":
+                    if event == completion_event:
                         self.assertEqual(groups[0]["matcher"], "^Agent$")
                     else:
                         self.assertNotIn("matcher", groups[0])
@@ -883,7 +1067,7 @@ command = "notify"
             base = Path(tmpdir)
             required_events = {
                 "codex": ["SessionStart", "UserPromptSubmit", "PostToolUse"],
-                "claude": ["SessionStart", "UserPromptSubmit", "PostToolUse"],
+                "claude": ["SessionStart", "UserPromptSubmit", "SubagentStop"],
                 "cursor": ["sessionStart", "beforeSubmitPrompt", "postToolUse"],
             }
             for agent in ("codex", "claude", "cursor"):
@@ -1019,7 +1203,7 @@ command = "notify"
             self.assertEqual(doctor_result.returncode, 0, doctor_result.stderr)
             self.assertIn("OK: codex:", doctor_result.stdout)
             self.assertIn("cursor:", doctor_result.stdout)
-            self.assertIn("WARN: cursor:", doctor_result.stdout)
+            self.assertRegex(doctor_result.stdout, r"(?:OK|WARN): cursor:")
             self.assertIn("OK: cursor hooks:", doctor_result.stdout)
             self.assertIn("copilot:", doctor_result.stdout)
             self.assertIn("OK: antigravity:", doctor_result.stdout)

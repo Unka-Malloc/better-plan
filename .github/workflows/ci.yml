@@ -31,5 +31,6 @@ jobs:
         run: |
           python scripts/manifest_tool.py uuid --count 1
           python scripts/manifest_tool.py transition pending in_progress
+          python scripts/manifest_tool.py schema capability
           python scripts/manifest_tool.py schema plan
           python scripts/manifest_tool.py schema node

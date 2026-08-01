@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Lightweight design-first orchestration"
-  default_prompt: "Use $better-plan for planning, coding, or explicit implementation work. Otherwise, follow the user's instructions and perform the requested work or answer accordingly."
+  default_prompt: "Use the native workflow when maintaining the Better Plan source repository; do not require $better-plan. For planning, coding, or explicit implementation elsewhere, use $better-plan to reuse existing Plans and progressively disclose only the capability path being touched. Otherwise, follow the user's instructions."

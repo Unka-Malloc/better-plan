@@ -5,7 +5,33 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 from pathlib import Path
 from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
-from .models import ACCEPTANCE_AUDIT_FIELDS, ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GIT_SHA_PATTERN, HIGH_OR_DEEP_REQUIRED_ROLES, Issue, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, expected_regression_scope, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, safe_summary_issue
+from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
+
+
+def readable_summary_issue(value: Any) -> str | None:
+    """Return the bounded safety issue for a tree-visible source summary."""
+    issue = safe_summary_issue(value)
+    if issue is not None:
+        return issue
+    if "<-" in str(value).strip():
+        return "must not contain the execution dependency marker"
+    return None
+
+
+def validate_readable_string_list(
+    path: Path,
+    prefix: str,
+    value: Any,
+) -> list[Issue]:
+    """Validate a list whose members may be printed by the readable tree."""
+    if not is_string_list(value):
+        return [Issue(path, f"{prefix}: must be an array of strings")]
+    issues: list[Issue] = []
+    for index, item in enumerate(value):
+        item_issue = readable_summary_issue(item)
+        if item_issue is not None:
+            issues.append(Issue(path, f"{prefix}[{index}]: {item_issue}"))
+    return issues
 
 
 def validate_regression_contract(
@@ -144,7 +170,7 @@ def validate_node_design_contract(path: Path, prefix: str, node: dict[str, Any])
     role = node.get("role")
     status = node.get("status")
     design = node.get("design")
-    requires_design = role in REGRESSION_NODE_ROLES and status not in WORKFLOW_STATE_MACHINE.terminal_statuses
+    requires_design = role in DESIGN_NODE_ROLES and status not in WORKFLOW_STATE_MACHINE.terminal_statuses
     if design is None:
         return [Issue(path, f"{prefix}.design: nonterminal delivery nodes require a design contract")] if requires_design else []
     if not isinstance(design, dict):
@@ -161,7 +187,7 @@ def validate_node_design_contract(path: Path, prefix: str, node: dict[str, Any])
             issues.append(
                 Issue(
                     path,
-                    f"{prefix}.design.acceptance_paths: acceptance ownership must not overlap executor ownership",
+                    f"{prefix}.design.acceptance_paths: acceptance ownership must not overlap worker ownership",
                 )
             )
             break
@@ -169,15 +195,15 @@ def validate_node_design_contract(path: Path, prefix: str, node: dict[str, Any])
 
 
 def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) -> list[Issue]:
-    """Validate bounded automated-acceptance state without consulting runtime data."""
+    """Validate bounded automated-delivery state without runtime data."""
+
     if "acceptance" not in node:
         return []
-
-    issues: list[Issue] = []
     acceptance = node.get("acceptance")
     if not isinstance(acceptance, dict):
         return [Issue(path, f"{prefix}.acceptance: must be an object")]
 
+    issues: list[Issue] = []
     for field in sorted(ACCEPTANCE_REQUIRED_FIELDS - set(acceptance)):
         issues.append(Issue(path, f"{prefix}.acceptance.{field}: missing required field"))
     for field in sorted(set(acceptance) - ACCEPTANCE_REQUIRED_FIELDS - ACCEPTANCE_OPTIONAL_FIELDS):
@@ -188,67 +214,50 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     phase = acceptance.get("phase")
     attempt = acceptance.get("attempt")
     outcome = acceptance.get("outcome")
-
-    if role not in REGRESSION_NODE_ROLES:
-        issues.append(Issue(path, f"{prefix}.acceptance: only implementation and final_validation nodes may be enrolled"))
+    if role not in AUTOMATED_NODE_ROLES:
+        issues.append(Issue(path, f"{prefix}.acceptance: only automated delivery nodes may be enrolled"))
     if phase not in ACCEPTANCE_PHASES:
-        values = ", ".join(sorted(ACCEPTANCE_PHASES))
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: must be one of {values}"))
+        issues.append(Issue(path, f"{prefix}.acceptance.phase: must be one of {', '.join(sorted(ACCEPTANCE_PHASES))}"))
     if type(attempt) is not int or attempt < 0:
         issues.append(Issue(path, f"{prefix}.acceptance.attempt: must be a non-negative integer"))
     if outcome not in ACCEPTANCE_OUTCOMES:
-        values = ", ".join(sorted(ACCEPTANCE_OUTCOMES))
-        issues.append(Issue(path, f"{prefix}.acceptance.outcome: must be one of {values}"))
+        issues.append(Issue(path, f"{prefix}.acceptance.outcome: must be one of {', '.join(sorted(ACCEPTANCE_OUTCOMES))}"))
 
-    if role == "implementation" and phase in {"awaiting_regression", "repair_plan_required", "awaiting_repair"}:
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for implementation"))
-    if role == "final_validation" and phase in {"awaiting_executor", "executor_running", "correction_required"}:
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for final_validation"))
+    valid_phases = {
+        "group_design": {"awaiting_designer", "designer_running", "accepted"},
+        "implementation": {"awaiting_worker", "worker_running", "correction_required", "awaiting_verifier", "verifier_running", "accepted"},
+        "final_validation": {"awaiting_regression", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression", "accepted"},
+    }
+    if role in valid_phases and phase not in valid_phases[str(role)]:
+        issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for {role!r}"))
 
-    if phase == "accepted":
-        if status != "completed":
-            issues.append(Issue(path, f"{prefix}.status: an accepted node must be completed"))
-    elif phase in {
-        "awaiting_acceptance_design",
-        "acceptance_revision_required",
-        "awaiting_executor",
-        "awaiting_regression",
-    }:
-        if status not in {"pending", "blocked"}:
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.status: a resumable node in phase {phase!r} must be pending or blocked",
-                )
-            )
-    elif phase in {"repair_plan_required", "awaiting_repair"}:
-        if status not in {"pending", "blocked"}:
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.status: a parked final_validation node in phase {phase!r} must be pending or blocked",
-                )
-            )
-    elif status != "in_progress":
-        issues.append(Issue(path, f"{prefix}.status: an enrolled node in phase {phase!r} must be in_progress"))
+    pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_regression", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}
+    if phase == "accepted" and status != "completed":
+        issues.append(Issue(path, f"{prefix}.status: an accepted node must be completed"))
+    elif phase in pending_phases and status not in {"pending", "blocked", "deferred"}:
+        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires pending, blocked, or deferred"))
+    elif phase not in pending_phases | {"accepted"} and status != "in_progress":
+        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires in_progress"))
 
     expected_outcomes: dict[str, set[str]] = {
-        "awaiting_acceptance_design": {"none"},
-        "acceptance_designer_running": {"none"},
-        "acceptance_revision_required": {"none"},
-        "awaiting_executor": {"none"},
-        "executor_running": {"none"},
-        "awaiting_regression": {"none"},
-        "awaiting_auditor": {"regression_passed"},
-        "auditor_running": {"regression_passed"},
+        "awaiting_designer": {"none"},
+        "designer_running": {"none"},
+        "awaiting_worker": {"none"},
+        "worker_running": {"none"},
         "correction_required": ACCEPTANCE_FAILURE_OUTCOMES,
+        "awaiting_verifier": {"regression_passed"},
+        "verifier_running": {"regression_passed"},
+        "awaiting_regression": {"none"},
+        "awaiting_reviewer": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
+        "reviewer_running": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
+        "reviewer_complete": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
         "repair_plan_required": ACCEPTANCE_FAILURE_OUTCOMES,
         "awaiting_repair": ACCEPTANCE_FAILURE_OUTCOMES,
+        "awaiting_repair_regression": {"none"},
         "accepted": {"accepted"},
     }
     if phase in expected_outcomes and outcome not in expected_outcomes[phase]:
-        values = ", ".join(sorted(expected_outcomes[phase]))
-        issues.append(Issue(path, f"{prefix}.acceptance.outcome: phase {phase!r} requires one of {values}"))
+        issues.append(Issue(path, f"{prefix}.acceptance.outcome: phase {phase!r} requires one of {', '.join(sorted(expected_outcomes[phase]))}"))
 
     repair_node_id = acceptance.get("repair_node_id")
     if phase == "awaiting_repair":
@@ -259,98 +268,105 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
 
     dispatch = acceptance.get("dispatch")
     dispatch_roles = {
-        "acceptance_designer_running": "acceptance_designer",
-        "executor_running": "executor",
-        "auditor_running": "auditor",
+        "designer_running": "designer",
+        "worker_running": "worker",
+        "verifier_running": "verifier",
+        "reviewer_running": "reviewer",
     }
-    dispatch_required = phase in dispatch_roles
-    if dispatch_required and not isinstance(dispatch, dict):
+    expected_role = dispatch_roles.get(str(phase))
+    if expected_role is not None and not isinstance(dispatch, dict):
         issues.append(Issue(path, f"{prefix}.acceptance.dispatch: phase {phase!r} requires an outstanding dispatch"))
-    elif not dispatch_required and "dispatch" in acceptance:
+    elif expected_role is None and "dispatch" in acceptance:
         issues.append(Issue(path, f"{prefix}.acceptance.dispatch: only running agent phases may retain a dispatch"))
     elif isinstance(dispatch, dict):
-        for field in sorted(ACCEPTANCE_DISPATCH_REQUIRED_FIELDS - set(dispatch)):
+        required = DESIGNER_DISPATCH_REQUIRED_FIELDS if expected_role == "designer" else ACCEPTANCE_DISPATCH_REQUIRED_FIELDS
+        for field in sorted(required - set(dispatch)):
             issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: missing required field"))
         allowed = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS
         for field in sorted(set(dispatch) - allowed):
             issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: unknown field"))
-        dispatch_id = dispatch.get("id")
-        if not isinstance(dispatch_id, str) or not UUID4_PATTERN.fullmatch(dispatch_id):
+        if not isinstance(dispatch.get("id"), str) or not UUID4_PATTERN.fullmatch(str(dispatch.get("id"))):
             issues.append(Issue(path, f"{prefix}.acceptance.dispatch.id: must be an opaque UUID4 correlation id"))
-        dispatch_role = dispatch.get("role")
-        expected_role = dispatch_roles.get(str(phase))
-        if dispatch_role != expected_role:
+        if dispatch.get("role") != expected_role:
             issues.append(Issue(path, f"{prefix}.acceptance.dispatch.role: phase {phase!r} requires role {expected_role!r}"))
-        regression_digest_fields = {"contract_digest", "content_fingerprint"}
-        if expected_role == "auditor":
-            for field in regression_digest_fields:
-                value = dispatch.get(field)
-                if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
-                    issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: must be a lowercase sha256 digest"))
-            for field in set(ACCEPTANCE_PREPARATION_FIELDS) & set(dispatch):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: auditor dispatches use the regression receipt only"))
-        elif expected_role == "acceptance_designer":
-            for field in sorted(ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS - set(dispatch)):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: missing required field"))
-            value = dispatch.get("design_digest")
-            if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
+        host_agent_id = dispatch.get("host_agent_id")
+        if "host_agent_id" in dispatch and (not isinstance(host_agent_id, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(host_agent_id)):
+            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.host_agent_id: must be a bounded opaque host id"))
+        if expected_role == "designer":
+            digest = dispatch.get("design_digest")
+            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
                 issues.append(Issue(path, f"{prefix}.acceptance.dispatch.design_digest: must bind the current design digest"))
-            for field in {"acceptance_fingerprint", "scaffold_fingerprint", *regression_digest_fields} & set(dispatch):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: acceptance designer dispatch has an invalid binding"))
-        else:
-            for field in (regression_digest_fields | set(ACCEPTANCE_PREPARATION_FIELDS)) & set(dispatch):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: executor dispatches must not retain fingerprints"))
+        elif "design_digest" in dispatch:
+            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.design_digest: only designer dispatches bind design"))
 
     for field in ACCEPTANCE_PREPARATION_FIELDS:
-        if field in acceptance:
-            value = acceptance.get(field)
-            if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
-                issues.append(Issue(path, f"{prefix}.acceptance.{field}: must be a lowercase sha256 digest"))
+        if field in acceptance and (not isinstance(acceptance.get(field), str) or not SHA256_PATTERN.fullmatch(str(acceptance.get(field)))):
+            issues.append(Issue(path, f"{prefix}.acceptance.{field}: must be a lowercase sha256 digest"))
+    required_preparation: tuple[str, ...] = ()
+    if role == "implementation" and phase not in {"awaiting_worker"}:
+        required_preparation = ACCEPTANCE_STABLE_PREPARATION_FIELDS
+    elif role == "final_validation" and phase not in {"awaiting_regression", "awaiting_repair_regression"}:
+        required_preparation = ACCEPTANCE_PREPARATION_FIELDS
+    for field in required_preparation:
+        if field not in acceptance:
+            issues.append(Issue(path, f"{prefix}.acceptance.{field}: phase {phase!r} requires current preparation"))
 
-    audit = acceptance.get("audit")
-    if phase == "accepted" and not isinstance(audit, dict):
-        issues.append(Issue(path, f"{prefix}.acceptance.audit: accepted phase requires an audit receipt"))
-    elif phase != "accepted" and "audit" in acceptance:
-        issues.append(Issue(path, f"{prefix}.acceptance.audit: only accepted nodes may retain an audit receipt"))
-    elif isinstance(audit, dict):
-        for field in sorted(ACCEPTANCE_AUDIT_FIELDS - set(audit)):
-            issues.append(Issue(path, f"{prefix}.acceptance.audit.{field}: missing required field"))
-        for field in sorted(set(audit) - ACCEPTANCE_AUDIT_FIELDS):
-            issues.append(Issue(path, f"{prefix}.acceptance.audit.{field}: unknown field"))
-        recorded_at = audit.get("recorded_at")
-        if not isinstance(recorded_at, str) or not recorded_at.strip():
-            issues.append(Issue(path, f"{prefix}.acceptance.audit.recorded_at: must be a non-empty timestamp"))
-        for field in ("contract_digest", "content_fingerprint"):
-            value = audit.get(field)
-            if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
-                issues.append(Issue(path, f"{prefix}.acceptance.audit.{field}: must be a lowercase sha256 digest"))
+    review = acceptance.get("review")
+    review_phases = {"reviewer_complete", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression", "accepted"}
+    if role == "final_validation" and phase in review_phases and not isinstance(review, dict):
+        issues.append(Issue(path, f"{prefix}.acceptance.review: phase {phase!r} requires the one group Reviewer receipt"))
+    elif (role != "final_validation" or phase not in review_phases) and "review" in acceptance:
+        issues.append(Issue(path, f"{prefix}.acceptance.review: review is valid only after the group Reviewer returns"))
+    elif isinstance(review, dict):
+        for field in sorted(ACCEPTANCE_REVIEW_FIELDS - set(review)):
+            issues.append(Issue(path, f"{prefix}.acceptance.review.{field}: missing required field"))
+        for field in sorted(set(review) - ACCEPTANCE_REVIEW_FIELDS):
+            issues.append(Issue(path, f"{prefix}.acceptance.review.{field}: unknown field"))
+        if not isinstance(review.get("recorded_at"), str) or not str(review.get("recorded_at")).strip():
+            issues.append(Issue(path, f"{prefix}.acceptance.review.recorded_at: must be a non-empty timestamp"))
+        if not isinstance(review.get("dispatch_id"), str) or not UUID4_PATTERN.fullmatch(str(review.get("dispatch_id"))):
+            issues.append(Issue(path, f"{prefix}.acceptance.review.dispatch_id: must be the completed Reviewer dispatch UUID4"))
 
     regression = node.get("regression")
     last_pass = regression.get("last_pass") if isinstance(regression, dict) else None
-    if phase in {"awaiting_auditor", "auditor_running", "accepted"} and not isinstance(last_pass, dict):
+    must_have_pass = phase in {"awaiting_verifier", "verifier_running", "accepted"} and role in REGRESSION_NODE_ROLES
+    if must_have_pass and not isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} requires a passing regression receipt"))
-    if phase in {
-        "awaiting_acceptance_design",
-        "acceptance_designer_running",
-        "acceptance_revision_required",
-        "awaiting_executor",
-        "executor_running",
-        "correction_required",
-        "awaiting_regression",
-        "repair_plan_required",
-        "awaiting_repair",
-    } and isinstance(last_pass, dict):
+    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_regression", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}
+    if phase in obsolete_pass_phases and isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} must not retain an obsolete receipt"))
+    return issues
 
-    if isinstance(dispatch, dict) and dispatch.get("role") == "auditor" and isinstance(last_pass, dict):
-        for field in ("contract_digest", "content_fingerprint"):
-            if dispatch.get(field) != last_pass.get(field):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: must bind the current regression receipt"))
-    if isinstance(audit, dict) and isinstance(last_pass, dict):
-        for field in ("contract_digest", "content_fingerprint"):
-            if audit.get(field) != last_pass.get(field):
-                issues.append(Issue(path, f"{prefix}.acceptance.audit.{field}: must bind the accepted regression receipt"))
 
+def validate_milestone_gate_contract(
+    path: Path,
+    data: list[Any],
+) -> list[Issue]:
+    """Validate same-Plan leaf ownership for non-delivery milestone gates."""
+    issues: list[Issue] = []
+    for index, node in enumerate(data):
+        if not isinstance(node, dict) or node.get("role") != MILESTONE_GATE_ROLE:
+            continue
+        prefix = f"node[{index}]"
+        if node_has_tag(node, GATE_LEAF_TAG):
+            issues.append(
+                Issue(
+                    path,
+                    f"{prefix}.tags: {GATE_LEAF_TAG} may be used only on non-{MILESTONE_GATE_ROLE} nodes",
+                )
+            )
+        status = node.get("status")
+        if (
+            status in MILESTONE_GATE_LEAF_REQUIRED_STATUSES
+            and not has_same_plan_gate_leaf_prerequisite(node, data)
+        ):
+            issues.append(
+                Issue(
+                    path,
+                    f"{prefix}.prerequisites: {MILESTONE_GATE_ROLE} in status {status!r} "
+                    f"must directly reference at least one same-Plan {GATE_LEAF_TAG} node",
+                )
+            )
     return issues
 
 
@@ -426,6 +442,23 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
             reason_issue = safe_summary_issue(status_reason)
             if reason_issue is not None:
                 issues.append(Issue(path, f"{prefix}.status_reason: {reason_issue}"))
+
+        for field in ("code", "title"):
+            if field not in node:
+                continue
+            field_issue = readable_summary_issue(node.get(field))
+            if field_issue is not None:
+                issues.append(Issue(path, f"{prefix}.{field}: {field_issue}"))
+
+        for field in ("tags", "conditions"):
+            if field in node:
+                issues.extend(
+                    validate_readable_string_list(
+                        path,
+                        f"{prefix}.{field}",
+                        node.get(field),
+                    )
+                )
 
         acceptance_criteria = node.get("acceptance_criteria")
         if not isinstance(acceptance_criteria, list):
@@ -505,6 +538,7 @@ def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Is
     issues.extend(validate_independent_design_ownership(path, data))
     issues.extend(validate_delivery_roles(path, data))
     issues.extend(validate_requirement_traceability(path, data))
+    issues.extend(validate_milestone_gate_contract(path, data))
     issues.extend(WORKFLOW_STATE_MACHINE.checkpoint_snapshot_issues(path, data))
     return len(data), issues
 
@@ -660,8 +694,13 @@ def validate_delivery_roles(path: Path, data: Any) -> list[Issue]:
         if isinstance(role, str) and role in VALID_NODE_ROLES:
             role_indexes.setdefault(role, []).append(index)
             difficulty = node.get("difficulty")
-            if role in HIGH_OR_DEEP_REQUIRED_ROLES and difficulty not in {"high", "deep"}:
-                issues.append(Issue(path, f"node[{index}].difficulty: role {role!r} must use 'high' or 'deep'"))
+            if role in COMPLEX_OR_CRITICAL_REQUIRED_ROLES and difficulty not in {"complex", "critical"}:
+                issues.append(
+                    Issue(
+                        path,
+                        f"node[{index}].difficulty: role {role!r} must use 'complex' or 'critical'",
+                    )
+                )
 
     first_indexes = {role: indexes[0] for role, indexes in role_indexes.items()}
     for before, after in zip(FOUNDATION_ROLE_ORDER, FOUNDATION_ROLE_ORDER[1:]):

@@ -62,6 +62,7 @@ class PythonCompatibilityContractTests(unittest.TestCase):
             }.issubset(jobs)
         )
         self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("python scripts/manifest_tool.py schema capability", workflow)
         self.assertIn("python scripts/manifest_tool.py schema plan", workflow)
         self.assertIn("python scripts/manifest_tool.py schema node", workflow)
 

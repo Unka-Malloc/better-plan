@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import sys
@@ -144,14 +145,24 @@ def check_opencode(paths: _InstallPaths) -> list[_Check]:
 
 
 def check_optional_client_cli(target: str) -> _Check:
-    command = OPTIONAL_CLIENT_CLI_COMMANDS[target]
-    executable = shutil.which(command[0])
-    if executable is None:
-        return _Check("WARN", target, f"adapter structure verified; {command[0]} CLI not found for runtime validation")
-    result = _targets.run_text_command([executable, *command[1:]], timeout=30)
-    if result.returncode != 0:
-        return _Check("FAIL", target, f"{command[0]} CLI version check failed")
-    return _Check("OK", target, f"adapter structure and {command[0]} CLI verified")
+    for command in OPTIONAL_CLIENT_CLI_COMMANDS[target]:
+        name = command[0]
+        if os.path.isabs(name):
+            executable = name if os.path.isfile(name) else None
+        else:
+            executable = shutil.which(name)
+        if executable is None:
+            continue
+        try:
+            result = _targets.run_text_command([executable, *command[1:]], timeout=30)
+        except _InstallError:
+            continue
+        if result.returncode in (126, 127):
+            continue
+        if result.returncode != 0:
+            return _Check("FAIL", target, f"{name} CLI version check failed")
+        return _Check("OK", target, f"adapter structure and {name} CLI verified")
+    return _Check("WARN", target, f"adapter structure verified; {target} CLI not found for runtime validation")
 
 
 def check_antigravity(paths: _InstallPaths) -> _Check:

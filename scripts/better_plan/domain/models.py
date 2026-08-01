@@ -15,7 +15,10 @@ MANIFEST_NAME = "Manifest.json"
 CHECKPOINTS_NAME = "Checkpoints.json"
 
 
-STATE_FILE_NAMES = {MANIFEST_NAME, CHECKPOINTS_NAME}
+CAPABILITIES_NAME = "Capabilities.json"
+
+
+STATE_FILE_NAMES = {MANIFEST_NAME, CHECKPOINTS_NAME, CAPABILITIES_NAME}
 
 
 STATUS_ORDER = ("pending", "in_progress", "blocked", "deferred", "completed", "skipped")
@@ -24,7 +27,7 @@ STATUS_ORDER = ("pending", "in_progress", "blocked", "deferred", "completed", "s
 VALID_STATUSES = set(STATUS_ORDER)
 
 
-VALID_DIFFICULTIES = {"low", "medium", "high", "deep"}
+VALID_DIFFICULTIES = {"routine", "standard", "complex", "critical"}
 
 
 VALID_PLATFORMS = {"any", "linux", "macos", "windows"}
@@ -33,11 +36,54 @@ VALID_PLATFORMS = {"any", "linux", "macos", "windows"}
 VALID_REGRESSION_SCOPES = {"focused", "full"}
 
 
+VALID_PLAN_KINDS = {
+    "branch",
+    "context",
+    "gate",
+    "group",
+    "plan",
+    "release",
+    "root",
+    "rule",
+    "stage",
+}
+
+
+VALID_TREE_MODES = {"flatten", "hide", "show"}
+
+
+VALID_NODE_STATUS_MODES = {"hide", "show"}
+
+
+ENTRY_GATE_REQUIRED_FIELDS = {"title", "prerequisites", "conditions"}
+
+
+ENTRY_GATE_OPTIONAL_FIELDS: set[str] = set()
+
+
+MILESTONE_GATE_ROLE = "milestone_gate"
+
+
+GATE_LEAF_TAG = "GATE_LEAF"
+
+
+RESERVED_NODE_TAGS = {GATE_LEAF_TAG}
+
+
+MILESTONE_GATE_LEAF_REQUIRED_STATUSES = {
+    "pending",
+    "in_progress",
+    "completed",
+}
+
+
 VALID_NODE_ROLES = {
     "product_requirements",
     "evidence",
     "validation_matrix",
     "architecture_scaffold",
+    "group_design",
+    MILESTONE_GATE_ROLE,
     "implementation",
     "final_validation",
 }
@@ -46,11 +92,19 @@ VALID_NODE_ROLES = {
 REGRESSION_NODE_ROLES = {"implementation", "final_validation"}
 
 
-HIGH_OR_DEEP_REQUIRED_ROLES = {
+AUTOMATED_NODE_ROLES = REGRESSION_NODE_ROLES | {"group_design"}
+
+
+DESIGN_NODE_ROLES = AUTOMATED_NODE_ROLES
+
+
+COMPLEX_OR_CRITICAL_REQUIRED_ROLES = {
     "product_requirements",
     "evidence",
     "validation_matrix",
     "architecture_scaffold",
+    "group_design",
+    MILESTONE_GATE_ROLE,
     "final_validation",
 }
 
@@ -103,13 +157,40 @@ PLAN_REQUIRED_FIELDS = {
     "title",
     "directory",
     "source_files",
+    "purpose",
     "goal",
     "description",
     "checkpoints",
 }
 
 
-PLAN_OPTIONAL_FIELDS: set[str] = set()
+PLAN_OPTIONAL_FIELDS = {
+    "kind",
+    "tree_mode",
+    "node_status",
+    "entry_gate",
+    "decision_issues",
+    "capability_key",
+}
+
+
+DECISION_ISSUE_REQUIRED_FIELDS = {
+    "id",
+    "urgency",
+    "question",
+    "context",
+    "options",
+    "status",
+}
+
+
+DECISION_ISSUE_OPTIONAL_FIELDS = {"resolution"}
+
+
+VALID_DECISION_URGENCIES = {"immediate", "deferred"}
+
+
+VALID_DECISION_STATUSES = {"open", "resolved"}
 
 
 TASK_REQUIRED_FIELDS = {
@@ -127,7 +208,17 @@ TASK_REQUIRED_FIELDS = {
 }
 
 
-TASK_OPTIONAL_FIELDS = {"requirements", "status_reason", "regression", "acceptance", "design"}
+TASK_OPTIONAL_FIELDS = {
+    "requirements",
+    "status_reason",
+    "regression",
+    "acceptance",
+    "design",
+    "code",
+    "title",
+    "tags",
+    "conditions",
+}
 
 
 COMMIT_REQUIRED_FIELDS = {"repository", "message", "target"}
@@ -156,7 +247,7 @@ ACCEPTANCE_REQUIRED_FIELDS = {"phase", "attempt", "outcome"}
 
 ACCEPTANCE_OPTIONAL_FIELDS = {
     "dispatch",
-    "audit",
+    "review",
     "repair_node_id",
     "scaffold_fingerprint",
     "design_digest",
@@ -174,32 +265,32 @@ ACCEPTANCE_DISPATCH_REQUIRED_FIELDS = {"id", "role"}
 
 
 ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS = {
-    "contract_digest",
-    "content_fingerprint",
     "design_digest",
-    "scaffold_fingerprint",
-    "acceptance_fingerprint",
+    "host_agent_id",
 }
 
 
-ACCEPTANCE_DESIGNER_DISPATCH_REQUIRED_FIELDS = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | {"design_digest"}
+DESIGNER_DISPATCH_REQUIRED_FIELDS = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | {"design_digest"}
 
 
-ACCEPTANCE_AUDIT_FIELDS = {"recorded_at", "contract_digest", "content_fingerprint"}
+ACCEPTANCE_REVIEW_FIELDS = {"recorded_at", "dispatch_id"}
 
 
 ACCEPTANCE_PHASES = {
-    "awaiting_acceptance_design",
-    "acceptance_designer_running",
-    "acceptance_revision_required",
-    "awaiting_executor",
-    "executor_running",
+    "awaiting_designer",
+    "designer_running",
+    "awaiting_worker",
+    "worker_running",
     "correction_required",
     "awaiting_regression",
-    "awaiting_auditor",
-    "auditor_running",
+    "awaiting_verifier",
+    "verifier_running",
+    "awaiting_reviewer",
+    "reviewer_running",
+    "reviewer_complete",
     "repair_plan_required",
     "awaiting_repair",
+    "awaiting_repair_regression",
     "accepted",
 }
 
@@ -210,7 +301,6 @@ ACCEPTANCE_OUTCOMES = {
     "regression_failed",
     "regression_timeout",
     "regression_unavailable",
-    "audit_failed",
     "accepted",
 }
 
@@ -219,7 +309,6 @@ ACCEPTANCE_FAILURE_OUTCOMES = {
     "regression_failed",
     "regression_timeout",
     "regression_unavailable",
-    "audit_failed",
 }
 
 
@@ -249,7 +338,7 @@ NETWORK_ENDPOINT_PATTERN = re.compile(
 
 
 SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
-    r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|"
+    r"(?i)\b(?:password|passwd|secret|api[_-]?key|token|access[_-]?token|refresh[_-]?token|authorization|"
     r"private[_-]?key|host|hostname|server|endpoint|dsn|database[_-]?url)\s*[:=]\s*\S+"
 )
 
@@ -262,7 +351,9 @@ SENSITIVE_TOKEN_PATTERN = re.compile(
 EVIDENCE_COMMAND_TIMEOUT_SECONDS = 1800
 
 
-REGRESSION_COMMAND_TIMEOUT_SECONDS = 1800
+# Must cover the longest declared focused command (the frozen soak profile
+# declares up to 150 minutes); a shorter cap would kill a compliant run.
+REGRESSION_COMMAND_TIMEOUT_SECONDS = 9600
 
 
 PLAN_TEMPLATE: dict[str, Any] = {
@@ -271,9 +362,15 @@ PLAN_TEMPLATE: dict[str, Any] = {
     "title": "Plan title",
     "directory": "plan-title",
     "source_files": ["docs/plan.md"],
+    "purpose": "Why this Plan exists and what role it serves in the Plan hierarchy.",
     "goal": "One-sentence plan goal.",
     "description": "Short description of what this plan covers.",
     "checkpoints": "plan-title/Checkpoints.json",
+    "kind": "group",
+    "capability_key": "repository/capability",
+    "tree_mode": "show",
+    "node_status": "show",
+    "decision_issues": [],
 }
 
 
@@ -283,7 +380,7 @@ NODE_TEMPLATE: dict[str, Any] = {
     "role": "implementation",
     "prerequisites": [],
     "platform": "any",
-    "difficulty": "medium",
+    "difficulty": "standard",
     "goal": "One-sentence task goal.",
     "description": (
         "Scope: Closure: module - one independently acceptable target; owned modules, directories, and files. "
@@ -293,6 +390,10 @@ NODE_TEMPLATE: dict[str, Any] = {
         "Design Value: why the design earns its complexity. "
         "Constraints & Risks: invariants, non-goals, and open questions."
     ),
+    "code": "K0",
+    "title": "Concise source-grounded milestone title",
+    "tags": [],
+    "conditions": [],
     "requirements": ["REQ-001"],
     "design": {
         "artifact": "docs/plan/example/Architecture.md",
@@ -410,18 +511,26 @@ class WorkflowStateMachine:
 
     def checkpoint_snapshot_issues(self, path: Path, data: list[Any]) -> list[Issue]:
         issues: list[Issue] = []
-        in_progress_indexes: list[int] = []
+        in_progress_nodes: list[tuple[int, dict[str, Any]]] = []
 
         for index, node in enumerate(data):
             if not isinstance(node, dict):
                 continue
             status = node.get("status")
             if status == "in_progress":
-                in_progress_indexes.append(index)
+                in_progress_nodes.append((index, node))
 
-        if len(in_progress_indexes) > 1:
-            indexes = ", ".join(f"node[{index}]" for index in in_progress_indexes)
-            issues.append(Issue(path, f"state machine: only one node may be in_progress at a time: {indexes}"))
+        if len(in_progress_nodes) > 1 and any(
+            node.get("role") != "implementation" for _, node in in_progress_nodes
+        ):
+            indexes = ", ".join(f"node[{index}]" for index, _ in in_progress_nodes)
+            issues.append(
+                Issue(
+                    path,
+                    "state machine: only independent implementation nodes may be in_progress concurrently: "
+                    f"{indexes}",
+                )
+            )
 
         for index, node in enumerate(data):
             if not isinstance(node, dict):
@@ -481,6 +590,39 @@ def generate_id() -> str:
 
 def is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def node_has_tag(node: Mapping[str, Any], tag: str) -> bool:
+    tags = node.get("tags")
+    return is_string_list(tags) and tag in tags
+
+
+def is_gate_leaf_node(node: Mapping[str, Any]) -> bool:
+    role = node.get("role")
+    return (
+        role in VALID_NODE_ROLES
+        and role != MILESTONE_GATE_ROLE
+        and node_has_tag(node, GATE_LEAF_TAG)
+    )
+
+
+def has_same_plan_gate_leaf_prerequisite(
+    node: Mapping[str, Any],
+    owning_nodes: list[Any],
+) -> bool:
+    if node_has_tag(node, GATE_LEAF_TAG):
+        return False
+    prerequisites = node.get("prerequisites")
+    if not is_string_list(prerequisites):
+        return False
+    leaf_ids = {
+        str(entry.get("id"))
+        for entry in owning_nodes
+        if isinstance(entry, Mapping)
+        and is_manifest_id(entry.get("id"))
+        and is_gate_leaf_node(entry)
+    }
+    return any(reference in leaf_ids for reference in prerequisites)
 
 
 def is_requirement_label(value: Any) -> bool:
@@ -561,6 +703,11 @@ def has_startable_pending_node(
 
     for node in nodes:
         if not isinstance(node, dict) or node.get("status") != "pending":
+            continue
+        if (
+            node.get("role") == MILESTONE_GATE_ROLE
+            and not has_same_plan_gate_leaf_prerequisite(node, nodes)
+        ):
             continue
         if node.get("role") == "final_validation" and any(
             isinstance(entry, dict)
