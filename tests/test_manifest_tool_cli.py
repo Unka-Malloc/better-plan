@@ -157,7 +157,7 @@ def checkpoint_node(
     status: str = "completed",
     goal: str = "Validate the CLI happy path.",
     target: str = "tests",
-    role: str = "implementation",
+    role: str = "validation_matrix",
     prerequisites: list[str] | None = None,
     platform: str = "any",
     checked: bool = True,
@@ -171,7 +171,7 @@ def checkpoint_node(
         "prerequisites": prerequisites or [],
         "platform": platform,
         "difficulty": (
-            "deep"
+            "critical"
             if role in {
                 "product_requirements",
                 "evidence",
@@ -179,7 +179,7 @@ def checkpoint_node(
                 "architecture_scaffold",
                 "final_validation",
             }
-            else "medium"
+            else "standard"
         ),
         "goal": goal,
         "description": "Minimal checkpoint node for CLI integration tests.",
@@ -219,6 +219,7 @@ def plan_object(plan_status: str) -> dict[str, object]:
         "title": "Main Plan",
         "directory": "main-plan",
         "source_files": ["docs/plan.md"],
+        "purpose": "Provide one valid Plan container for CLI integration behavior.",
         "goal": "Validate the CLI happy path.",
         "description": "Minimal workspace for CLI integration tests.",
         "checkpoints": "main-plan/Checkpoints.json",
@@ -251,38 +252,64 @@ def serialized_node_bytes(root: Path, node_id: str) -> bytes:
     return json.dumps(node, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
-def prepare_node_with_acceptance(root: Path, node_id: str = NODE_ID) -> str:
-    designer = run_command(
+def dispatch_role(root: Path, node_id: str, role: str) -> subprocess.CompletedProcess[str]:
+    """Record one current lifecycle role dispatch for a fixture Node."""
+    arguments: list[str | Path] = [
         sys.executable,
         PYTHON_TOOL,
         "dispatch",
         node_id,
         str(root),
         "--role",
-        "acceptance_designer",
-    )
-    if designer.returncode != 0:
-        raise AssertionError(f"dispatch acceptance_designer failed: {designer.stderr or designer.stdout}")
+        role,
+    ]
+    return run_command(*arguments)
 
-    designer_id = json.loads(designer.stdout)["dispatch_id"]
-    designer_exit = run_command(
+
+def bind_and_complete_agent(
+    root: Path,
+    node_id: str,
+    dispatch_id: str,
+    *,
+    agent_id: str | None = None,
+) -> tuple[str, subprocess.CompletedProcess[str]]:
+    """Bind a native host identity, then submit its explicit final callback."""
+    # Completion reduction validates the whole temporary workspace, including
+    # the fixture Plan's declared source.  Keep the source local to lifecycle
+    # tests without changing the general workspace fixture used by validation
+    # tests that intentionally exercise missing-source behavior.
+    source = root / "docs" / "plan.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    if not source.exists():
+        source.write_text("# fixture plan source\n", encoding="utf-8")
+    host_agent_id = agent_id or f"host-agent-{dispatch_id}"
+    bound = run_command(
         sys.executable,
         PYTHON_TOOL,
-        "advance",
+        "bind-agent",
         node_id,
         str(root),
-        "--event",
-        "acceptance-designer-exited",
         "--dispatch-id",
-        designer_id,
+        dispatch_id,
+        "--agent-id",
+        host_agent_id,
     )
-    if designer_exit.returncode != 0:
-        raise AssertionError(f"acceptance-designer-exited failed: {designer_exit.stderr or designer_exit.stdout}")
+    if bound.returncode != 0:
+        raise AssertionError(f"bind-agent failed: {bound.stderr or bound.stdout}")
+    completed = run_command(
+        sys.executable,
+        PYTHON_TOOL,
+        "agent-complete",
+        node_id,
+        str(root),
+        "--agent-id",
+        host_agent_id,
+        "--final",
+    )
+    if completed.returncode != 0:
+        raise AssertionError(f"agent-complete failed: {completed.stderr or completed.stdout}")
+    return host_agent_id, completed
 
-    next_action = run_command(sys.executable, PYTHON_TOOL, "next-action", node_id, str(root))
-    if next_action.returncode != 0:
-        raise AssertionError(f"next-action after acceptance freeze failed: {next_action.stderr or next_action.stdout}")
-    return json.loads(next_action.stdout)["action"]
 
 
 def write_hierarchical_workspace(root: Path) -> None:
@@ -306,6 +333,7 @@ def write_hierarchical_workspace(root: Path) -> None:
                     "title": "Common",
                     "directory": "common",
                     "source_files": ["docs/common-plan.md"],
+                    "purpose": "Provide the shared foundation represented by the parent Plan.",
                     "goal": "Validate a shared foundation plan.",
                     "description": "Parent plan for business-line child plans.",
                     "checkpoints": "common/Checkpoints.json",
@@ -316,6 +344,7 @@ def write_hierarchical_workspace(root: Path) -> None:
                     "title": "A",
                     "directory": "common/a",
                     "source_files": ["docs/a-plan.md"],
+                    "purpose": "Represent a child delivery branch beneath the Common Plan.",
                     "goal": "Validate a child business-line plan.",
                     "description": "Child plan under the Common foundation.",
                     "checkpoints": "common/a/Checkpoints.json",
@@ -340,7 +369,12 @@ class ManifestToolCliTests(unittest.TestCase):
                         checked=False,
                         status_reason="Waiting for an external decision.",
                     ),
-                    checkpoint_node(SECOND_NODE_ID, status="in_progress", checked=False),
+                    checkpoint_node(
+                        SECOND_NODE_ID,
+                        status="in_progress",
+                        checked=False,
+                        role="implementation",
+                    ),
                 ],
             )
             manifest_path = root / "Manifest.json"
@@ -448,6 +482,7 @@ class ManifestToolCliTests(unittest.TestCase):
                             "title": "Incomplete",
                             "directory": "incomplete",
                             "source_files": [],
+                            "purpose": "Exercise discovery rejection for an incomplete Plan.",
                             "goal": "Exercise structural discovery.",
                             "description": "Manifest without its plan-local checkpoint file.",
                             "checkpoints": "incomplete/Checkpoints.json",
@@ -491,7 +526,14 @@ class ManifestToolCliTests(unittest.TestCase):
             write_workspace(
                 root,
                 plan_status="pending",
-                nodes=[checkpoint_node(NODE_ID, status="pending", platform=other_platform())],
+                nodes=[
+                    checkpoint_node(
+                        NODE_ID,
+                        status="pending",
+                        platform=other_platform(),
+                        role="implementation",
+                    )
+                ],
             )
             before = (root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()
 
@@ -508,466 +550,6 @@ class ManifestToolCliTests(unittest.TestCase):
                 ((root / "Manifest.json").read_bytes(), (root / "main-plan" / "Checkpoints.json").read_bytes()),
             )
 
-    def test_next_action_lazily_enrolls_to_acceptance_designer_gate(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending")
-            design = {
-                "artifact": "tests/acceptance-fixture/design.md",
-                "owned_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "scaffold_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "acceptance_paths": ["tests/acceptance-fixture/acceptance.md"],
-                "symbols": [
-                    {
-                        "path": "tests/acceptance-fixture/scaffold.py",
-                        "kind": "module",
-                        "name": "acceptance_scaffold",
-                        "operation": "modify",
-                        "signature": "acceptance_scaffold(state: object) -> str",
-                    }
-                ],
-                "interfaces": [
-                    {
-                        "name": "acceptance_scaffold",
-                        "producer": "tests/acceptance-fixture/scaffold.py",
-                        "consumers": ["scripts/manifest_tool.py"],
-                        "inputs": "validated node and plan payload",
-                        "outputs": "next action and acceptance state",
-                        "errors": ["ValueError for malformed state"],
-                    }
-                ],
-                "dependencies": [],
-                "decisions": {
-                    "composition": "pure boundaries",
-                    "algorithms": "constant-time transition lookup",
-                    "data_structures": "normalized mappings",
-                    "state": "state file writer only",
-                    "isolation": "role-specific artifacts only",
-                    "concurrency": "serialized node mutation",
-                },
-                "test_seams": ["tests/acceptance-state-machine"],
-            }
-            node["design"] = design
-            write_design_artifacts(root, design)
-            write_workspace(root, plan_status="pending", nodes=[node])
-
-            next_action = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(next_action.returncode, 0, next_action.stderr)
-            self.assertEqual(json.loads(next_action.stdout)["action"], "dispatch_acceptance_designer")
-
-            designer = run_command(sys.executable, PYTHON_TOOL, "dispatch", NODE_ID, tmpdir, "--role", "acceptance_designer")
-            self.assertEqual(designer.returncode, 0, designer.stderr)
-            designer_id = json.loads(designer.stdout)["dispatch_id"]
-            self.assertTrue(UUID4_PATTERN.fullmatch(designer_id))
-            after_designer = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(after_designer.returncode, 0, after_designer.stderr)
-            self.assertEqual(json.loads(after_designer.stdout)["action"], "await_acceptance_designer_exit")
-
-            wrong_exit = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-designer-exited",
-                "--dispatch-id",
-                "stale-designer-id",
-            )
-            self.assertNotEqual(wrong_exit.returncode, 0, wrong_exit.stdout)
-            exit_event = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-designer-exited",
-                "--dispatch-id",
-                designer_id,
-            )
-            self.assertEqual(exit_event.returncode, 0, exit_event.stderr)
-            self.assertEqual(json.loads(exit_event.stdout)["phase"], "awaiting_executor")
-            prepared = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(prepared.returncode, 0, prepared.stderr)
-            self.assertEqual(json.loads(prepared.stdout)["action"], "dispatch_executor")
-
-    def test_frozen_preparation_changes_have_freshness_gates(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending")
-            node["design"] = {
-                "artifact": "tests/acceptance-fixture/design.md",
-                "owned_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "scaffold_paths": ["tests/acceptance-fixture/scaffold.py"],
-                "acceptance_paths": ["tests/acceptance-fixture/acceptance.md", "tests/acceptance-fixture/acceptance-2.md"],
-                "symbols": [
-                    {
-                        "path": "tests/acceptance-fixture/scaffold.py",
-                        "kind": "module",
-                        "name": "acceptance_scaffold",
-                        "operation": "modify",
-                        "signature": "acceptance_scaffold(state: object) -> str",
-                    }
-                ],
-                "interfaces": [
-                    {
-                        "name": "acceptance_scaffold",
-                        "producer": "tests/acceptance-fixture/scaffold.py",
-                        "consumers": ["scripts/manifest_tool.py"],
-                        "inputs": "validated node and plan payload",
-                        "outputs": "next action and acceptance state",
-                        "errors": ["ValueError for malformed state"],
-                    }
-                ],
-                "dependencies": [],
-                "decisions": {
-                    "composition": "pure boundaries",
-                    "algorithms": "constant-time transition lookup",
-                    "data_structures": "normalized mappings",
-                    "state": "state file writer only",
-                    "isolation": "role-specific artifacts only",
-                    "concurrency": "serialized node mutation",
-                },
-                "test_seams": ["tests/acceptance-state-machine"],
-            }
-            write_design_artifacts(root, node["design"])
-            write_workspace(root, plan_status="pending", nodes=[node])
-
-            designer = run_command(sys.executable, PYTHON_TOOL, "dispatch", NODE_ID, tmpdir, "--role", "acceptance_designer")
-            self.assertEqual(designer.returncode, 0, designer.stderr)
-            designer_id = json.loads(designer.stdout)["dispatch_id"]
-            self.assertTrue(UUID4_PATTERN.fullmatch(designer_id))
-            self.assertTrue(OPAQUE_EVENT_ID_PATTERN.fullmatch(designer_id))
-            designer_exit = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "acceptance-designer-exited",
-                "--dispatch-id",
-                designer_id,
-            )
-            self.assertEqual(designer_exit.returncode, 0, designer_exit.stderr)
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "dispatch_executor",
-            )
-            stale_acceptance = (root / "tests/acceptance-fixture/acceptance.md")
-            stale_acceptance.write_text("updated cases", encoding="utf-8")
-            self.assertEqual(
-                json.loads(run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir).stdout)["action"],
-                "main_acceptance_decision",
-            )
-            self.assertEqual(read_nodes(root)[0]["acceptance"]["phase"], "acceptance_revision_required")
-
-
-    def test_completed_capability_is_terminal_without_enrolling_another_eligible_node(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            second_node = checkpoint_node(
-                SECOND_NODE_ID,
-                status="pending",
-                goal="Remain eligible after the selected capability completes.",
-                checked=False,
-            )
-            second_node["design"] = default_acceptance_design("second-acceptance-fixture")
-            write_workspace(
-                root,
-                plan_status="pending",
-                nodes=[
-                    checkpoint_node(NODE_ID, status="pending", checked=False),
-                    second_node,
-                ],
-            )
-            second_node_before = serialized_node_bytes(root, SECOND_NODE_ID)
-            self.assertEqual(prepare_node_with_acceptance(root, NODE_ID), "dispatch_executor")
-
-            executor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertEqual(executor.returncode, 0, executor.stderr)
-            executor_exit = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "executor-exited",
-                "--dispatch-id",
-                json.loads(executor.stdout)["dispatch_id"],
-            )
-            self.assertEqual(executor_exit.returncode, 0, executor_exit.stderr)
-            self.assertEqual(json.loads(executor_exit.stdout)["action"], "dispatch_auditor")
-
-            auditor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "auditor",
-            )
-            self.assertEqual(auditor.returncode, 0, auditor.stderr)
-            audit_passed = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "audit-passed",
-                "--dispatch-id",
-                json.loads(auditor.stdout)["dispatch_id"],
-            )
-            self.assertEqual(audit_passed.returncode, 0, audit_passed.stderr)
-
-            terminal = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(terminal.returncode, 0, terminal.stderr)
-            terminal_payload = json.loads(terminal.stdout)
-            self.assertEqual(terminal_payload["node_id"], NODE_ID)
-            self.assertEqual(terminal_payload["phase"], "accepted")
-            self.assertEqual(terminal_payload["action"], "none")
-            self.assertFalse(terminal_payload["action"].startswith("dispatch_"))
-
-            selected, untouched = read_nodes(root)
-            self.assertEqual(selected["status"], "completed")
-            self.assertEqual(untouched["status"], "pending")
-            self.assertEqual(untouched["prerequisites"], [])
-            self.assertEqual(untouched["platform"], "any")
-            self.assertNotIn("acceptance", untouched)
-            self.assertEqual(serialized_node_bytes(root, SECOND_NODE_ID), second_node_before)
-
-    def test_executor_exit_records_a_current_focused_receipt_and_binds_auditor(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending", checked=False)])
-            self.assertEqual(prepare_node_with_acceptance(root), "dispatch_executor")
-
-            dispatch = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertEqual(dispatch.returncode, 0, dispatch.stderr)
-            executor_id = json.loads(dispatch.stdout)["dispatch_id"]
-            advance = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "executor-exited",
-                "--dispatch-id",
-                executor_id,
-            )
-
-            self.assertEqual(advance.returncode, 0, advance.stderr)
-            self.assertEqual(json.loads(advance.stdout)["phase"], "awaiting_auditor")
-            node = read_nodes(root)[0]
-            criterion = node["acceptance_criteria"][0]
-            receipt = node["regression"]["last_pass"]
-            self.assertTrue(criterion["checked"])
-            self.assertEqual(criterion["evidence_refs"][0]["exit_code"], 0)
-            self.assertEqual(len(criterion["evidence_refs"][0]["command_sha256"]), 64)
-            self.assertNotIn("command", criterion["evidence_refs"][0])
-            self.assertEqual(len(receipt["contract_digest"]), 64)
-            self.assertEqual(len(receipt["content_fingerprint"]), 64)
-
-            auditor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "auditor",
-            )
-            self.assertEqual(auditor.returncode, 0, auditor.stderr)
-            audit_dispatch = read_nodes(root)[0]["acceptance"]["dispatch"]
-            self.assertEqual(audit_dispatch["contract_digest"], receipt["contract_digest"])
-            self.assertEqual(audit_dispatch["content_fingerprint"], receipt["content_fingerprint"])
-
-    def test_final_regression_event_runs_full_once_and_audit_completes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending", role="final_validation", checked=False)
-            node["regression"]["commands"] = [marker_regression_command()]  # type: ignore[index]
-            write_workspace(root, plan_status="pending", nodes=[node])
-            self.assertEqual(prepare_node_with_acceptance(root), "run_regression")
-
-            first = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "regression-requested",
-                "--dispatch-id",
-                "full-attempt-1",
-            )
-            self.assertEqual(first.returncode, 0, first.stderr)
-            receipt = read_nodes(root)[0]["regression"]["last_pass"]
-            before = (root / "main-plan" / "Checkpoints.json").read_bytes()
-            repeated = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "regression-requested",
-                "--dispatch-id",
-                "full-attempt-1",
-            )
-
-            self.assertNotEqual(repeated.returncode, 0, repeated.stdout)
-            self.assertIn("out of order", repeated.stderr)
-            self.assertEqual((root / "regression-runs.txt").read_text(encoding="utf-8"), "run\n")
-            self.assertEqual(read_nodes(root)[0]["regression"]["last_pass"], receipt)
-            self.assertEqual((root / "main-plan" / "Checkpoints.json").read_bytes(), before)
-
-            auditor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "auditor",
-            )
-            self.assertEqual(auditor.returncode, 0, auditor.stderr)
-            auditor_id = json.loads(auditor.stdout)["dispatch_id"]
-            completed = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "audit-passed",
-                "--dispatch-id",
-                auditor_id,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(read_nodes(root)[0]["status"], "completed")
-            self.assertEqual(read_plans(root)[0]["status"], "completed")
-
-    def test_stale_full_receipt_rejects_bound_audit_without_rerunning(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending", role="final_validation", checked=False)
-            node["regression"]["commands"] = [marker_regression_command()]  # type: ignore[index]
-            write_workspace(root, plan_status="pending", nodes=[node])
-            self.assertEqual(prepare_node_with_acceptance(root), "run_regression")
-
-            first = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "regression-requested",
-                "--dispatch-id",
-                "full-attempt-1",
-            )
-            self.assertEqual(first.returncode, 0, first.stderr)
-            auditor = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "auditor",
-            )
-            self.assertEqual(auditor.returncode, 0, auditor.stderr)
-            auditor_id = json.loads(auditor.stdout)["dispatch_id"]
-            (root / "tracked.txt").write_text("changed\n", encoding="utf-8")
-            before = (root / "main-plan" / "Checkpoints.json").read_bytes()
-            verdict = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "audit-passed",
-                "--dispatch-id",
-                auditor_id,
-            )
-
-            self.assertNotEqual(verdict.returncode, 0, verdict.stdout)
-            self.assertIn("current passing regression fingerprint", verdict.stderr)
-            self.assertEqual((root / "regression-runs.txt").read_text(encoding="utf-8"), "run\n")
-            self.assertEqual((root / "main-plan" / "Checkpoints.json").read_bytes(), before)
-
-    def test_failed_executor_regression_persists_only_the_safe_repair_state(self) -> None:
-        sentinel = "PRIVATE-RUNTIME-SENTINEL"
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            node = checkpoint_node(NODE_ID, status="pending", checked=False)
-            encoded_sentinel = ",".join(str(ord(character)) for character in sentinel)
-            node["regression"]["commands"] = [  # type: ignore[index]
-                command_line(
-                    sys.executable,
-                    "-c",
-                    f"import sys; print(''.join(chr(value) for value in [{encoded_sentinel}])); sys.exit(7)",
-                )
-            ]
-            write_workspace(root, plan_status="pending", nodes=[node])
-            self.assertEqual(prepare_node_with_acceptance(root), "dispatch_executor")
-
-            dispatch = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertEqual(dispatch.returncode, 0, dispatch.stderr)
-            executor_id = json.loads(dispatch.stdout)["dispatch_id"]
-            advance = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "executor-exited",
-                "--dispatch-id",
-                executor_id,
-            )
-
-            self.assertEqual(advance.returncode, 0, advance.stderr)
-            self.assertEqual(json.loads(advance.stdout)["action"], "main_correction_decision")
-            self.assertNotIn(sentinel, advance.stdout + advance.stderr)
-            stored = read_nodes(root)[0]
-            self.assertEqual(stored["acceptance"]["phase"], "correction_required")
-            self.assertEqual(stored["acceptance"]["outcome"], "regression_failed")
-            self.assertFalse(stored["acceptance_criteria"][0]["checked"])
-            self.assertNotIn("evidence_refs", stored["acceptance_criteria"][0])
-            self.assertNotIn("last_pass", stored["regression"])
-            self.assertNotIn(sentinel, json.dumps(stored))
 
     def test_mutation_commands_drive_node_and_plan_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1153,11 +735,11 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(payload["workspace"], ".")
         self.assertEqual(payload["platform"], current_platform())
         plan = payload["plans"][0]
-        self.assertIsNone(plan["resume"])
+        self.assertEqual(plan["active"], [])
         eligible_ids = [entry["id"] for entry in plan["eligible"]]
         self.assertEqual(eligible_ids, [SECOND_NODE_ID])
 
-    def test_next_prefers_resuming_the_in_progress_node(self) -> None:
+    def test_next_keeps_non_implementation_work_exclusive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             write_workspace(
                 Path(tmpdir),
@@ -1172,8 +754,32 @@ class ManifestToolCliTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads(result.stdout)["plans"][0]
-        self.assertEqual(plan["resume"]["id"], NODE_ID)
+        self.assertEqual([entry["id"] for entry in plan["active"]], [NODE_ID])
         self.assertEqual(plan["eligible"], [])
+
+    def test_next_lists_pending_implementation_alongside_active_parallel_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            write_workspace(
+                Path(tmpdir),
+                plan_status="in_progress",
+                nodes=[
+                    checkpoint_node(NODE_ID, status="in_progress", role="implementation"),
+                    checkpoint_node(SECOND_NODE_ID, status="pending", role="implementation"),
+                    checkpoint_node(
+                        THIRD_NODE_ID,
+                        status="pending",
+                        role="final_validation",
+                        prerequisites=[NODE_ID, SECOND_NODE_ID],
+                    ),
+                ],
+            )
+
+            result = run_command(sys.executable, PYTHON_TOOL, "next", tmpdir, "--json")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads(result.stdout)["plans"][0]
+        self.assertEqual([entry["id"] for entry in plan["active"]], [NODE_ID])
+        self.assertEqual([entry["id"] for entry in plan["eligible"]], [SECOND_NODE_ID])
 
     def test_schema_command_prints_canonical_shapes(self) -> None:
         node_result = run_command(sys.executable, PYTHON_TOOL, "schema", "node")
@@ -1190,17 +796,328 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertIn("content_fingerprint", node_schema["regression_receipt_fields"])
         self.assertEqual(node_schema["acceptance_required_fields"], ["attempt", "outcome", "phase"])
         self.assertIn("awaiting_repair", node_schema["acceptance_phases"])
-        self.assertIn("awaiting_acceptance_design", node_schema["acceptance_phases"])
-        self.assertIn("acceptance_designer_running", node_schema["acceptance_phases"])
-        self.assertIn("awaiting_executor", node_schema["acceptance_phases"])
-        self.assertIn("audit_failed", node_schema["acceptance_outcomes"])
+        self.assertIn("awaiting_designer", node_schema["acceptance_phases"])
+        self.assertIn("designer_running", node_schema["acceptance_phases"])
+        self.assertIn("awaiting_verifier", node_schema["acceptance_phases"])
+        self.assertIn("reviewer_complete", node_schema["acceptance_phases"])
+        self.assertIn("awaiting_worker", node_schema["acceptance_phases"])
+        self.assertIn("regression_failed", node_schema["acceptance_outcomes"])
         self.assertIn("any", node_schema["platforms"])
         self.assertEqual(node_schema["requirement_label_pattern"], r"^REQ(?:-[A-Za-z0-9]+)+$")
         self.assertIn("Scope: Closure: module -", node_schema["template"]["description"])
+        for field in ("code", "title", "tags", "conditions"):
+            with self.subTest(node_readable_field=field):
+                self.assertIn(field, node_schema["optional_fields"])
 
         self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
         plan_schema = json.loads(plan_result.stdout)
         self.assertIn("checkpoints", plan_schema["required_fields"])
+        for field in ("kind", "tree_mode", "node_status", "entry_gate", "decision_issues"):
+            with self.subTest(plan_readable_field=field):
+                self.assertIn(field, plan_schema["optional_fields"])
+        self.assertEqual(
+            plan_schema["kinds"],
+            [
+                "branch",
+                "context",
+                "gate",
+                "group",
+                "plan",
+                "release",
+                "root",
+                "rule",
+                "stage",
+            ],
+        )
+        self.assertEqual(plan_schema["tree_modes"], ["flatten", "hide", "show"])
+        self.assertEqual(plan_schema["node_status_modes"], ["hide", "show"])
+        self.assertEqual(
+            plan_schema["entry_gate_required_fields"],
+            ["conditions", "prerequisites", "title"],
+        )
+
+    def test_validate_accepts_the_complete_readable_tree_field_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            plans = read_plans(root)
+            nodes = read_nodes(root)
+            plans[0].update(
+                {
+                    "kind": "root",
+                    "tree_mode": "show",
+                    "node_status": "show",
+                    "entry_gate": {
+                        "title": "Explicit selection gate",
+                        "prerequisites": [NODE_ID],
+                        "conditions": ["owner", "immutable version"],
+                    },
+                }
+            )
+            nodes[0].update(
+                {
+                    "code": "K0",
+                    "title": "Contract freeze",
+                    "tags": ["DESIGN_ONLY"],
+                    "conditions": ["entry gate"],
+                }
+            )
+            (root / "Manifest.json").write_text(json.dumps(plans), encoding="utf-8")
+            (root / "main-plan" / "Checkpoints.json").write_text(
+                json.dumps(nodes),
+                encoding="utf-8",
+            )
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "validate",
+                root,
+                "--no-git",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_validate_rejects_invalid_readable_tree_enums_and_shapes(self) -> None:
+        plan_cases = (
+            ("kind", "phase", "plan[0].kind: must be one of"),
+            ("tree_mode", "collapse", "plan[0].tree_mode: must be one of"),
+            ("node_status", "verbose", "plan[0].node_status: must be one of"),
+            ("entry_gate", [], "plan[0].entry_gate: must be an object"),
+        )
+        for field, value, expected in plan_cases:
+            with self.subTest(plan_field=field), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                write_workspace(root)
+                plans = read_plans(root)
+                plans[0][field] = value
+                (root / "Manifest.json").write_text(
+                    json.dumps(plans),
+                    encoding="utf-8",
+                )
+
+                result = run_command(
+                    sys.executable,
+                    PYTHON_TOOL,
+                    "validate",
+                    root,
+                    "--no-git",
+                )
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(expected, result.stderr)
+
+        plan_enum_type_cases = (
+            ("kind", ["api_key=private-kind-enum"], "api_key=private-kind-enum"),
+            (
+                "tree_mode",
+                {"token": "private-tree-mode-enum"},
+                "private-tree-mode-enum",
+            ),
+            (
+                "node_status",
+                ["password=private-node-status-enum"],
+                "password=private-node-status-enum",
+            ),
+        )
+        for field, value, unsafe in plan_enum_type_cases:
+            with self.subTest(plan_enum_type=field), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                write_workspace(root)
+                plans = read_plans(root)
+                plans[0][field] = value
+                (root / "Manifest.json").write_text(
+                    json.dumps(plans),
+                    encoding="utf-8",
+                )
+
+                result = run_command(
+                    sys.executable,
+                    PYTHON_TOOL,
+                    "validate",
+                    root,
+                    "--no-git",
+                )
+
+                combined = result.stdout + result.stderr
+                expected = f"plan[0].{field}: must be one of"
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(result.stderr.count(expected), 1)
+                self.assertNotIn("Traceback", combined)
+                self.assertNotIn(unsafe, combined)
+
+        node_cases = (
+            ("tags", "DESIGN_ONLY", "node[0].tags: must be an array of strings"),
+            ("conditions", {}, "node[0].conditions: must be an array of strings"),
+        )
+        for field, value, expected in node_cases:
+            with self.subTest(node_field=field), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                write_workspace(root)
+                nodes = read_nodes(root)
+                nodes[0][field] = value
+                (root / "main-plan" / "Checkpoints.json").write_text(
+                    json.dumps(nodes),
+                    encoding="utf-8",
+                )
+
+                result = run_command(
+                    sys.executable,
+                    PYTHON_TOOL,
+                    "validate",
+                    root,
+                    "--no-git",
+                )
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(expected, result.stderr)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            plans = read_plans(root)
+            plans[0]["entry_gate"] = {
+                "title": "Incomplete entry gate",
+                "prerequisites": [],
+            }
+            (root / "Manifest.json").write_text(json.dumps(plans), encoding="utf-8")
+
+            result = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "validate",
+                root,
+                "--no-git",
+            )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(
+            "plan[0].entry_gate.conditions: missing required field",
+            result.stderr,
+        )
+
+    def test_validate_rejects_unsafe_readable_tree_text_without_echoing_it(self) -> None:
+        unsafe_cases = (
+            ("node", "code", "K0 <- forged dependency", "execution dependency marker"),
+            (
+                "node",
+                "title",
+                "api_key=private-tree-title",
+                "secret, credential, or server identifier",
+            ),
+            (
+                "node-list",
+                "tags",
+                "unsafe\ntag",
+                "single line without control characters",
+            ),
+            (
+                "node-list",
+                "conditions",
+                "/protected/private-condition",
+                "concrete absolute path",
+            ),
+            (
+                "gate",
+                "title",
+                "token=private-entry-title",
+                "secret, credential, or server identifier",
+            ),
+            (
+                "gate-list",
+                "conditions",
+                "unsafe\nentry-condition",
+                "single line without control characters",
+            ),
+        )
+        for owner, field, unsafe, expected in unsafe_cases:
+            with self.subTest(owner=owner, field=field), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                write_workspace(root)
+                plans = read_plans(root)
+                nodes = read_nodes(root)
+                if owner == "node":
+                    nodes[0][field] = unsafe
+                elif owner == "node-list":
+                    nodes[0][field] = [unsafe]
+                else:
+                    gate = {
+                        "title": "Safe entry gate",
+                        "prerequisites": [NODE_ID],
+                        "conditions": ["owner"],
+                    }
+                    gate[field] = [unsafe] if owner == "gate-list" else unsafe
+                    plans[0]["entry_gate"] = gate
+                (root / "Manifest.json").write_text(
+                    json.dumps(plans),
+                    encoding="utf-8",
+                )
+                (root / "main-plan" / "Checkpoints.json").write_text(
+                    json.dumps(nodes),
+                    encoding="utf-8",
+                )
+
+                result = run_command(
+                    sys.executable,
+                    PYTHON_TOOL,
+                    "validate",
+                    root,
+                    "--no-git",
+                )
+
+                combined = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn(unsafe, combined)
+
+    def test_validate_rejects_workspace_duplicate_codes_and_unresolved_entry_gate_nodes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_hierarchical_workspace(root)
+            for path in (
+                root / "common" / "Checkpoints.json",
+                root / "common" / "a" / "Checkpoints.json",
+            ):
+                nodes = json.loads(path.read_text(encoding="utf-8"))
+                nodes[0]["code"] = "K0"
+                nodes[0]["title"] = "Canonical milestone title"
+                path.write_text(json.dumps(nodes), encoding="utf-8")
+
+            duplicate = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "validate",
+                root,
+                "--no-git",
+            )
+
+        self.assertNotEqual(duplicate.returncode, 0, duplicate.stdout)
+        self.assertIn("duplicate code 'K0'", duplicate.stderr)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_workspace(root)
+            plans = read_plans(root)
+            plans[0]["entry_gate"] = {
+                "title": "Explicit selection gate",
+                "prerequisites": [MISSING_NODE_ID],
+                "conditions": ["owner"],
+            }
+            (root / "Manifest.json").write_text(json.dumps(plans), encoding="utf-8")
+
+            unresolved = run_command(
+                sys.executable,
+                PYTHON_TOOL,
+                "validate",
+                root,
+                "--no-git",
+            )
+
+        self.assertNotEqual(unresolved.returncode, 0, unresolved.stdout)
+        self.assertIn("entry_gate.prerequisites[0]", unresolved.stderr)
+        self.assertIn("unknown node id", unresolved.stderr)
 
     def test_pause_yields_the_in_progress_node(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1327,9 +1244,15 @@ class ManifestToolCliTests(unittest.TestCase):
             write_workspace(
                 root,
                 plan_status="pending",
-                nodes=[checkpoint_node(NODE_ID, status="pending")],
+                nodes=[
+                    checkpoint_node(
+                        NODE_ID,
+                        status="pending",
+                        role="implementation",
+                    )
+                ],
             )
-            design = default_acceptance_design()
+            design = default_acceptance_design("forward-prerequisite-fixture")
             write_design_artifacts(root, design)
 
             result = run_command(
@@ -1496,7 +1419,7 @@ class ManifestToolCliTests(unittest.TestCase):
                 "--goal",
                 "Refined goal.",
                 "--difficulty",
-                "high",
+                "complex",
                 "--criterion",
                 "A second concrete check.",
                 "--criterion",
@@ -1507,7 +1430,7 @@ class ManifestToolCliTests(unittest.TestCase):
             node = read_nodes(root)[0]
 
         self.assertEqual(node["goal"], "Refined goal.")
-        self.assertEqual(node["difficulty"], "high")
+        self.assertEqual(node["difficulty"], "complex")
         self.assertEqual(
             node["acceptance_criteria"],
             [
@@ -1516,76 +1439,6 @@ class ManifestToolCliTests(unittest.TestCase):
             ],
         )
 
-    def test_edit_node_replaces_delivery_criteria_and_clears_active_proof(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            write_workspace(root, plan_status="pending", nodes=[checkpoint_node(NODE_ID, status="pending")])
-            self.assertEqual(prepare_node_with_acceptance(root), "dispatch_executor")
-
-            dispatch = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "dispatch",
-                NODE_ID,
-                tmpdir,
-                "--role",
-                "executor",
-            )
-            self.assertEqual(dispatch.returncode, 0, dispatch.stderr)
-            executor_id = json.loads(dispatch.stdout)["dispatch_id"]
-            advance = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "advance",
-                NODE_ID,
-                tmpdir,
-                "--event",
-                "executor-exited",
-                "--dispatch-id",
-                executor_id,
-            )
-            self.assertEqual(advance.returncode, 0, advance.stderr)
-
-            auditor = run_command(sys.executable, PYTHON_TOOL, "dispatch", NODE_ID, tmpdir, "--role", "auditor")
-            self.assertEqual(auditor.returncode, 0, auditor.stderr)
-
-            result = run_command(
-                sys.executable,
-                PYTHON_TOOL,
-                "edit-node",
-                NODE_ID,
-                tmpdir,
-                "--criterion",
-                "Manual replacement criterion A.",
-                "--criterion",
-                "Manual replacement criterion B.",
-                "--regression-criterion",
-                "0",
-                "--regression-criterion",
-                "1",
-            )
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-
-            next_action = run_command(sys.executable, PYTHON_TOOL, "next-action", NODE_ID, tmpdir)
-            self.assertEqual(next_action.returncode, 0, next_action.stderr)
-            self.assertEqual(json.loads(next_action.stdout)["action"], "main_acceptance_decision")
-
-            node = read_nodes(root)[0]
-            self.assertEqual(node["status"], "pending")
-            self.assertEqual(
-                node["acceptance_criteria"],
-                [
-                    {"checked": False, "text": "Manual replacement criterion A."},
-                    {"checked": False, "text": "Manual replacement criterion B."},
-                ],
-            )
-            self.assertEqual(node["regression"]["criteria"], [0, 1])
-            self.assertNotIn("last_pass", node["regression"])
-            self.assertEqual(
-                node["acceptance"],
-                {"phase": "acceptance_revision_required", "attempt": 1, "outcome": "none"},
-            )
 
     def test_edit_node_fails_atomically_when_edit_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1907,7 +1760,11 @@ class ManifestToolCliTests(unittest.TestCase):
             main_dir.mkdir(parents=True)
             broken_dir.mkdir(parents=True)
             (main_dir / "Checkpoints.json").write_text(json.dumps([checkpoint_node(NODE_ID)]), encoding="utf-8")
-            broken_node = checkpoint_node(SECOND_NODE_ID, status="pending")
+            broken_node = checkpoint_node(
+                SECOND_NODE_ID,
+                status="pending",
+                role="implementation",
+            )
             broken_node["requirements"] = []
             (broken_dir / "Checkpoints.json").write_text(json.dumps([broken_node]), encoding="utf-8")
             (root / "Manifest.json").write_text(
@@ -1920,6 +1777,7 @@ class ManifestToolCliTests(unittest.TestCase):
                             "title": "Broken Plan",
                             "directory": "broken-plan",
                             "source_files": [],
+                            "purpose": "Isolate an invalid sibling for scoped validation.",
                             "goal": "Contain a deliberately invalid node.",
                             "description": "Sibling plan used to prove validation scoping.",
                             "checkpoints": "broken-plan/Checkpoints.json",

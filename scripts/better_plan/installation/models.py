@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "0.3.0"
+VERSION = "0.7.0"
 AGENTS = (
     "codex",
     "claude",
@@ -21,10 +21,15 @@ AGENTS = (
 )
 SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot", "pi", "kimi"})
 ADAPTER_SKILL_AGENTS = frozenset({"opencode"})
+CURSOR_APP_BUNDLE_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
 OPTIONAL_CLIENT_CLI_COMMANDS = {
-    "cursor": ("cursor", "--version"),
-    "copilot": ("copilot", "--version"),
-    "kimi": ("kimi", "--version"),
+    "cursor": (
+        ("cursor-agent", "--version"),
+        ("cursor", "--version"),
+        (CURSOR_APP_BUNDLE_CLI, "--version"),
+    ),
+    "copilot": (("copilot", "--version"),),
+    "kimi": (("kimi", "--version"),),
 }
 DESCRIPTION = "Design-first Better Plan orchestration with deterministic acceptance and regression."
 # This is the minimum executable payload, not a compatibility inventory. Removed
@@ -35,9 +40,11 @@ CURRENT_SKILL_FILES = (
     "agents/openai.yaml",
     "references/state-files.md",
     "references/orchestration-main.md",
-    "references/acceptance-designer.md",
-    "references/executor.md",
-    "references/auditor.md",
+    "references/designer.md",
+    "references/design-patterns.md",
+    "references/worker.md",
+    "references/verifier.md",
+    "references/reviewer.md",
     "scripts/__init__.py",
     "scripts/manifest_tool.py",
     "scripts/hook_tool.py",
@@ -45,10 +52,15 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/__init__.py",
     "scripts/better_plan/domain/__init__.py",
     "scripts/better_plan/domain/models.py",
+    "scripts/better_plan/domain/capabilities.py",
+    "scripts/better_plan/domain/tree.py",
     "scripts/better_plan/domain/validation.py",
     "scripts/better_plan/domain/design.py",
     "scripts/better_plan/domain/transitions.py",
     "scripts/better_plan/domain/roles.py",
+    "scripts/better_plan/domain/model_catalog.json",
+    "scripts/better_plan/domain/coding_agent_catalog.json",
+    "scripts/better_plan/domain/model_routing.py",
     "scripts/better_plan/infrastructure/__init__.py",
     "scripts/better_plan/infrastructure/workspace.py",
     "scripts/better_plan/infrastructure/regression.py",
@@ -56,6 +68,7 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/application/agent_completion.py",
     "scripts/better_plan/application/workflow.py",
     "scripts/better_plan/adapters/__init__.py",
+    "scripts/better_plan/adapters/capability_cli.py",
     "scripts/better_plan/adapters/manifest_cli.py",
     "scripts/better_plan/adapters/install_cli.py",
     "scripts/better_plan/hooks/__init__.py",
@@ -65,11 +78,42 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/hooks/runtime.py",
     "scripts/better_plan/hooks/config.py",
     "scripts/better_plan/installation/__init__.py",
+    "scripts/better_plan/installation/assignments.py",
     "scripts/better_plan/installation/models.py",
     "scripts/better_plan/installation/skills.py",
     "scripts/better_plan/installation/targets.py",
     "scripts/better_plan/installation/doctor.py",
     "scripts/better_plan/installation/service.py",
+    "agents/codex/designer.toml",
+    "agents/codex/worker-routine.toml",
+    "agents/codex/worker-standard.toml",
+    "agents/codex/worker-complex.toml",
+    "agents/codex/worker-critical.toml",
+    "agents/codex/verifier.toml",
+    "agents/codex/reviewer.toml",
+    "agents/codex/finder.toml",
+    "agents/codex/fallback_finder.toml",
+    "agents/claude-code/designer.md",
+    "agents/claude-code/worker-routine.md",
+    "agents/claude-code/worker-standard.md",
+    "agents/claude-code/worker-complex.md",
+    "agents/claude-code/worker-critical.md",
+    "agents/claude-code/verifier.md",
+    "agents/claude-code/reviewer.md",
+    "agents/opencode/designer.md",
+    "agents/opencode/worker-routine.md",
+    "agents/opencode/worker-standard.md",
+    "agents/opencode/worker-complex.md",
+    "agents/opencode/worker-critical.md",
+    "agents/opencode/verifier.md",
+    "agents/opencode/reviewer.md",
+    "agents/cursor/designer.md",
+    "agents/cursor/worker-routine.md",
+    "agents/cursor/worker-standard.md",
+    "agents/cursor/worker-complex.md",
+    "agents/cursor/worker-critical.md",
+    "agents/cursor/verifier.md",
+    "agents/cursor/reviewer.md",
 )
 
 

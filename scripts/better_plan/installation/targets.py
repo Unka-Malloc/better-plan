@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import posixpath
 import shlex
@@ -25,7 +26,358 @@ from .models import (
     InstallPaths as _InstallPaths,
     WslOpenCodeRuntime as _WslOpenCodeRuntime,
 )
+from .assignments import RoleAssignment as _RoleAssignment, select_role_assignments as _select_role_assignments
 from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_path
+
+
+NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
+    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "verifier.toml", "reviewer.toml", "finder.toml", "fallback_finder.toml"),
+    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
+    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "reviewer.md"),
+}
+_NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
+
+
+def _native_role_directory(paths: _InstallPaths, target: str) -> Path:
+    if target == "codex":
+        return paths.codex_home / "agents"
+    if target == "claude":
+        return paths.claude_home / "agents"
+    if target == "opencode":
+        return paths.opencode_config / "agents"
+    if target == "cursor":
+        return paths.cursor_home / "agents"
+    raise _InstallError("native role templates are unavailable for this target")
+
+
+def _native_source_directory(paths: _InstallPaths, target: str) -> Path:
+    source_target = _NATIVE_SOURCE_TARGET.get(target, target)
+    return paths.repo_root / "agents" / source_target
+
+
+def _native_receipt_path(destination: Path) -> Path:
+    """Return metadata outside the native agent directory.
+
+    Keeping the receipt beside (rather than inside) the host directory avoids
+    presenting Better Plan bookkeeping as an additional native agent file.
+    """
+
+    return destination.with_name(f"{destination.name}.better-plan.json")
+
+
+def _content_digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _assignment_value(value: object) -> _RoleAssignment:
+    if not isinstance(value, dict) or set(value) != {
+        "role", "agent_name", "model", "reasoning_effort", "benchmark_id",
+        "index_score", "cost_per_task_usd", "source",
+    }:
+        raise _InstallError("native role template receipt is invalid")
+    strings = ("role", "agent_name", "model", "benchmark_id", "source")
+    if any(not isinstance(value.get(field), str) or not str(value[field]).strip() for field in strings):
+        raise _InstallError("native role template receipt is invalid")
+    effort = value.get("reasoning_effort")
+    if effort is not None and (not isinstance(effort, str) or not effort.strip()):
+        raise _InstallError("native role template receipt is invalid")
+    if type(value.get("index_score")) is not int:
+        raise _InstallError("native role template receipt is invalid")
+    cost = value.get("cost_per_task_usd")
+    if cost is not None and (isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0):
+        raise _InstallError("native role template receipt is invalid")
+    return _RoleAssignment(
+        role=str(value["role"]),
+        agent_name=str(value["agent_name"]),
+        model=str(value["model"]),
+        reasoning_effort=None if effort is None else str(effort),
+        benchmark_id=str(value["benchmark_id"]),
+        index_score=int(value["index_score"]),
+        cost_per_task_usd=None if cost is None else float(cost),
+        source=str(value["source"]),
+    )
+
+
+def _load_native_receipt(path: Path, target: str) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise _InstallError("native role template receipt is invalid")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise _InstallError("native role template receipt is invalid")
+    if not isinstance(value, dict) or value.get("schema_version") != 2 or value.get("target") != target or set(value) != {"schema_version", "target", "files", "assignments"}:
+        raise _InstallError("native role template receipt is invalid")
+    files = value.get("files")
+    if not isinstance(files, dict) or any(
+        not isinstance(name, str) or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        for name, digest in files.items()
+    ):
+        raise _InstallError("native role template receipt is invalid")
+    assignments = value.get("assignments")
+    if not isinstance(assignments, dict) or set(assignments) != set(files):
+        raise _InstallError("native role template receipt is invalid")
+    parsed_by_file = {name: _assignment_value(assignment) for name, assignment in assignments.items()}
+    if any(parsed_by_file[name].agent_name != Path(name).stem for name in parsed_by_file):
+        raise _InstallError("native role template receipt is invalid")
+    parsed = {assignment.agent_name: assignment for assignment in parsed_by_file.values()}
+    if len(parsed) != len(parsed_by_file):
+        raise _InstallError("native role template receipt is invalid")
+    return {"files": {name: str(digest) for name, digest in files.items()}, "assignments": parsed}
+
+
+def _assignment_payload(assignment: _RoleAssignment) -> dict[str, object]:
+    return {
+        "role": assignment.role,
+        "agent_name": assignment.agent_name,
+        "model": assignment.model,
+        "reasoning_effort": assignment.reasoning_effort,
+        "benchmark_id": assignment.benchmark_id,
+        "index_score": assignment.index_score,
+        "cost_per_task_usd": assignment.cost_per_task_usd,
+        "source": assignment.source,
+    }
+
+
+def _write_native_receipt(path: Path, target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> None:
+    value = {
+        "schema_version": 2,
+        "target": target,
+        "files": {filename: _content_digest(content) for filename, content, _ in payload},
+        "assignments": {filename: _assignment_payload(assignment) for filename, _, assignment in payload},
+    }
+    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        temp.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+    except OSError as exc:
+        if temp.exists():
+            temp.unlink()
+        raise _InstallError("could not write native role template receipt") from exc
+
+
+def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str]:
+    filenames = NATIVE_ROLE_FILES.get(target)
+    if filenames is None:
+        raise _InstallError("native role templates are unavailable for this target")
+    source = _native_source_directory(paths, target)
+    payload: dict[str, str] = {}
+    try:
+        for filename in filenames:
+            path = source / filename
+            text = path.read_text(encoding="utf-8")
+            if not text.strip() or "ASSIGNMENT_PLACEHOLDER" not in text:
+                raise ValueError
+            if target == "codex":
+                if not text.startswith("name = ") or "developer_instructions =" not in text:
+                    raise ValueError
+            else:
+                if not text.startswith("---\n"):
+                    raise ValueError
+            payload[Path(filename).stem] = text
+    except (OSError, UnicodeError, ValueError, TypeError):
+        raise _InstallError("native role template source is missing or malformed")
+    return payload
+
+
+def _render_native_source(target: str, source: str, assignment: _RoleAssignment) -> bytes:
+    effort = assignment.reasoning_effort or "host-default"
+    if assignment.role == "worker":
+        basis = "Coding Agent"
+        measurement = f"score={assignment.index_score}"
+    elif assignment.role == "finder":
+        basis = "Codex read-only utility"
+        measurement = "mode=read-only"
+    else:
+        basis = "Intelligence Index"
+        measurement = f"score={assignment.index_score}"
+    cost = (
+        ""
+        if assignment.cost_per_task_usd is None
+        else f" | measured_cost_per_task_usd={assignment.cost_per_task_usd:.2f}"
+    )
+    line = (
+        f"assignment: agent={assignment.agent_name} | role={assignment.role} | "
+        f"model={assignment.model} | reasoning_effort={effort} | basis={basis} | "
+        f"{measurement}{cost} | benchmark={assignment.benchmark_id} | source={assignment.source}"
+    )
+    rendered = source.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
+    rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
+    if target == "codex":
+        marker = "sandbox_mode = "
+        position = rendered.find(marker)
+        if position < 0:
+            raise _InstallError("native role template source is missing or malformed")
+        selector = f'model = "{assignment.model}"\n'
+        if assignment.reasoning_effort is not None:
+            selector += f'model_reasoning_effort = "{assignment.reasoning_effort}"\n'
+        rendered = rendered[:position] + selector + rendered[position:]
+    else:
+        closing = rendered.find("\n---\n", 4)
+        if closing < 0:
+            raise _InstallError("native role template source is missing or malformed")
+        selector = f"\nmodel: {assignment.model}"
+        if assignment.reasoning_effort is not None:
+            selector += f"\nreasoning_effort: {assignment.reasoning_effort}"
+        rendered = rendered[:closing] + selector + rendered[closing:]
+    return rendered.encode("utf-8")
+
+
+def _native_payload(
+    paths: _InstallPaths,
+    target: str,
+    receipt: dict[str, object] | None,
+) -> list[tuple[str, bytes, _RoleAssignment]]:
+    sources = _validate_native_sources(paths, target)
+    if receipt is None:
+        try:
+            assignments = _select_role_assignments(paths, target, excluded_names=NATIVE_ROLE_FILES[target])
+        except ToolError as exc:
+            raise _InstallError("native role assignments could not be selected") from exc
+    else:
+        receipt_assignments = receipt["assignments"]
+        if not isinstance(receipt_assignments, dict):
+            raise _InstallError("native role template receipt is invalid")
+        assignments = dict(receipt_assignments)
+        if target == "codex":
+            try:
+                current_defaults = _select_role_assignments(
+                    paths,
+                    target,
+                    excluded_names=NATIVE_ROLE_FILES[target],
+                )
+            except ToolError as exc:
+                raise _InstallError("native role assignments could not be selected") from exc
+            for utility_name in ("finder", "fallback_finder"):
+                if utility_name not in assignments and utility_name in current_defaults:
+                    assignments[utility_name] = current_defaults[utility_name]
+    payload: list[tuple[str, bytes, _RoleAssignment]] = []
+    extension = ".toml" if target == "codex" else ".md"
+    for agent_name, assignment in sorted(assignments.items()):
+        if not isinstance(assignment, _RoleAssignment) or agent_name not in sources:
+            raise _InstallError("native role template receipt is invalid")
+        filename = f"{agent_name}{extension}"
+        payload.append((filename, _render_native_source(target, sources[agent_name], assignment), assignment))
+    return payload
+
+
+def install_role_templates(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    dry_run: bool,
+) -> list[str]:
+    """Validate and idempotently install only Better Plan's native role files."""
+
+    destination = _native_role_directory(paths, target)
+    receipt_path = _native_receipt_path(destination)
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+        raise _InstallError("native role template destination is not a managed directory")
+    receipt = _load_native_receipt(receipt_path, target)
+    payload = _native_payload(paths, target, receipt)
+    if not payload:
+        return [f"native: skipped {target}; no locally callable benchmarked role configuration was found"]
+    expected = {filename: _content_digest(content) for filename, content, _ in payload}
+    receipt_files = receipt.get("files") if receipt is not None else None
+    if receipt_files is not None and (
+        not isinstance(receipt_files, dict)
+        or not set(receipt_files).issubset(expected)
+    ):
+        raise _InstallError("native role template receipt is invalid")
+
+    # Existing same-name files are safe to touch only when the receipt proves
+    # that Better Plan still owns the exact bytes.  A pre-existing collision
+    # without a receipt fails closed instead of being overwritten.
+    for filename, content, _ in payload:
+        path = destination / filename
+        if path.is_symlink():
+            raise _InstallError("native role template destination collides with an unmanaged file")
+        if not path.exists():
+            continue
+        if not path.is_file():
+            raise _InstallError("native role template destination collides with an unmanaged file")
+        if receipt is None:
+            raise _InstallError("native role template destination collides with an unmanaged file")
+        try:
+            current_digest = _content_digest(path.read_bytes())
+        except OSError as exc:
+            raise _InstallError("native role template destination is unreadable") from exc
+        if not isinstance(receipt_files, dict) or receipt_files.get(filename) != current_digest:
+            raise _InstallError("native role template destination was modified outside Better Plan")
+
+    if dry_run:
+        return [f"native: would pin {target} role assignments", _assignment_message(target, payload)]
+    destination.mkdir(parents=True, exist_ok=True)
+    changed = False
+    for filename, content, _ in payload:
+        path = destination / filename
+        if not path.exists() or path.read_bytes() != content:
+            path.write_bytes(content)
+            changed = True
+    if receipt is None or receipt_files != expected:
+        _write_native_receipt(receipt_path, target, payload)
+    return [f"native: {'updated' if changed else 'already current'} {target} role templates", _assignment_message(target, payload)]
+
+
+def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> str:
+    values = "; ".join(_assignment_summary(assignment) for _, _, assignment in payload)
+    return f"native assignments ({target}, pinned until explicit reinstall): {values}"
+
+
+def _assignment_summary(assignment: _RoleAssignment) -> str:
+    effort = assignment.reasoning_effort or "host-default"
+    if assignment.role == "worker":
+        basis = "Coding Agent"
+        metric = f"score {assignment.index_score}, cost ${assignment.cost_per_task_usd:.2f}/task"
+    elif assignment.role == "finder":
+        basis = "Codex read-only utility"
+        metric = "fixed selector"
+    else:
+        basis = "Intelligence Index"
+        metric = f"score {assignment.index_score}, price ignored"
+    return (
+        f"{assignment.agent_name} -> {assignment.role}, {assignment.model}/{effort}, "
+        f"{basis} {metric}, source {assignment.source}"
+    )
+
+
+def remove_role_templates(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    dry_run: bool,
+) -> list[str]:
+    destination = _native_role_directory(paths, target)
+    receipt_path = _native_receipt_path(destination)
+    receipt = _load_native_receipt(receipt_path, target)
+    existing: list[Path] = []
+    if receipt is not None:
+        receipt_files = receipt.get("files")
+        if not isinstance(receipt_files, dict):
+            raise _InstallError("native role template receipt is invalid")
+        for filename in receipt_files:
+            path = destination / filename
+            if not path.exists():
+                continue
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                current_digest = _content_digest(path.read_bytes())
+            except OSError as exc:
+                raise _InstallError("native role template destination is unreadable") from exc
+            if receipt_files.get(filename) == current_digest:
+                existing.append(path)
+    if not dry_run:
+        for path in existing:
+            path.unlink()
+        if receipt_path.exists():
+            receipt_path.unlink()
+    action = "would remove" if dry_run else "removed"
+    return [f"{target}: {action} native role templates"]
 
 
 def read_json_object(path: Path) -> dict[str, object]:
@@ -323,25 +675,30 @@ def install_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
     if target == "codex":
+        messages = install_role_templates(paths, target, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [f"codex hooks: {action} managed handlers"]
+        return [*messages, f"codex hooks: {action} managed handlers"]
     if target == "claude":
+        messages = install_role_templates(paths, target, dry_run=dry_run)
         install_claude_plugin(paths, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
         return [
+            *messages,
             f"claude: {'would update' if dry_run else 'updated'} plugin",
             f"claude hooks: {action} managed handlers",
         ]
     if target == "opencode":
+        messages = install_role_templates(paths, target, dry_run=dry_run)
         if not dry_run:
             write_text(paths.opencode_agent, opencode_agent_text())
-        return [f"opencode: {'would update' if dry_run else 'updated'} agent", *install_wsl_opencode(paths, dry_run=dry_run)]
+        return [*messages, f"opencode: {'would update' if dry_run else 'updated'} agent", *install_wsl_opencode(paths, dry_run=dry_run)]
     if target == "cursor":
+        messages = install_role_templates(paths, target, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [f"cursor hooks: {action} managed handlers"]
+        return [*messages, f"cursor hooks: {action} managed handlers"]
     if target == "kimi":
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
@@ -361,13 +718,18 @@ def install_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[
 def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    native_messages = (
+        remove_role_templates(paths, target, dry_run=dry_run)
+        if target in NATIVE_ROLE_FILES
+        else []
+    )
     if target == "craft":
         count = len(paths.craft_skills)
         if not dry_run:
             for path in paths.craft_skills:
                 _remove_path(path)
         action = "would remove" if dry_run else "removed"
-        return [f"craft: {action} skill from {count} workspace(s)"]
+        return [*native_messages, f"craft: {action} skill from {count} workspace(s)"]
 
     path = {
         "codex": paths.codex_skill,
@@ -381,4 +743,4 @@ def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[s
     }[target]
     if not dry_run:
         _remove_path(path)
-    return [f"{target}: {'would remove' if dry_run else 'removed'}"]
+    return [*native_messages, f"{target}: {'would remove' if dry_run else 'removed'}"]

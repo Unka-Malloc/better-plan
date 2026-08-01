@@ -5,16 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..domain.models import ToolError
+from ..domain.models import OPAQUE_EVENT_ID_PATTERN, ToolError
 from ..domain.transitions import next_action
 from ..infrastructure.workspace import (
     active_node_locations_for_manifest,
+    locate_node,
+    workspace_manifest_lock,
     workspace_semantic_issues,
 )
 from .workflow import (
     acceptance_snapshot,
-    advance_acceptance_design_exit,
-    advance_executor_exit,
+    advance_designer_exit,
+    advance_reviewer_exit,
+    advance_verifier_exit,
+    advance_worker_exit,
     automated_node_role,
 )
 
@@ -28,7 +32,9 @@ class AgentCompletionDirective:
     action: str
 
 
-def _outstanding_dispatch(node: dict[str, object]) -> tuple[str, str, str] | None:
+def _outstanding_dispatch(
+    node: dict[str, object],
+) -> tuple[str, str, str, str | None] | None:
     try:
         acceptance = acceptance_snapshot(node, required=True)
     except ToolError:
@@ -41,7 +47,10 @@ def _outstanding_dispatch(node: dict[str, object]) -> tuple[str, str, str] | Non
     role = dispatch.get("role")
     if not isinstance(dispatch_id, str) or not isinstance(role, str):
         return None
-    return phase, role, dispatch_id
+    host_agent_id = dispatch.get("host_agent_id")
+    if host_agent_id is not None and not isinstance(host_agent_id, str):
+        return None
+    return phase, role, dispatch_id, host_agent_id
 
 
 def _directive(node: dict[str, object], *, action: str | None = None) -> AgentCompletionDirective | None:
@@ -58,40 +67,119 @@ def _directive(node: dict[str, object], *, action: str | None = None) -> AgentCo
     return AgentCompletionDirective(node_id=node_id, phase=phase, action=resolved_action)
 
 
-def reduce_agent_completion(manifest: Path) -> AgentCompletionDirective | None:
-    """Advance objective write-role exits and report read-only verdicts to the parent.
+def reduce_agent_completion(
+    manifest: Path,
+    *,
+    agent_id: str,
+    final: bool,
+    node_id: str | None = None,
+    expected_node_id: str | None = None,
+    dispatch_id: str | None = None,
+) -> AgentCompletionDirective | None:
+    """Advance one exact, final, host-bound child-agent completion.
 
-    Exactly one active Node and one outstanding dispatch are required. This is the
-    correlation boundary: Better Plan dispatches one leaf at a time, so unrelated or
-    duplicate completion callbacks fail open without consuming state.
+    A spawn return is not a completion boundary. The native host must report an
+    unambiguous final callback whose opaque agent ID matches the ID bound to the
+    outstanding dispatch. Unrelated, early, or replayed callbacks are no-ops.
     """
 
-    if workspace_semantic_issues(manifest):
+    if type(final) is not bool or final is not True:
         return None
-    active = active_node_locations_for_manifest(manifest)
-    if len(active) != 1:
+    if not isinstance(agent_id, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(agent_id):
         return None
-    location = active[0]
-    node = location.checkpoints_data[location.node_index]
-    if not isinstance(node, dict):
+    if node_id is not None and not isinstance(node_id, str):
         return None
-    outstanding = _outstanding_dispatch(node)
-    if outstanding is None:
+    if expected_node_id is not None and not isinstance(expected_node_id, str):
         return None
-    phase, role, dispatch_id = outstanding
+    if node_id is not None and expected_node_id is not None and node_id != expected_node_id:
+        return None
+    if node_id is None:
+        node_id = expected_node_id
+    if dispatch_id is not None and (
+        not isinstance(dispatch_id, str)
+        or not OPAQUE_EVENT_ID_PATTERN.fullmatch(dispatch_id)
+    ):
+        return None
 
+    # The lock covers the full reload/correlation/reduction sequence.  The
+    # first successful callback writes its terminal transition while still
+    # holding the lock, so a concurrent or replayed callback sees no dispatch.
     try:
-        if (phase, role) == ("acceptance_designer_running", "acceptance_designer"):
-            updated = advance_acceptance_design_exit(location, dispatch_id)
-            return _directive(updated)
-        if (phase, role) == ("executor_running", "executor"):
-            updated = advance_executor_exit(location, dispatch_id)
-            acceptance = acceptance_snapshot(updated, required=True)
-            if acceptance.get("phase") == "correction_required":
-                return _directive(updated, action="main_correction_decision")
-            return _directive(updated)
-        if (phase, role) == ("auditor_running", "auditor"):
-            return _directive(node, action="main_audit_decision")
-    except (ToolError, ValueError, KeyError, TypeError):
+        with workspace_manifest_lock(manifest):
+            if workspace_semantic_issues(manifest):
+                return None
+            active = active_node_locations_for_manifest(manifest)
+            if node_id is not None:
+                try:
+                    expected = locate_node(manifest, node_id)
+                except ToolError:
+                    return None
+                matching = [
+                    candidate
+                    for candidate in active
+                    if candidate.checkpoints_path.resolve()
+                    == expected.checkpoints_path.resolve()
+                    and candidate.node_index == expected.node_index
+                ]
+            else:
+                matching = []
+                for candidate in active:
+                    candidate_node = candidate.checkpoints_data[candidate.node_index]
+                    if not isinstance(candidate_node, dict):
+                        continue
+                    candidate_dispatch = _outstanding_dispatch(candidate_node)
+                    if candidate_dispatch is None:
+                        continue
+                    _, _, candidate_dispatch_id, candidate_agent_id = candidate_dispatch
+                    if candidate_agent_id == agent_id and (
+                        dispatch_id is None or dispatch_id == candidate_dispatch_id
+                    ):
+                        matching.append(candidate)
+            if len(matching) != 1:
+                return None
+            location = matching[0]
+            if node_id is not None:
+                if (
+                    expected.checkpoints_path.resolve()
+                    != location.checkpoints_path.resolve()
+                    or expected.node_index != location.node_index
+                ):
+                    return None
+            node = location.checkpoints_data[location.node_index]
+            if not isinstance(node, dict):
+                return None
+            outstanding = _outstanding_dispatch(node)
+            if outstanding is None:
+                return None
+            phase, role, outstanding_id, bound_agent_id = outstanding
+            # An omitted Node identity is accepted only when one active
+            # dispatch has the exact bound opaque agent ID. If a host supplies
+            # a Node, the exact location check above is mandatory.
+            if bound_agent_id != agent_id:
+                return None
+            if dispatch_id is not None and outstanding_id != dispatch_id:
+                return None
+
+            if (phase, role) == ("designer_running", "designer"):
+                updated = advance_designer_exit(location, outstanding_id)
+                return _directive(updated)
+            if (phase, role) == ("worker_running", "worker"):
+                updated = advance_worker_exit(location, outstanding_id)
+                acceptance = acceptance_snapshot(updated, required=True)
+                if acceptance.get("phase") == "correction_required":
+                    return _directive(updated, action="main_correction_decision")
+                return _directive(updated)
+            if (phase, role) == ("verifier_running", "verifier"):
+                updated = advance_verifier_exit(location, outstanding_id)
+                if acceptance_snapshot(updated, required=True).get("phase") == "correction_required":
+                    return _directive(updated, action="main_correction_decision")
+                return _directive(updated)
+            if (phase, role) == ("reviewer_running", "reviewer"):
+                updated = advance_reviewer_exit(location, outstanding_id)
+                return _directive(updated, action="main_reviewer_decision")
+    except Exception:
+        # A callback process may fail anywhere before its final state write.
+        # The lock is released by the context manager and the untouched
+        # dispatch remains retryable; host hooks receive a bounded no-op.
         return None
     return None
