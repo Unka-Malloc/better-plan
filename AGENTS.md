@@ -12,3 +12,13 @@
 - Exercise the Better Plan workflow here only when the user's request explicitly asks to test or
   demonstrate that workflow. Such an exercise is product behavior under test, not a mandatory
   development process.
+
+## Test scope
+
+- Keep one representative test at the narrowest useful layer for each invariant. Do not repeat the
+  same lifecycle branch through domain, CLI, hook, and installer tests unless that boundary adds a
+  distinct contract.
+- End-to-end coverage should prove the normal grouped path and one repair path. Prefer focused tests
+  while editing; run the complete repository suite once after the change is integrated.
+- Avoid exhaustive permutations of incidental formatting, equivalent invalid inputs, or host
+  templates. Add a case only when it protects a user-visible principle or a security/state boundary.

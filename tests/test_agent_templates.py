@@ -191,7 +191,7 @@ class AgentTemplateTests(unittest.TestCase):
                 "worker-standard": ("gpt-5.6-luna", "max"),
                 "worker-complex": ("gpt-5.6-luna", "max"),
                 "worker-critical": ("gpt-5.6-luna", "max"),
-                "verifier": ("gpt-5.6-sol", "medium"),
+                "verifier": ("gpt-5.6-sol", "high"),
                 "reviewer": ("gpt-5.6-sol", "max"),
             },
         )

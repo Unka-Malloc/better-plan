@@ -7,9 +7,9 @@ four isolated native roles:
 ```text
 task group
   Designer once
-    implementation Node -> Worker -> focused regression -> Verifier -> focused regression
-    implementation Node -> Worker -> focused regression -> Verifier -> focused regression
-  initial full regression -> Reviewer once -> developer decisions -> full regression
+    implementation Node -> Worker -> Verifier -> focused regression once
+    implementation Node -> Worker -> Verifier -> focused regression once
+  Reviewer once -> developer decisions -> full regression once
 ```
 
 Designer and Reviewer close the two ends of a task group. Designer predicts cross-node problems and
@@ -71,8 +71,8 @@ paths and stable interfaces and never gain an artificial prerequisite merely to 
 | --- | --- | --- | --- |
 | Designer | once at group opening | predicts risks and writes/refines group design and executable acceptance across multiple Nodes | strongest locally callable model-only Intelligence Index |
 | Worker | once or more per implementation Node | implements frozen design and resolves ordinary build/integration defects | cheapest measured LLM + Agent combination above the Node difficulty floor |
-| Verifier | after each passing Worker regression | inspects and directly repairs one Node, then focused regression is rerun | next distinct locally callable Intelligence tier when possible |
-| Reviewer | once after initial full regression | reviews the bound capability end to end plus actually impacted shared paths, repairs autonomous issues, and returns developer choices; known untouched branches stay outside scope | strongest locally callable model-only Intelligence Index |
+| Verifier | after each Worker | inspects and directly repairs one Node, then its one focused regression runs | next distinct locally callable Intelligence tier when possible |
+| Reviewer | once after all implementation Nodes | reviews the bound capability end to end plus actually impacted shared paths, repairs autonomous issues, and returns developer choices; known untouched branches stay outside scope | strongest locally callable model-only Intelligence Index |
 
 The model-policy column describes benchmark-routed hosts. Codex applies the explicit default matrix
 below for any delivery role without a qualifying local override.
@@ -114,7 +114,7 @@ Codex has one explicit user-preference default matrix for roles without a qualif
 | Designer | `gpt-5.6-sol/max` |
 | Reviewer | `gpt-5.6-sol/max` |
 | Worker (`routine` through `critical`) | `gpt-5.6-luna/max` |
-| Verifier | `gpt-5.6-sol/medium` |
+| Verifier | `gpt-5.6-sol/high` |
 
 Codex installation also adds two read-only utility agents outside the delivery lifecycle:
 `finder` uses `gpt-5.3-codex-spark/xhigh`, while `fallback_finder` uses
@@ -249,20 +249,12 @@ correlation uses the bound child ID rather than a singleton.
 
 ## Implementation and group closure
 
-Worker completion runs the declared focused regression. Failure returns
-`main_correction_decision`; success routes to Verifier. Verifier is expected to repair, not merely
-report, and its completion reruns focused regression. A passing rerun completes the implementation
-Node.
+Worker completion routes directly to Verifier. Verifier is expected to repair, not merely report,
+and its completion runs the declared focused regression once. A passing run completes the
+implementation Node; failure returns `main_correction_decision`.
 
-After all implementation Nodes complete:
-
-```sh
-python3 scripts/manifest_tool.py advance <final-node-id> <workspace> \
-  --event regression-requested
-```
-
-The initial full regression routes to Reviewer on pass or failure. Reviewer runs once, repairs the
-whole group, and returns structured choices. After those choices are recorded, the native main
+After all implementation Nodes complete, dispatch Reviewer directly. Reviewer runs once, repairs
+the whole group, and returns structured choices. After those choices are recorded, the native main
 submits:
 
 ```sh
@@ -270,8 +262,13 @@ python3 scripts/manifest_tool.py advance <final-node-id> <workspace> \
   --event reviewer-finished --dispatch-id <reviewer-dispatch-id>
 ```
 
-The state tool reruns full regression. If a later repair Node is required, it returns directly to
-full regression; Reviewer is not invoked again.
+The state tool runs full regression once. If it fails, a bounded repair Node may be added; completing
+that repair triggers only the necessary failure-driven rerun. Reviewer is not invoked again.
+
+The normal validation budget is therefore one focused regression per implementation Node and one
+full regression per task group. Leaf agents may run small diagnostics while repairing, but Better
+Plan does not duplicate frozen regressions or insert extra full-suite runs without failure evidence,
+an explicit release rule, or a direct user request.
 
 ## User decisions
 

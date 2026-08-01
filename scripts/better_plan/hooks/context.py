@@ -24,8 +24,9 @@ def agent_completion_context(node_id: str, phase: str, action: str) -> str:
     """Return one bounded parent directive after an Agent tool completes."""
     if action == "dispatch_verifier":
         duty = (
-            "Focused regression passed. Dispatch the write-capable Verifier using "
-            f"{VERIFIER_REFERENCE}; it checks and repairs this Node before returning."
+            "The Worker returned. Dispatch the write-capable Verifier using "
+            f"{VERIFIER_REFERENCE}; it checks and repairs this Node before the state tool runs "
+            "the Node's one focused regression."
         )
     elif action == "main_correction_decision":
         duty = (

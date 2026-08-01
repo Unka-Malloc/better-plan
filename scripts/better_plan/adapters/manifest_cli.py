@@ -1160,7 +1160,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     advance = subparsers.add_parser(
         "advance",
-        help="submit one correlated full-regression, Reviewer, or repair event",
+        help="submit one correlated Reviewer or repair event",
     )
     advance.add_argument("node_id", help="node UUID")
     advance.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
@@ -1168,7 +1168,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--event",
         required=True,
         choices=(
-            "regression-requested",
             "reviewer-finished",
             "repair-registered",
             "repair-completed",

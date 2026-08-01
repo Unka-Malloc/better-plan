@@ -15,7 +15,6 @@ MAIN_ACTIONS: Final[frozenset[str]] = frozenset(
         "await_worker_exit",
         "main_correction_decision",
         "await_verifier_exit",
-        "run_regression",
         "await_reviewer_exit",
         "main_reviewer_decision",
         "create_repair_plan",

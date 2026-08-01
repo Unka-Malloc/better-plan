@@ -134,27 +134,37 @@ implementation. Ordinary later defects do not trigger redesign.
 Run one Worker for one implementation Node. Classify the Node by task difficulty—not reasoning
 effort—as `routine`, `standard`, `complex`, or `critical`. The Worker implements the frozen design,
 resolves ordinary build and local-integration problems, and does not edit acceptance or Plan state.
-After it returns, the state tool runs the Node's focused regression.
+After it returns, dispatch the Verifier without running the frozen regression yet. The Worker may
+run only the smallest implementation-local diagnostic needed to avoid an obviously broken handoff.
 
 ### Verifier
 
-After a Worker passes focused regression, run a fresh Verifier for that Node. Use a high-Intelligence
+After a Worker returns, run a fresh Verifier for that Node. Use a high-Intelligence
 model tier below the strongest available distinct tier when possible. The Verifier is write-capable:
 it finds and directly repairs implementation-local defects, omissions, unsafe assumptions, and
-broken paths. The state tool reruns focused regression after it returns. A remaining ordinary defect
+broken paths. The state tool runs the Node's frozen focused regression once after it returns. A
+remaining ordinary defect
 returns to the same Worker lifecycle; only a real cross-node design or product-semantics error may
 require native-main redesign judgment.
 
 ### Reviewer
 
-After all implementations complete, run the initial full regression, then run exactly one fresh
-Reviewer for the group whether that regression passed or failed. Use the strongest locally callable
+After all implementations complete, run exactly one fresh Reviewer for the group before full
+regression. Use the strongest locally callable
 Intelligence Index tier. The Reviewer owns the full end-to-end state of the bound capability, its
 changed code, and actually impacted shared paths—not unrelated `known/untouched` repository
 branches. It repairs every issue that needs no developer trade-off and reports material choices as
 structured `decision_issues`. It is never run a second time for that group. After the native main
-records its decisions, the state tool reruns full regression; later repair Nodes return directly to
-full regression without another Reviewer.
+records its decisions, the state tool runs the group's full regression once. Only a failed run may
+create a bounded repair Node and trigger a failure-driven rerun; Reviewer is never invoked again.
+
+### Validation budget
+
+Prefer the smallest executable proof that closes the current boundary. Do not duplicate the same
+frozen regression before and after a leaf, add a full-suite run between implementation Nodes, or
+expand a command matrix merely for reassurance. The normal path is exactly one focused regression
+per implementation Node and one full regression per group. Extra runs require new failure evidence,
+an explicit release policy, or a direct user request.
 
 ## Model and agent assignment
 
@@ -172,7 +182,7 @@ per-dispatch recommendation list:
 
 Codex has a user-preference default matrix: Designer and Reviewer use `gpt-5.6-sol/max`, all four
 Worker difficulty agents use `gpt-5.6-luna/max`, and Verifier uses
-`gpt-5.6-sol/medium`. A qualifying existing local Codex selector supplies every role whose measured
+`gpt-5.6-sol/high`. A qualifying existing local Codex selector supplies every role whose measured
 combination it exactly matches; the fixed matrix fills the remaining roles. This exception is
 Codex-only and is not a recommendation for other hosts.
 

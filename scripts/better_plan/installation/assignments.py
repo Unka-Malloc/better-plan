@@ -37,7 +37,7 @@ CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingPr
         "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-complex": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-critical": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "verifier": ("verifier", "gpt-5.6-sol", "medium", "gpt-5-6-sol-medium"),
+        "verifier": ("verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
     }
 )
