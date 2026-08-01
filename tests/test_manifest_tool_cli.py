@@ -181,6 +181,7 @@ def checkpoint_node(
             }
             else "standard"
         ),
+        "verification_profile": "code",
         "goal": goal,
         "description": "Minimal checkpoint node for CLI integration tests.",
         "requirements": ["REQ-001"],
@@ -738,6 +739,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(plan["active"], [])
         eligible_ids = [entry["id"] for entry in plan["eligible"]]
         self.assertEqual(eligible_ids, [SECOND_NODE_ID])
+        self.assertEqual(plan["eligible"][0]["verification_profile"], "code")
 
     def test_next_keeps_non_implementation_work_exclusive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -788,6 +790,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertEqual(node_result.returncode, 0, node_result.stderr)
         node_schema = json.loads(node_result.stdout)
         self.assertIn("commit", node_schema["required_fields"])
+        self.assertIn("verification_profile", node_schema["required_fields"])
         self.assertIn("requirements", node_schema["optional_fields"])
         self.assertIn("status_reason", node_schema["optional_fields"])
         self.assertIn("regression", node_schema["optional_fields"])
@@ -803,6 +806,7 @@ class ManifestToolCliTests(unittest.TestCase):
         self.assertIn("awaiting_worker", node_schema["acceptance_phases"])
         self.assertIn("regression_failed", node_schema["acceptance_outcomes"])
         self.assertIn("any", node_schema["platforms"])
+        self.assertEqual(node_schema["verification_profiles"], ["code", "hybrid", "visual"])
         self.assertEqual(node_schema["requirement_label_pattern"], r"^REQ(?:-[A-Za-z0-9]+)+$")
         self.assertIn("Scope: Closure: module -", node_schema["template"]["description"])
         for field in ("code", "title", "tags", "conditions"):

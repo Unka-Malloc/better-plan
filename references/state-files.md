@@ -173,6 +173,12 @@ Required fields:
   `group_design`, `milestone_gate`, and `final_validation`; group final validation must be
   `critical`. Use `critical` for new-product or feature-foundation work unless Step 1 verified the
   corresponding artifact is already complete.
+- `verification_profile`: `code`, `visual`, or `hybrid`. This is independent of difficulty. `code`
+  routes implementation and final validation to the rigorous code Verifier/Reviewer. `visual` and
+  `hybrid` require Visual Verifier/Reviewer roles with vision, real-browser control, and rendered
+  evidence for declared viewports and interaction states; `hybrid` also requires complete code and
+  data-flow verification. The final-validation profile must equal the sole non-skipped
+  implementation profile, or `hybrid` when implementation profiles are mixed or already hybrid.
 - `goal`: brief task goal tied to product delivery, not only file edits.
 - `description`: structured task design brief. Do not target a fixed sentence count and do not write free-form filler. Populate the following sections in order inside the string, using clear labels or compact labeled clauses when that keeps JSON readable:
   - `Scope`: name the concrete artifacts touched or inspected, such as code files, tests, scripts, configs, generated artifacts, documentation pages, or plan files. Also name the conceptual surface, such as modules, packages, components, commands, APIs, protocols, data models, feature areas, user-visible behaviors, or project capabilities. Include the Node's dependency-tree position when useful: its parent foundation or contract, its current level responsibility, and the child branches or consumers it unlocks. When exact files are not yet known, provide search targets such as symbols, routes, CLI flags, doc headings, config keys, schemas, or error strings. Begin every implementation Node with exactly one independently acceptable closure declaration: `Closure: capability - <target>`, `Closure: module - <target>`, or `Closure: scenario - <target>`. Name only the modules, directories, and files necessary for that closure, aligned with the `Architecture.md` module map, plus the interfaces consumed from other modules. Split distinct closures into separate Nodes so Nodes without a prerequisite path stay on disjoint files and can run in parallel.
@@ -288,6 +294,10 @@ Operational transition gates:
   `references/design-patterns.md` content and never needs to fetch its source website.
   Spawn return is not completion; only an exact final callback from the bound child may advance
   state.
+- Code verification requires `code_reasoning`. Visual and hybrid verification additionally require
+  `vision`, `browser`, and rendered browser evidence. A visual leaf reports a blocker when it cannot
+  obtain the real rendered state; source inspection, DOM text, snapshots, and successful builds are
+  not visual acceptance.
 - While `worker_running`, the fresh code-only worker implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
 - The Worker's correlated final callback enters `awaiting_verifier` without running the frozen
   regression. The write-capable Verifier repairs the Node, and its final callback runs focused
@@ -360,9 +370,9 @@ Plan consistency rules:
 | `activate <node-id> [root]` | return an explicitly deferred Node to `pending` |
 | `skip <node-id> [root] --reason "..."` | irreversibly waive or mark a Node not applicable |
 | `check <node-id> [root] --criterion <n> [--evidence "..."] [--evidence-file <path>] [--evidence-cmd "..."]` | record evidence for a non-delivery foundation criterion; rejected for delivery acceptance |
-| `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--requirements] [--design-json] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated placement and wiring; automated roles require design and implementation/final-validation roles also require their regression contract |
+| `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--verification-profile code\|visual\|hybrid] [--requirements] [--design-json] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated wiring and an explicit verification capability profile; automated roles require design and implementation/final-validation roles also require their regression contract |
 | `rewire <node-id> [root] [--prerequisites ...] [--next ...] [--add-prerequisite <id>] [--remove-prerequisite <id>] [--add-next <id>] [--remove-next <id>]` | replace or incrementally edit a Node's edges with validation |
-| `edit-node <node-id> [root] [--goal] [--description] [--difficulty] [--platform] [--requirements] [--add-requirement] [--remove-requirement] [--criterion ...] [--commit-message] [--commit-target] [--commit-repository] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...]` | replace the full criterion set with repeated values; edits invalidate stale preparation and proof while preserving the one-Reviewer-per-group invariant; terminal Nodes accept only requirements-label corrections |
+| `edit-node <node-id> [root] [--goal] [--description] [--difficulty] [--platform] [--verification-profile] [--requirements] [--add-requirement] [--remove-requirement] [--criterion ...] [--commit-message] [--commit-target] [--commit-repository] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...]` | replace content including verification capability; edits invalidate stale preparation and proof while preserving the one-Reviewer-per-group invariant; terminal Nodes accept only requirements-label corrections |
 | `check-labels [root] [--plan <selector>] [--json]` | cross-check canonical `REQ-...` labels between plan markdown documents and Node `requirements`; noncanonical or undefined Node labels and noncanonical document labels are errors, uncovered canonical document labels are warnings |
 | `sync-plan [root]` | re-derive every Plan status from its Nodes |
 | `record-decision [root] --plan <selector> --urgency immediate\|deferred --question ... --context ... --option ... --option ...` | record one structured Reviewer-raised developer choice; immediate items must be reported now |

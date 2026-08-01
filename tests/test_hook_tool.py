@@ -53,6 +53,7 @@ def active_node(
         "prerequisites": [],
         "platform": platform,
         "difficulty": "complex",
+        "verification_profile": "code",
         "goal": goal,
         "description": "Scope: Closure: module - Hook test fixture. Context: test. Target: deterministic behavior.",
         "requirements": ["REQ-004"],

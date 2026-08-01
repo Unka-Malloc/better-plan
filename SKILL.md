@@ -147,6 +147,14 @@ remaining ordinary defect
 returns to the same Worker lifecycle; only a real cross-node design or product-semantics error may
 require native-main redesign judgment.
 
+Every Node declares `verification_profile: code|visual|hybrid`. `code` uses the code Verifier.
+`visual` and `hybrid` use the Visual Verifier and require vision, browser control, and rendered
+evidence for every declared viewport and interaction state. Source inspection, DOM text, snapshots,
+or a successful build never substitute for exercising the real UI. If the required browser or
+rendered state is unavailable, fail closed with a blocker. `hybrid` also performs the complete code
+and data-flow review. The final-validation profile must cover every non-skipped implementation
+profile; a mixed group uses `hybrid`.
+
 ### Reviewer
 
 After all implementations complete, run exactly one fresh Reviewer for the group before full
@@ -157,6 +165,8 @@ branches. It repairs every issue that needs no developer trade-off and reports m
 structured `decision_issues`. It is never run a second time for that group. After the native main
 records its decisions, the state tool runs the group's full regression once. Only a failed run may
 create a bounded repair Node and trigger a failure-driven rerun; Reviewer is never invoked again.
+When final validation is `visual` or `hybrid`, dispatch the Visual Reviewer instead. It retains the
+one-Reviewer invariant while adding real-browser, vision, and rendered-evidence obligations.
 
 ### Validation budget
 
@@ -180,9 +190,9 @@ per-dispatch recommendation list:
   highest locally callable score without considering price. Verifier chooses the next distinct
   score when available, otherwise the highest callable score.
 
-Codex has a user-preference default matrix: Designer and Reviewer use `gpt-5.6-sol/max`, all four
+Codex has a user-preference default matrix: Designer, Reviewer, and Visual Reviewer use `gpt-5.6-sol/max`, all four
 Worker difficulty agents use `gpt-5.6-luna/max`, and Verifier uses
-`gpt-5.6-sol/high`. A qualifying existing local Codex selector supplies every role whose measured
+`gpt-5.6-sol/high`; Visual Verifier uses the same selector in its vision-and-browser role. A qualifying existing local Codex selector supplies every role whose measured
 combination it exactly matches; the fixed matrix fills the remaining roles. This exception is
 Codex-only and is not a recommendation for other hosts.
 
@@ -199,6 +209,11 @@ model-only table. Only when no local configuration exists does it fall back to c
 for that native harness. An omitted Worker reasoning setting is not guessed. Unknown or unsupported
 combinations are omitted.
 
+A non-Codex local selector may declare `better_plan_scope: visual`. The installer considers that
+selector only for Visual Verifier and Visual Reviewer, keeping it out of code-role selection. This
+supports one provider gateway exposing a rigorous code model and a separate vision-capable model.
+Codex retains its fixed all-vision matrix and does not require scoped selectors.
+
 The installation receipt pins every created delivery role; normal updates preserve those assignments
 rather than following leaderboard changes, while a later release may append a newly bundled utility
 agent such as Finder. Installation output and each child's injected assignment line tell the user the
@@ -206,6 +221,13 @@ role, model, reasoning setting, and selection basis. Delivery roles also report 
 measured Worker cost when applicable, and whether the choice came from local configuration or catalog
 fallback; read-only utilities report their fixed selector and mode. Runtime dispatch reads the pinned
 native role and never reselects a model.
+
+Treat the current installed role matrix as the only supported generation and one managed unit. If
+the user explicitly asks to replace an older Better Plan setup, remove that setup from the active
+agent directory and install the complete current matrix with a fresh receipt. Do not recognize or
+translate legacy aliases, receipts, or role shapes, and never fall back to them at runtime. A backup
+may exist only as an inert manual-recovery copy. Never replace unrelated local agents; ordinary
+install and update continue to reject unowned same-name collisions.
 
 ## Isolated dispatch and completion
 
@@ -291,4 +313,6 @@ prompt, poll work, or select another Node. The native host owns child lifetime a
 - Designer's mandatory local pattern catalog: `references/design-patterns.md`
 - Worker: `references/worker.md`
 - Verifier: `references/verifier.md`
+- Visual Verifier: `references/visual-verifier.md`
 - Reviewer: `references/reviewer.md`
+- Visual Reviewer: `references/visual-reviewer.md`

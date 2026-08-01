@@ -400,6 +400,19 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any(check.target == "cursor hooks" for check in checks), checks)
             self.assertTrue(any(check.target == "cursor hooks" and check.status == "OK" for check in checks), checks)
 
+    def test_doctor_rejects_tampered_visual_role_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            visual_role = native_role_directory(paths, "codex") / "visual-verifier.toml"
+            visual_role.write_text("tampered\n", encoding="utf-8")
+
+            check = install_doctor.check_native_roles(paths, "codex")
+
+            self.assertEqual(check.status, "FAIL")
+            self.assertEqual(check.target, "codex native roles")
+            self.assertNotIn(tmpdir, check.message)
+
     def test_install_updates_detected_wsl_opencode_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))

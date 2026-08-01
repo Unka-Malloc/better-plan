@@ -30,6 +30,9 @@ VALID_STATUSES = set(STATUS_ORDER)
 VALID_DIFFICULTIES = {"routine", "standard", "complex", "critical"}
 
 
+VALID_VERIFICATION_PROFILES = {"code", "visual", "hybrid"}
+
+
 VALID_PLATFORMS = {"any", "linux", "macos", "windows"}
 
 
@@ -200,6 +203,7 @@ TASK_REQUIRED_FIELDS = {
     "prerequisites",
     "platform",
     "difficulty",
+    "verification_profile",
     "goal",
     "description",
     "acceptance_criteria",
@@ -379,6 +383,7 @@ NODE_TEMPLATE: dict[str, Any] = {
     "prerequisites": [],
     "platform": "any",
     "difficulty": "standard",
+    "verification_profile": "code",
     "goal": "One-sentence task goal.",
     "description": (
         "Scope: Closure: module - one independently acceptable target; owned modules, directories, and files. "

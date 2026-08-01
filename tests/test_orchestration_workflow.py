@@ -26,6 +26,7 @@ def node(
     phase: str,
     *,
     difficulty: str = "standard",
+    verification_profile: str = "code",
     owned: str = "src/current.py",
 ) -> dict[str, object]:
     return {
@@ -33,6 +34,7 @@ def node(
         "status": "pending" if phase.startswith("awaiting_") else "in_progress",
         "role": role,
         "difficulty": difficulty,
+        "verification_profile": verification_profile,
         "goal": "TRANSCRIPT_SENTINEL remains outside dispatch payloads.",
         "conversation_history": "TRANSCRIPT_SENTINEL",
         "design": design(owned, f"tests/test_{node_id}.py"),
@@ -129,6 +131,43 @@ class OrchestrationWorkflowTests(unittest.TestCase):
                 self.assertNotIn("required_outputs", payload)
             for path in ("docs/group.md", "src/one.py", "src/two.py", "tests/full.py"):
                 self.assertIn(path, payload["repository_paths"])
+
+    def test_visual_profiles_route_to_browser_and_vision_roles(self) -> None:
+        verifier = bounded_acceptance_payload(
+            node(
+                "visual-node",
+                "implementation",
+                "awaiting_verifier",
+                verification_profile="visual",
+            )
+        )
+        self.assertEqual(verifier["agent_type"], "visual-verifier")
+        self.assertEqual(verifier["role_reference"], "references/visual-verifier.md")
+        self.assertEqual(verifier["required_capabilities"], ["code_reasoning", "vision", "browser"])
+        self.assertIn("rendered browser output", verifier["required_evidence"])
+
+        reviewer = bounded_acceptance_payload(
+            node(
+                "hybrid-final",
+                "final_validation",
+                "awaiting_reviewer",
+                difficulty="critical",
+                verification_profile="hybrid",
+            ),
+            action="dispatch_reviewer",
+        )
+        self.assertEqual(reviewer["agent_type"], "visual-reviewer")
+        self.assertEqual(reviewer["role_reference"], "references/visual-reviewer.md")
+        self.assertIn("vision", reviewer["required_capabilities"])
+
+    def test_code_profile_keeps_rigorous_code_verifier(self) -> None:
+        payload = bounded_acceptance_payload(
+            node("code-node", "implementation", "awaiting_verifier")
+        )
+        self.assertEqual(payload["agent_type"], "verifier")
+        self.assertEqual(payload["role_reference"], "references/verifier.md")
+        self.assertEqual(payload["required_capabilities"], ["code_reasoning"])
+        self.assertNotIn("required_evidence", payload)
 
     def test_docs_encode_one_designer_one_reviewer_and_repairing_verifier(self) -> None:
         normalized = " ".join((self.skill + self.main + self.readme).lower().split())
