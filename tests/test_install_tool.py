@@ -413,6 +413,16 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(check.target, "codex native roles")
             self.assertNotIn(tmpdir, check.message)
 
+    def test_doctor_accepts_adapter_only_host_when_no_native_role_is_selectable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+
+            with mock.patch.object(install_targets, "_select_role_assignments", return_value={}):
+                check = install_doctor.check_native_roles(paths, "opencode")
+
+            self.assertEqual(check.status, "OK")
+            self.assertIn("adapter-only", check.message)
+
     def test_install_updates_detected_wsl_opencode_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
