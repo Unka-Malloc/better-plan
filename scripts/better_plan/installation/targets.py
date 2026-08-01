@@ -192,6 +192,9 @@ def _render_native_source(target: str, source: str, assignment: _RoleAssignment)
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
         measurement = "mode=read-only"
+    elif assignment.role.startswith("visual-"):
+        basis = "Arena WebDev"
+        measurement = f"score={assignment.index_score}"
     else:
         basis = "Intelligence Index"
         measurement = f"score={assignment.index_score}"
@@ -324,6 +327,9 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
         metric = "fixed selector"
+    elif assignment.role.startswith("visual-"):
+        basis = "Arena WebDev"
+        metric = f"score {assignment.index_score}, price ignored"
     else:
         basis = "Intelligence Index"
         metric = f"score {assignment.index_score}, price ignored"

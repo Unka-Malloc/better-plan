@@ -116,8 +116,9 @@ direct user request.
 
 Do not recommend or select a model at dispatch time. The installer pins native role files once.
 Codex uses this fixed default matrix for any role not replaced by a qualifying local configuration:
-Designer, Reviewer, and Visual Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
-`gpt-5.6-luna/max`; Verifier and Visual Verifier use `gpt-5.6-sol/high`. This is a Codex-specific user preference,
+Designer and Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
+`gpt-5.6-luna/max`; Verifier uses `gpt-5.6-sol/high`. Visual Verifier and Visual Reviewer use
+`gpt-5.6-sol/xhigh` from the pinned Arena WebDev leaderboard. This is a Codex-specific user preference,
 not a cross-host recommendation. Other hosts retain local-first benchmark routing. Missing table
 entries are ignored rather than guessed.
 
