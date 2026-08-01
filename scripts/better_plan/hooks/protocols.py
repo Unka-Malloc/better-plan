@@ -18,7 +18,7 @@ HOST_EVENTS: dict[str, dict[str, str]] = {
     "claude": {
         "SessionStart": "session-start",
         "UserPromptSubmit": "prompt-submit",
-        "PostToolUse": "agent-complete",
+        "SubagentStop": "agent-complete",
     },
     "cursor": {
         "sessionStart": "session-start",
@@ -39,6 +39,12 @@ AGENT_COMPLETION_MATCHERS = {
     "claude": "^Agent$",
     "cursor": "^(Agent|Task)$",
 }
+COMPLETION_HOST_EVENTS = {
+    "codex": "PostToolUse",
+    "claude": "SubagentStop",
+    "cursor": "postToolUse",
+    "kimi": "SubagentStop",
+}
 
 
 class HookProtocolError(ValueError):
@@ -52,7 +58,12 @@ def host_events(agent: str) -> Mapping[str, str]:
     return MappingProxyType(HOST_EVENTS[agent].copy())
 
 
-def context_response(agent: str, event: str, value: str) -> dict[str, Any] | str:
+def context_response(
+    agent: str,
+    event: str,
+    value: str,
+    host_event_name: str | None = None,
+) -> dict[str, Any] | str:
     """Encode bounded lifecycle context for one host."""
     host_events(agent)
     if event not in {"session-start", "prompt-submit", "agent-complete"}:
@@ -91,7 +102,11 @@ def context_response(agent: str, event: str, value: str) -> dict[str, Any] | str
         if agent in {"codex", "claude"}:
             return {
                 "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
+                    "hookEventName": (
+                        host_event_name
+                        if isinstance(host_event_name, str) and host_event_name.strip()
+                        else COMPLETION_HOST_EVENTS[agent]
+                    ),
                     "additionalContext": value,
                 }
             }

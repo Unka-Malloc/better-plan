@@ -1,379 +1,169 @@
+"""Cross-surface acceptance for the current grouped role workflow."""
+
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_PATH = REPO_ROOT / "SKILL.md"
-OPENAI_AGENT_PATH = REPO_ROOT / "agents" / "openai.yaml"
-ORCHESTRATION_MAIN_PATH = REPO_ROOT / "references" / "orchestration-main.md"
-ACCEPTANCE_DESIGNER_PATH = REPO_ROOT / "references" / "acceptance-designer.md"
-EXECUTOR_PATH = REPO_ROOT / "references" / "executor.md"
-AUDITOR_PATH = REPO_ROOT / "references" / "auditor.md"
-README_PATH = REPO_ROOT / "README.md"
-HOOK_TOOL_PATH = REPO_ROOT / "scripts" / "hook_tool.py"
-HOOK_CONFIG_PATH = REPO_ROOT / "scripts" / "better_plan" / "hooks" / "config.py"
-HOOK_PROTOCOL_PATH = REPO_ROOT / "scripts" / "better_plan" / "hooks" / "protocols.py"
-HOOK_RUNTIME_PATH = REPO_ROOT / "scripts" / "better_plan" / "hooks" / "runtime.py"
-INSTALL_PATH = REPO_ROOT / "scripts" / "install.py"
-INSTALL_TARGETS_PATH = REPO_ROOT / "scripts" / "better_plan" / "installation" / "targets.py"
-INSTALL_MODELS_PATH = REPO_ROOT / "scripts" / "better_plan" / "installation" / "models.py"
+from scripts.better_plan.application.workflow import bounded_acceptance_payload
 
 
-def normalized_paragraphs(payload: str) -> list[str]:
-    return [
-        " ".join(paragraph.lower().split())
-        for paragraph in re.split(r"\n\s*\n", payload)
-        if paragraph.strip()
-    ]
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def design(owned: str, acceptance: str) -> dict[str, object]:
+    return {
+        "artifact": "docs/design.md",
+        "owned_paths": [owned],
+        "scaffold_paths": [owned],
+        "acceptance_paths": [acceptance],
+    }
+
+
+def node(
+    node_id: str,
+    role: str,
+    phase: str,
+    *,
+    difficulty: str = "standard",
+    owned: str = "src/current.py",
+) -> dict[str, object]:
+    return {
+        "id": node_id,
+        "status": "pending" if phase.startswith("awaiting_") else "in_progress",
+        "role": role,
+        "difficulty": difficulty,
+        "goal": "TRANSCRIPT_SENTINEL remains outside dispatch payloads.",
+        "conversation_history": "TRANSCRIPT_SENTINEL",
+        "design": design(owned, f"tests/test_{node_id}.py"),
+        "regression": {
+            "scope": "full" if role == "final_validation" else "focused",
+            "commands": ["true"],
+            "criteria": [0],
+            "paths": [owned],
+        },
+        "acceptance": {"phase": phase, "attempt": 0, "outcome": "none"},
+    }
 
 
 class OrchestrationWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.skill = SKILL_PATH.read_text(encoding="utf-8")
-        cls.openai_agent = OPENAI_AGENT_PATH.read_text(encoding="utf-8")
-        default_prompt_match = re.search(
-            r'(?m)^\s*default_prompt:\s*"([^"]*)"\s*$',
-            cls.openai_agent,
+        cls.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        cls.main = (ROOT / "references" / "orchestration-main.md").read_text(encoding="utf-8")
+        cls.rules = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        cls.hook_context = (ROOT / "scripts" / "better_plan" / "hooks" / "context.py").read_text(encoding="utf-8")
+
+    def test_current_role_names_are_complete(self) -> None:
+        combined = "\n".join((self.skill, self.readme, self.main)).lower()
+        for role in ("designer", "worker", "verifier", "reviewer"):
+            self.assertIn(f"references/{role}.md", combined)
+
+    def test_repository_self_maintenance_exemption_is_active(self) -> None:
+        for payload in (self.rules, self.skill, self.readme, self.main):
+            normalized = " ".join(payload.lower().split())
+            self.assertIn("better plan source repository", normalized)
+            self.assertRegex(normalized, r"(?:ordinary|native).+workflow")
+        self.assertIn("do not create or maintain a repository-local better plan workspace", self.rules.lower())
+
+    def test_first_use_mentions_native_templates_but_hooks_do_not(self) -> None:
+        skill = self.skill.lower()
+        self.assertIn("first better plan use", skill)
+        for host in ("codex", "claude code", "opencode", "cursor"):
+            self.assertIn(host, skill)
+        hook = self.hook_context.lower()
+        self.assertNotIn("template", hook)
+        self.assertNotIn("manually imported", hook)
+
+    def test_worker_payload_uses_difficulty_agent_and_fresh_context_without_model(self) -> None:
+        payload = bounded_acceptance_payload(
+            node(
+                "worker-node",
+                "implementation",
+                "awaiting_worker",
+                difficulty="critical",
+            )
         )
-        if default_prompt_match is None:
-            raise AssertionError("agents/openai.yaml must declare one quoted default_prompt")
-        cls.openai_default_prompt = default_prompt_match.group(1)
-        cls.readme = README_PATH.read_text(encoding="utf-8")
-        cls.hook_tool = HOOK_TOOL_PATH.read_text(encoding="utf-8")
-        cls.hook_config = HOOK_CONFIG_PATH.read_text(encoding="utf-8")
-        cls.hook_protocol = HOOK_PROTOCOL_PATH.read_text(encoding="utf-8")
-        cls.hook_runtime = HOOK_RUNTIME_PATH.read_text(encoding="utf-8")
-        cls.installer = INSTALL_PATH.read_text(encoding="utf-8")
-        cls.install_targets = INSTALL_TARGETS_PATH.read_text(encoding="utf-8")
-        cls.install_models = INSTALL_MODELS_PATH.read_text(encoding="utf-8")
-        cls.reference_main = ORCHESTRATION_MAIN_PATH.read_text(encoding="utf-8")
-        cls.reference_acceptance_designer = ACCEPTANCE_DESIGNER_PATH.read_text(encoding="utf-8")
-        cls.reference_executor = EXECUTOR_PATH.read_text(encoding="utf-8")
-        cls.reference_auditor = AUDITOR_PATH.read_text(encoding="utf-8")
+        self.assertEqual(payload["action"], "dispatch_worker")
+        self.assertEqual(payload["agent_type"], "worker-critical")
+        self.assertEqual(payload["fork_turns"], "none")
+        self.assertEqual(payload["role_reference"], "references/worker.md")
+        self.assertNotIn("knowledge_references", payload)
+        self.assertNotIn("required_outputs", payload)
+        self.assertNotIn("model", payload)
+        self.assertNotIn("recommendation", payload)
+        self.assertNotIn("TRANSCRIPT_SENTINEL", str(payload))
 
-    def test_skill_points_to_orchestration_main_and_leaf_roles(self) -> None:
-        self.assertTrue(self.skill.startswith("---\n"))
-        self.assertIn("name: better-plan", self.skill)
-        self.assertIn("references/orchestration-main.md", self.skill)
-        self.assertIn("references/acceptance-designer.md", self.skill)
-        self.assertIn("references/executor.md", self.skill)
-        self.assertIn("references/auditor.md", self.skill)
-        self.assertIn("role references", self.skill)
-
-    def test_entry_surfaces_route_work_without_disclosing_lifecycle_policy(self) -> None:
-        from scripts.better_plan.hooks.context import INTENT_GUIDANCE
-
-        lifecycle_policy_terms = (
-            "acceptance",
-            "node",
-            "lifecycle",
-            "focused test",
-            "regression",
-            "repair",
-            "audit",
-            "completion",
-            "selector",
-        )
-        for name, payload in (
-            ("Hook intent guidance", INTENT_GUIDANCE),
-            ("OpenAI Skill default prompt", self.openai_default_prompt),
-        ):
-            with self.subTest(surface=name):
-                normalized = " ".join(payload.lower().split())
-                self.assertRegex(normalized, r"\bbetter[- ]plan\b")
-                self.assertRegex(normalized, r"\bplanning\b")
-                self.assertRegex(normalized, r"\b(?:code|coding)\b")
-                self.assertRegex(normalized, r"\bexplicit implementation\b")
-                self.assertRegex(
-                    normalized,
-                    r"\b(?:otherwise|other (?:requests?|work|tasks?)|all other)\b",
-                )
-                self.assertRegex(
-                    normalized,
-                    r"\buser(?:'s)? (?:request|instructions?|direction)\b",
-                )
-                self.assertRegex(normalized, r"\b(?:answer|respond|native workflow)\b")
-                self.assertRegex(normalized, r"\botherwise\b[^.]*\baccordingly\b")
-                self.assertNotRegex(normalized, r"\bnormally\b")
-                for policy_term in lifecycle_policy_terms:
-                    self.assertNotIn(policy_term, normalized)
-
-    def test_readme_entry_routing_uses_accordingly_without_normally(self) -> None:
-        routing_statements = [
-            line.strip()
-            for line in self.readme.splitlines()
-            if "entry guidance activates Better Plan" in line
-            or "Session and prompt duties share one short routing instruction" in line
+    def test_group_endcaps_receive_group_ids_and_union_of_needed_paths(self) -> None:
+        group = [
+            node("design", "group_design", "awaiting_designer", owned="docs/group.md"),
+            node("one", "implementation", "awaiting_worker", owned="src/one.py"),
+            node("two", "implementation", "awaiting_worker", owned="src/two.py"),
+            node("final", "final_validation", "awaiting_reviewer", owned="tests/full.py"),
         ]
-
-        self.assertEqual(len(routing_statements), 2)
-        for statement in routing_statements:
-            with self.subTest(statement=statement):
-                lowered = statement.lower()
-                self.assertRegex(lowered, r"\bplanning\b")
-                self.assertRegex(lowered, r"\bcoding\b")
-                self.assertRegex(lowered, r"\bexplicit implementation\b")
-                self.assertRegex(
-                    lowered,
-                    r"\b(?:otherwise|every other request)\b[^.]*\baccordingly\b",
-                )
-                self.assertNotRegex(lowered, r"\bnormally\b")
-
-    def test_planning_coding_and_implementation_activation_is_consistent(self) -> None:
-        from scripts.better_plan.hooks.context import INTENT_GUIDANCE
-
-        for name, payload in (
-            ("Hook intent guidance", INTENT_GUIDANCE),
-            ("OpenAI Skill default prompt", self.openai_default_prompt),
-            ("Skill", self.skill),
-            ("native-main contract", self.reference_main),
-            ("README", self.readme),
+        for selected, action, agent_type, reference in (
+            (group[0], "dispatch_designer", "designer", "references/designer.md"),
+            (group[-1], "dispatch_reviewer", "reviewer", "references/reviewer.md"),
         ):
-            with self.subTest(surface=name):
-                activation_clause = next(
-                    (
-                        paragraph
-                        for paragraph in normalized_paragraphs(payload)
-                        if re.search(r"\bbetter[- ]plan\b", paragraph)
-                        and re.search(r"\bplanning\b", paragraph)
-                        and re.search(r"\b(?:code|coding)\b", paragraph)
-                        and re.search(r"\bexplicit implementation\b", paragraph)
-                    ),
-                    "",
+            payload = bounded_acceptance_payload(
+                selected,
+                action=action,
+                group_nodes=group,
+            )
+            self.assertEqual(payload["agent_type"], agent_type)
+            self.assertEqual(payload["fork_turns"], "none")
+            self.assertEqual(payload["role_reference"], reference)
+            self.assertEqual(payload["group_node_ids"], ["design", "one", "two", "final"])
+            if action == "dispatch_designer":
+                self.assertEqual(
+                    payload["knowledge_references"],
+                    ["references/design-patterns.md"],
                 )
-                self.assertTrue(
-                    activation_clause,
-                    f"{name} must state one planning/coding/explicit-implementation activation boundary",
+                self.assertEqual(
+                    payload["required_outputs"],
+                    ["design_pattern_assessment"],
                 )
+            else:
+                self.assertNotIn("knowledge_references", payload)
+                self.assertNotIn("required_outputs", payload)
+            for path in ("docs/group.md", "src/one.py", "src/two.py", "tests/full.py"):
+                self.assertIn(path, payload["repository_paths"])
 
-    def test_activated_skill_and_isolated_roles_retain_lifecycle_policy(self) -> None:
-        skill = " ".join(self.skill.lower().split())
-        main = " ".join(self.reference_main.lower().split())
-        designer = " ".join(self.reference_acceptance_designer.lower().split())
-        executor = " ".join(self.reference_executor.lower().split())
-        auditor = " ".join(self.reference_auditor.lower().split())
+    def test_docs_encode_one_designer_one_reviewer_and_repairing_verifier(self) -> None:
+        normalized = " ".join((self.skill + self.main + self.readme).lower().split())
+        self.assertIn("whole ordered group", normalized)
+        self.assertIn("reviewer runs once", normalized)
+        self.assertIn("directly repairs", normalized)
+        self.assertIn('fork_turns: "none"', normalized)
+        self.assertIn("spawn return is not completion", normalized)
 
-        self.assertIn("one user-visible capability", skill)
-        self.assertIn("run the full regression exactly once", skill)
-        self.assertIn("never auto-dispatch or loop", skill)
-        self.assertIn("executor exit runs the declared focused regression", skill)
-        self.assertIn("freeze acceptance once", main)
-        self.assertIn("executor exit runs focused regression", main)
-        self.assertIn("single acceptance freeze", designer)
-        self.assertIn("ordinary compiler", executor)
-        self.assertIn("implementation-local build or static check", executor)
-        self.assertIn("do not run frozen acceptance", executor)
-        self.assertIn("only independent review", auditor)
+    def test_docs_require_parallel_plans_and_concurrent_independent_workers(self) -> None:
+        normalized = " ".join((self.skill + self.main + self.readme).lower().split())
+        self.assertIn("widest safe parallel frontier", normalized)
+        self.assertIn("artificial prerequisite", normalized)
+        self.assertIn("spawn calls concurrently", normalized)
+        self.assertIn("execute concurrently", normalized)
+        self.assertIn("state mutations", normalized)
+        self.assertIn("serialized", normalized)
 
-    def test_role_references_are_leaf_and_separated(self) -> None:
-        for payload in (
-            self.reference_acceptance_designer,
-            self.reference_executor,
-            self.reference_auditor,
-        ):
-            self.assertIn("leaf role", payload.lower())
-        self.assertNotIn("leaf role", self.reference_main.lower())
+    def test_docs_require_offline_pattern_assessment_without_pattern_forcing(self) -> None:
+        designer = (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower()
+        normalized = " ".join((self.skill + self.main + self.readme + designer).lower().split())
+        self.assertIn("references/design-patterns.md", normalized)
+        self.assertIn("design_pattern_assessment", normalized)
+        self.assertIn("candidate: none", normalized)
+        self.assertIn("simplest direct", normalized)
+        self.assertIn("do not fetch", normalized)
 
-    def test_auditor_reference_is_minimal(self) -> None:
-        self.assertLess(len(self.reference_auditor.split()), 600)
-        self.assertIn("fingerprint", self.reference_auditor.lower())
-        self.assertIn("PASS", self.reference_auditor)
-        self.assertIn("findings", self.reference_auditor.lower())
-        self.assertNotIn("tutorial", self.reference_auditor.lower())
-        self.assertNotIn("how to", self.reference_auditor.lower())
-
-    def test_hook_scope_is_guidance_plus_agent_completion_only(self) -> None:
-        self.assertIn("Session and prompt Hooks provide guidance only", self.readme)
-        self.assertNotIn("launch", self.hook_tool.lower())
-        self.assertNotIn("subprocess", self.hook_tool.lower())
-        self.assertNotIn("subprocess", self.hook_runtime.lower())
-        self.assertNotIn("openai", self.hook_tool.lower())
-        self.assertNotIn("pretooluse", (self.hook_tool + self.hook_config).lower())
-        self.assertIn("posttooluse", (self.hook_protocol + self.hook_config).lower())
-
-    def test_cursor_native_lifecycle_host_is_documented_as_current(self) -> None:
-        readme = self.readme.lower()
-        self.assertIn("codex, claude code, cursor, and kimi code", readme)
-        self.assertIn("supported events", readme)
-        self.assertIn("NESTED_CONFIG_AGENTS", self.hook_protocol)
-        self.assertIn("codex", self.hook_protocol)
-        self.assertIn("claude", self.hook_protocol)
-        self.assertIn("cursor", self.hook_protocol)
-        self.assertIn('"sessionStart": "session-start"', self.hook_protocol)
-        self.assertIn('"beforeSubmitPrompt": "prompt-submit"', self.hook_protocol)
-        self.assertIn('"sessionStart"', self.hook_protocol)
-        self.assertIn("POSTTOOLUSE", self.readme.upper())
-        self.assertIn("NESTED_CONFIG_AGENTS", self.hook_protocol)
-        self.assertIn("nested_handlers", self.hook_config)
-        self.assertIn("flat_handlers", self.hook_config)
-        self.assertIn("HOOK_TIMEOUT_SECONDS", self.hook_config)
-        self.assertIn("session-start", self.hook_runtime)
-        self.assertIn("prompt-submit", self.hook_runtime)
-        self.assertIn('EVENTS = ("session-start", "prompt-submit", "agent-complete")', self.hook_runtime)
-        self.assertIn(
-            'AGENTS=("codex","claude","cursor","antigravity","kimi")',
-            self.hook_protocol.replace(" ", ""),
-        )
-
-    def test_session_and_prompt_are_detector_gated_guidance(self) -> None:
-        detector_terms = self.hook_runtime + self.readme
-        self.assertIn("detected_manifest(payload)", self.hook_runtime)
-        self.assertIn("detect_event_workspace", self.hook_runtime)
-        self.assertIn("session-start", detector_terms)
-        self.assertIn("prompt-submit", detector_terms)
-        self.assertIn("read-only", self.readme.lower())
-        self.assertIn("guidance only", self.readme.lower())
-        self.assertIn("detect", self.readme.lower())
-
-    def test_execution_selection_refusal_returns_to_native_main_planning(self) -> None:
-        self.assertIn("leaf dispatch", self.reference_main)
-        self.assertIn("cannot terminate the user's task", self.reference_main)
-        self.assertIn("repair the relevant Plan or planning tool", self.reference_main)
-        self.assertIn("never auto-dispatch or loop", self.skill)
-
-    def test_one_user_visible_capability_has_one_lifecycle_and_terminal_completion(self) -> None:
-        for payload in (self.skill, self.reference_main):
-            lowered = payload.lower()
-            self.assertIn("one user-visible capability", lowered)
-            self.assertIn("one lifecycle", lowered)
-            self.assertRegex(
-                lowered,
-                re.compile(
-                    r"complet(?:e|ion)[\s\S]{0,240}(?:must not|does not|never)[\s\S]{0,120}"
-                    r"(?:next|another|different) node",
-                ),
-            )
-
-    def test_end_to_end_closure_policy_is_shared_by_every_active_role(self) -> None:
-        skill = " ".join(self.skill.lower().split())
-        self.assertIn("complete one end-to-end user-visible capability in one pass", skill)
-        self.assertIn("freeze acceptance exactly once", skill)
-        self.assertIn("exactly one independent review", skill)
-        self.assertIn("resolve ordinary compiler", skill)
-        self.assertIn("real design error or product-semantics error", skill)
-        self.assertIn("run the full regression exactly once", skill)
-        self.assertIn("after every implementation node", skill)
-
-        self.assertIn("freeze acceptance once", self.reference_main.lower())
-        self.assertIn("ordinary compiler", self.reference_executor.lower())
-        self.assertIn("same dispatch", self.reference_executor.lower())
-        self.assertIn("only independent review", self.reference_auditor.lower())
-        self.assertIn("single acceptance freeze", self.reference_acceptance_designer.lower())
-
-    def test_acceptance_dimensions_are_risk_selected_candidates_not_a_checklist(self) -> None:
-        dimensions = ("success", "boundary", "negative", "replay", "privacy", "fingerprint")
-        designer_clause = next(
-            (
-                paragraph
-                for paragraph in normalized_paragraphs(self.reference_acceptance_designer)
-                if all(dimension in paragraph for dimension in dimensions)
-                and re.search(r"(?:candidate|候选)", paragraph)
-            ),
-            "",
-        )
-        self.assertTrue(designer_clause, "the six dimensions must share one explicit candidate clause")
-        self.assertRegex(designer_clause, r"(?:select|choose|选择)")
-        self.assertRegex(designer_clause, r"(?:only|仅|只)")
-        self.assertRegex(designer_clause, r"(?:applicable|relevant|适用|相关)")
-        self.assertRegex(designer_clause, r"(?:risk|风险)")
-
-    def test_unchanged_waiting_is_quiet_heuristic_guidance_not_a_timer_gate(self) -> None:
-        for payload in (self.skill, self.reference_main):
-            lowered = payload.lower()
-            paragraphs = normalized_paragraphs(payload)
-            quiet_clause = next(
-                (
-                    paragraph
-                    for paragraph in paragraphs
-                    if "unchanged" in paragraph
-                    and "repeat" in paragraph
-                    and re.search(r"(?:status|progress|update|report)", paragraph)
-                ),
-                "",
-            )
-            self.assertTrue(quiet_clause, "unchanged delegated state needs one quiet-report clause")
-            self.assertRegex(quiet_clause, r"(?:do not|avoid)")
-
-            lifecycle_clause = next(
-                (
-                    paragraph
-                    for paragraph in paragraphs
-                    if "heuristic" in paragraph
-                    and "poll" in paragraph
-                    and "lifecycle" in paragraph
-                    and "gate" in paragraph
-                ),
-                "",
-            )
-            self.assertTrue(lifecycle_clause, "quiet waiting needs one explicit non-intervention clause")
-            self.assertRegex(lifecycle_clause, r"(?:does not|never).{0,120}(?:time|timer).{0,80}poll")
-            self.assertRegex(
-                lifecycle_clause,
-                r"(?:does not|never).{0,240}(?:interrupt|cancel|replace|interfere)"
-                r".{0,160}(?:child|agent).{0,80}lifecycle",
-            )
-            self.assertRegex(
-                lifecycle_clause,
-                r"(?:is not|never).{0,120}execution.{0,80}completion.{0,80}failure.{0,40}gate",
-            )
-            self.assertNotRegex(lowered, r"\b\d+\s*(?:seconds?|minutes?|hours?)\b")
-
-    def test_lifecycle_guidance_contains_no_concrete_project_or_agent_routing_policy(self) -> None:
-        payload = "\n".join(
-            (
-                self.skill,
-                self.reference_main,
-                self.reference_acceptance_designer,
-            )
-        ).lower()
-        for concrete_name in (
-            "licolite",
-            "kimi",
-            "claude",
-            "cursor",
-            "codex",
-            "copilot",
-            "gemini",
-            "opencode",
-            "macos",
-            "windows",
-            "linux",
-        ):
-            self.assertNotIn(concrete_name, payload)
-
-    def test_cursor_protocol_encoding_is_isolated_from_codex_claude_nested_encoding(self) -> None:
-        self.assertIn("nested codex and claude", self.readme.lower())
-        self.assertIn("cursor receives flat version 1 hooks", self.readme.lower())
-        self.assertIn("NESTED_CONFIG_AGENTS", self.hook_protocol)
-        self.assertIn('"codex": {', self.hook_protocol.lower())
-        self.assertIn('"cursor": {', self.hook_protocol.lower())
-        self.assertNotIn("nested cursor", self.hook_protocol.lower())
-        nested_section = self.hook_config.split("def nested_handlers", 1)[1].split(
-            "def flat_handlers", 1
-        )[0]
-        self.assertIn('agent not in {"codex", "claude"}', nested_section)
-        self.assertNotIn("_cursor_host_events", nested_section)
-
-    def test_workflow_progression_is_explicit_and_event_driven(self) -> None:
-        self.assertIn("the completion Hook submits the correlated write-role exit", self.readme)
-        self.assertIn("executor-exited", self.readme)
-        self.assertIn("dispatch_executor", self.readme)
-        self.assertIn("dispatch_auditor", self.readme)
-        self.assertNotIn("subprocess", self.hook_tool.lower())
-        self.assertNotIn("application.workflow", self.hook_runtime)
-        self.assertNotIn("domain.transitions", self.hook_runtime)
-        self.assertNotIn("manifest_tool", self.hook_runtime)
-
-    def test_orchestration_readme_contract_surface(self) -> None:
-        self.assertIn("native parent", self.readme)
-        self.assertIn("dispatch_executor", self.readme)
-        self.assertIn("dispatch_auditor", self.readme)
-        self.assertIn("fresh read-only auditor", self.readme)
-        self.assertIn("references/orchestration-main.md", self.readme)
+    def test_docs_explain_two_tables_and_one_time_local_first_pinning(self) -> None:
+        normalized = " ".join((self.skill + self.readme).lower().split())
+        self.assertIn("coding_agent_catalog.json", normalized)
+        self.assertIn("model_catalog.json", normalized)
+        self.assertIn("local", normalized)
+        self.assertIn("pins", normalized)
+        self.assertIn("normal updates", normalized)
+        self.assertIn("missing agent combinations are ignored", normalized)
 
 
 if __name__ == "__main__":

@@ -6,19 +6,36 @@ from typing import Any, Mapping
 from pathlib import Path
 from dataclasses import dataclass
 from collections import deque
+import hashlib
 import json
 import os
 import subprocess
-from ..domain.models import CHECKPOINTS_NAME, DISCOVERY_SKIP_DIRS, EXTERNAL_SOURCE_PATTERN, Issue, MANIFEST_NAME, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, REQUIREMENT_LABEL_CANDIDATE_PATTERN, STATE_FILE_NAMES, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_checkpoints_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary
-from ..domain.validation import dependency_cycle_path, validate_checkpoints_data as _validate_checkpoints_data
+import tempfile
+from contextlib import contextmanager
+
+if os.name == "nt":
+    import msvcrt as _native_lock
+else:
+    import fcntl as _native_lock
+from ..domain.capabilities import capability_scope, is_capability_key, plan_capability_binding_issues, validate_capability_data
+from ..domain.models import CAPABILITIES_NAME, CHECKPOINTS_NAME, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DISCOVERY_SKIP_DIRS, ENTRY_GATE_OPTIONAL_FIELDS, ENTRY_GATE_REQUIRED_FIELDS, EXTERNAL_SOURCE_PATTERN, GATE_LEAF_TAG, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, REQUIREMENT_LABEL_CANDIDATE_PATTERN, STATE_FILE_NAMES, ToolError, UUID4_PATTERN, VALID_DECISION_STATUSES, VALID_DECISION_URGENCIES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_TREE_MODES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_checkpoints_path, is_gate_leaf_node, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.validation import dependency_cycle_path, readable_summary_issue, validate_checkpoints_data as _validate_checkpoints_data, validate_readable_string_list
 
 
 def find_manifests(root: Path) -> list[Path]:
     if root.is_file():
-        return [root] if root.name in STATE_FILE_NAMES else []
+        paths = [root] if root.name in STATE_FILE_NAMES else []
+        capabilities = root.parent / CAPABILITIES_NAME
+        if root.name == MANIFEST_NAME and capabilities.is_file():
+            paths.append(capabilities)
+        return paths
 
     manifest = root / MANIFEST_NAME
-    return [manifest] if manifest.is_file() else []
+    capabilities = root / CAPABILITIES_NAME
+    paths = [manifest] if manifest.is_file() else []
+    if capabilities.is_file():
+        paths.append(capabilities)
+    return paths
 
 
 def referenced_checkpoints_files(manifest: Path) -> list[Path]:
@@ -138,7 +155,9 @@ def validate_manifest(path: Path, snapshot_indexes: set[int] | None = None) -> t
         return validate_plan_manifest_data(path, data, snapshot_indexes=snapshot_indexes)
     if path.name == CHECKPOINTS_NAME:
         return _validate_checkpoints_data(path, data)
-    return len(data), [Issue(path, f"state file must be named {MANIFEST_NAME} or {CHECKPOINTS_NAME}")]
+    if path.name == CAPABILITIES_NAME:
+        return validate_capability_data(path, data)
+    return len(data), [Issue(path, f"state file must be named {MANIFEST_NAME}, {CAPABILITIES_NAME}, or {CHECKPOINTS_NAME}")]
 
 
 def validate_plan_manifest_data(path: Path, data: list[Any], snapshot_indexes: set[int] | None = None) -> tuple[int, list[Issue]]:
@@ -181,6 +200,135 @@ def validate_plan_manifest_data(path: Path, data: list[Any], snapshot_indexes: s
         for field in ("title", "goal", "description"):
             if not isinstance(plan.get(field), str) or not plan.get(field, "").strip():
                 issues.append(Issue(path, f"{prefix}.{field}: must be a non-empty string"))
+        if "purpose" in plan:
+            purpose_issue = safe_summary_issue(plan.get("purpose"))
+            if purpose_issue is not None:
+                issues.append(Issue(path, f"{prefix}.purpose: {purpose_issue}"))
+
+        if "kind" in plan:
+            kind = plan.get("kind")
+            if not isinstance(kind, str) or kind not in VALID_PLAN_KINDS:
+                values = ", ".join(sorted(VALID_PLAN_KINDS))
+                issues.append(Issue(path, f"{prefix}.kind: must be one of {values}"))
+        if "tree_mode" in plan:
+            tree_mode = plan.get("tree_mode")
+            if not isinstance(tree_mode, str) or tree_mode not in VALID_TREE_MODES:
+                values = ", ".join(sorted(VALID_TREE_MODES))
+                issues.append(
+                    Issue(path, f"{prefix}.tree_mode: must be one of {values}")
+                )
+        if "node_status" in plan:
+            node_status = plan.get("node_status")
+            if (
+                not isinstance(node_status, str)
+                or node_status not in VALID_NODE_STATUS_MODES
+            ):
+                values = ", ".join(sorted(VALID_NODE_STATUS_MODES))
+                issues.append(
+                    Issue(path, f"{prefix}.node_status: must be one of {values}")
+                )
+
+        if "capability_key" in plan and not is_capability_key(plan.get("capability_key")):
+            issues.append(
+                Issue(
+                    path,
+                    f"{prefix}.capability_key: must be a stable lowercase capability slash path",
+                )
+            )
+
+        if "decision_issues" in plan:
+            decision_issues = plan.get("decision_issues")
+            if not isinstance(decision_issues, list):
+                issues.append(Issue(path, f"{prefix}.decision_issues: must be an array"))
+            else:
+                decision_ids: set[str] = set()
+                for issue_index, decision in enumerate(decision_issues):
+                    decision_prefix = f"{prefix}.decision_issues[{issue_index}]"
+                    if not isinstance(decision, dict):
+                        issues.append(Issue(path, f"{decision_prefix}: must be an object"))
+                        continue
+                    for field in sorted(DECISION_ISSUE_REQUIRED_FIELDS - set(decision)):
+                        issues.append(Issue(path, f"{decision_prefix}.{field}: missing required field"))
+                    for field in sorted(set(decision) - DECISION_ISSUE_REQUIRED_FIELDS - DECISION_ISSUE_OPTIONAL_FIELDS):
+                        issues.append(Issue(path, f"{decision_prefix}.{field}: unknown field"))
+                    decision_id = decision.get("id")
+                    if not is_manifest_id(decision_id):
+                        issues.append(Issue(path, f"{decision_prefix}.id: must be a UUID4 value"))
+                    elif str(decision_id) in decision_ids:
+                        issues.append(Issue(path, f"{decision_prefix}.id: duplicate decision id"))
+                    else:
+                        decision_ids.add(str(decision_id))
+                    if decision.get("urgency") not in VALID_DECISION_URGENCIES:
+                        issues.append(Issue(path, f"{decision_prefix}.urgency: must be immediate or deferred"))
+                    if decision.get("status") not in VALID_DECISION_STATUSES:
+                        issues.append(Issue(path, f"{decision_prefix}.status: must be open or resolved"))
+                    for field in ("question", "context"):
+                        summary_issue = safe_summary_issue(decision.get(field))
+                        if summary_issue is not None:
+                            issues.append(Issue(path, f"{decision_prefix}.{field}: {summary_issue}"))
+                    options = decision.get("options")
+                    if not is_string_list(options) or len(options) < 2:
+                        issues.append(Issue(path, f"{decision_prefix}.options: must contain at least two option strings"))
+                    elif len({option.strip() for option in options}) < 2:
+                        issues.append(Issue(path, f"{decision_prefix}.options: must contain at least two distinct options"))
+                    else:
+                        for option_index, option in enumerate(options):
+                            option_issue = safe_summary_issue(option)
+                            if option_issue is not None:
+                                issues.append(Issue(path, f"{decision_prefix}.options[{option_index}]: {option_issue}"))
+                    if decision.get("status") == "resolved":
+                        resolution_issue = safe_summary_issue(decision.get("resolution"))
+                        if resolution_issue is not None:
+                            issues.append(Issue(path, f"{decision_prefix}.resolution: {resolution_issue}"))
+                    elif "resolution" in decision:
+                        issues.append(Issue(path, f"{decision_prefix}.resolution: only resolved decisions may record a resolution"))
+
+        if "entry_gate" in plan:
+            entry_gate = plan.get("entry_gate")
+            gate_prefix = f"{prefix}.entry_gate"
+            if not isinstance(entry_gate, dict):
+                issues.append(Issue(path, f"{gate_prefix}: must be an object"))
+            else:
+                for field in sorted(ENTRY_GATE_REQUIRED_FIELDS - set(entry_gate)):
+                    issues.append(
+                        Issue(path, f"{gate_prefix}.{field}: missing required field")
+                    )
+                for field in sorted(
+                    set(entry_gate)
+                    - ENTRY_GATE_REQUIRED_FIELDS
+                    - ENTRY_GATE_OPTIONAL_FIELDS
+                ):
+                    issues.append(Issue(path, f"{gate_prefix}.{field}: unknown field"))
+
+                title_issue = readable_summary_issue(entry_gate.get("title"))
+                if title_issue is not None:
+                    issues.append(Issue(path, f"{gate_prefix}.title: {title_issue}"))
+
+                prerequisites = entry_gate.get("prerequisites")
+                if not is_string_list(prerequisites):
+                    issues.append(
+                        Issue(
+                            path,
+                            f"{gate_prefix}.prerequisites: must be an array of strings",
+                        )
+                    )
+                else:
+                    for ref_index, reference in enumerate(prerequisites):
+                        if not is_manifest_id(reference):
+                            issues.append(
+                                Issue(
+                                    path,
+                                    f"{gate_prefix}.prerequisites[{ref_index}]: must be a UUID4 node id",
+                                )
+                            )
+
+                issues.extend(
+                    validate_readable_string_list(
+                        path,
+                        f"{gate_prefix}.conditions",
+                        entry_gate.get("conditions"),
+                    )
+                )
 
         directory = plan.get("directory")
         normalized_directory = ""
@@ -250,6 +398,54 @@ def plan_snapshot_issues(
             continue
         if not isinstance(checkpoint_data, list):
             continue
+
+        automated = [
+            (node_index, node)
+            for node_index, node in enumerate(checkpoint_data)
+            if isinstance(node, dict)
+            and node.get("role") in {"group_design", "implementation", "final_validation"}
+        ]
+        if automated and plan.get("kind") != "group":
+            issues.append(
+                Issue(
+                    path,
+                    f"plan[{index}].kind: Plans that own automated delivery nodes must use 'group'",
+                )
+            )
+        if plan.get("kind") == "group":
+            design_nodes = [(node_index, node) for node_index, node in automated if node.get("role") == "group_design"]
+            implementation_nodes = [(node_index, node) for node_index, node in automated if node.get("role") == "implementation"]
+            final_nodes = [(node_index, node) for node_index, node in automated if node.get("role") == "final_validation"]
+            if len(design_nodes) != 1:
+                issues.append(Issue(path, f"plan[{index}]: a task group requires exactly one group_design node"))
+            if len(final_nodes) != 1:
+                issues.append(Issue(path, f"plan[{index}]: a task group requires exactly one final_validation node"))
+            if not implementation_nodes:
+                issues.append(Issue(path, f"plan[{index}]: a task group requires at least one implementation node"))
+            if len(design_nodes) == 1:
+                design_index, design_node = design_nodes[0]
+                design_id = design_node.get("id")
+                if any(design_index > node_index for node_index, _ in implementation_nodes):
+                    issues.append(Issue(path, f"plan[{index}]: group_design must appear before every implementation node"))
+                for node_index, implementation in implementation_nodes:
+                    prerequisites = implementation.get("prerequisites")
+                    if is_manifest_id(design_id) and (not is_string_list(prerequisites) or design_id not in prerequisites):
+                        issues.append(Issue(path, f"plan[{index}] node[{node_index}].prerequisites: implementation must directly depend on group_design"))
+            if len(final_nodes) == 1:
+                final_index, final_node = final_nodes[0]
+                implementation_ids = {
+                    str(node.get("id"))
+                    for _, node in implementation_nodes
+                    if node.get("status") != "skipped" and is_manifest_id(node.get("id"))
+                }
+                prerequisites = final_node.get("prerequisites")
+                missing = implementation_ids - set(prerequisites if is_string_list(prerequisites) else [])
+                if missing:
+                    issues.append(Issue(path, f"plan[{index}] node[{final_index}].prerequisites: final_validation must directly depend on every non-skipped implementation node"))
+                if any(final_index < node_index for node_index, _ in implementation_nodes):
+                    issues.append(Issue(path, f"plan[{index}]: final_validation must appear after every implementation node"))
+                if final_node.get("difficulty") != "critical":
+                    issues.append(Issue(path, f"plan[{index}] node[{final_index}].difficulty: final_validation must use 'critical'"))
 
         node_statuses = [
             node.get("status")
@@ -372,6 +568,125 @@ def write_state_entries(path: Path, data: list[Any]) -> None:
         raise ToolError(f"{path.name}: could not write state safely") from exc
 
 
+_WORKSPACE_LOCK_DIRECTORY = "better-plan-locks"
+_WORKSPACE_LOCK_DIRECTORY_MODE = 0o700
+_WORKSPACE_LOCK_FILE_MODE = 0o600
+
+
+def _workspace_lock_path(manifest: Path) -> Path:
+    """Return a stable, privacy-safe runtime lock path for one manifest."""
+
+    resolved = manifest.expanduser().resolve()
+    if resolved.is_dir():
+        resolved = resolved / MANIFEST_NAME
+    # The only workspace identity carried into the runtime lock name is a
+    # fixed-length digest.  Neither the repository nor manifest path appears
+    # in the lock filename or any error surfaced by this module.
+    key = os.fsencode(os.path.normcase(os.fspath(resolved)))
+    digest = hashlib.sha256(key).hexdigest()
+    # Build the runtime path with the manifest's concrete path class.  Besides
+    # preserving native Windows paths, this keeps the helper testable when a
+    # POSIX process simulates the Windows locking branch by changing ``os.name``.
+    runtime_root = type(resolved)(tempfile.gettempdir())
+    return runtime_root / _WORKSPACE_LOCK_DIRECTORY / f"{digest}.lock"
+
+
+def _prepare_workspace_lock_file(manifest: Path) -> tuple[Path, int]:
+    """Create one bounded lock file outside the repository and return its fd."""
+
+    lock_path = _workspace_lock_path(manifest)
+    lock_directory = lock_path.parent
+    try:
+        if lock_directory.is_symlink():
+            raise ToolError("could not acquire the workspace lifecycle lock")
+        lock_directory.mkdir(mode=_WORKSPACE_LOCK_DIRECTORY_MODE, exist_ok=True)
+        os.chmod(lock_directory, _WORKSPACE_LOCK_DIRECTORY_MODE)
+        if lock_path.is_symlink():
+            raise ToolError("could not acquire the workspace lifecycle lock")
+        flags = os.O_RDWR | os.O_CREAT
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock_path, flags | nofollow, _WORKSPACE_LOCK_FILE_MODE)
+        try:
+            os.chmod(lock_path, _WORKSPACE_LOCK_FILE_MODE)
+        except OSError:
+            os.close(fd)
+            raise
+    except ToolError:
+        raise
+    except OSError as exc:
+        raise ToolError("could not acquire the workspace lifecycle lock") from exc
+    return lock_path, fd
+
+
+@contextmanager
+def workspace_manifest_lock(manifest: Path):
+    """Serialize one workspace lifecycle reduction across processes.
+
+    The lock lives in a mode-restricted OS temporary directory under a
+    hash-derived filename, never beside repository state.  The fd is retained
+    after release (the file is intentionally never unlinked) so concurrent
+    processes always coordinate on the same stable inode.
+    """
+
+    fd: int | None = None
+    locked = False
+    try:
+        _lock_path, fd = _prepare_workspace_lock_file(manifest)
+        if os.name == "nt":
+            # msvcrt.locking starts at the current offset.  Initialize an
+            # empty file at offset zero without append mode; never rewrite or
+            # truncate an already initialized file before waiting for its
+            # byte-range lock, or a concurrent holder could be disrupted.
+            initial_size = os.fstat(fd).st_size
+            if initial_size == 0:
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.write(fd, b"\0")
+            os.lseek(fd, 0, os.SEEK_SET)
+            _native_lock.locking(fd, _native_lock.LK_LOCK, 1)
+            locked = True
+            if initial_size != 1:
+                os.ftruncate(fd, 1)
+        else:
+            _native_lock.flock(fd, _native_lock.LOCK_EX)
+            locked = True
+            # Keep the POSIX lock file bounded as well.  flock coordinates the
+            # truncation with other Better Plan processes.
+            os.ftruncate(fd, 1)
+    except (OSError, ToolError) as exc:
+        if fd is not None:
+            try:
+                if locked:
+                    if os.name == "nt":
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        _native_lock.locking(fd, _native_lock.LK_UNLCK, 1)
+                    else:
+                        _native_lock.flock(fd, _native_lock.LOCK_UN)
+            except OSError:
+                pass
+            finally:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        if isinstance(exc, ToolError):
+            raise
+        raise ToolError("could not acquire the workspace lifecycle lock") from exc
+
+    try:
+        yield
+    finally:
+        try:
+            if locked:
+                if os.name == "nt":
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    _native_lock.locking(fd, _native_lock.LK_UNLCK, 1)
+                else:
+                    _native_lock.flock(fd, _native_lock.LOCK_UN)
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+
 def workspace_manifest_path(root: Path) -> Path:
     if UUID4_PATTERN.fullmatch(str(root).strip().lower()):
         raise ToolError(
@@ -466,6 +781,42 @@ def source_file_issues(manifest: Path, data: list[Any], include_indexes: set[int
     return issues
 
 
+def workspace_capability_issues(manifest: Path) -> list[Issue]:
+    """Validate delivery bindings without turning observed architecture into work."""
+
+    resolved = manifest.expanduser().resolve()
+    if resolved.is_dir():
+        resolved = resolved / MANIFEST_NAME
+    try:
+        plans = load_state_entries(resolved)
+    except ToolError:
+        return []
+    catalog_path = resolved.parent / CAPABILITIES_NAME
+    capabilities: list[Any] | None = None
+    if catalog_path.is_file():
+        try:
+            capabilities = load_state_entries(catalog_path)
+        except ToolError:
+            return []
+    return plan_capability_binding_issues(resolved, plans, capabilities)
+
+
+def capability_scope_for_plan(manifest: Path, plan: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return only the selected root-to-leaf path and already touched descendants."""
+
+    key = plan.get("capability_key")
+    if not is_capability_key(key):
+        return None
+    path = manifest.parent / CAPABILITIES_NAME
+    if not path.is_file():
+        return None
+    try:
+        entries = load_state_entries(path)
+    except ToolError:
+        return None
+    return capability_scope(entries, str(key))
+
+
 @dataclass(frozen=True)
 class WorkspaceNodeRecord:
     path: Path
@@ -526,6 +877,97 @@ def workspace_node_statuses(
         for node_id, record in records.items()
         if WORKFLOW_STATE_MACHINE.is_status(record.node.get("status"))
     }
+
+
+def workspace_readable_tree_issues(
+    manifest: Path,
+    records: Mapping[str, WorkspaceNodeRecord],
+    duplicate_node_ids: set[str],
+) -> list[Issue]:
+    """Validate workspace-wide readable identities and Plan entry-gate references."""
+    issues: list[Issue] = []
+    first_code_owner: dict[str, WorkspaceNodeRecord] = {}
+    for record in records.values():
+        code = record.node.get("code")
+        if readable_summary_issue(code) is not None:
+            continue
+        normalized = str(code).strip()
+        previous = first_code_owner.get(normalized)
+        if previous is None:
+            first_code_owner[normalized] = record
+            continue
+        issues.append(
+            Issue(
+                record.path,
+                f"node[{record.index}].code: duplicate code {normalized!r} in workspace",
+            )
+        )
+
+    try:
+        plans = load_state_entries(manifest)
+    except ToolError:
+        return issues
+    for plan_index, plan in enumerate(plans):
+        if not isinstance(plan, dict):
+            continue
+        entry_gate = plan.get("entry_gate")
+        if not isinstance(entry_gate, dict):
+            continue
+        prerequisites = entry_gate.get("prerequisites")
+        if not is_string_list(prerequisites):
+            continue
+        for ref_index, reference in enumerate(prerequisites):
+            if not is_manifest_id(reference):
+                continue
+            if reference in duplicate_node_ids:
+                issues.append(
+                    Issue(
+                        manifest,
+                        f"plan[{plan_index}].entry_gate.prerequisites[{ref_index}]: "
+                        "ambiguous node id in workspace",
+                    )
+                )
+            elif reference not in records:
+                issues.append(
+                    Issue(
+                        manifest,
+                        f"plan[{plan_index}].entry_gate.prerequisites[{ref_index}]: "
+                        "unknown node id in workspace",
+                    )
+                )
+    return issues
+
+
+def workspace_milestone_gate_issues(
+    records: Mapping[str, WorkspaceNodeRecord],
+    included: set[str],
+) -> list[Issue]:
+    """Reject cross-Plan use of the reserved milestone-gate leaf tag."""
+    issues: list[Issue] = []
+    for node_id in included:
+        record = records[node_id]
+        if record.node.get("role") != MILESTONE_GATE_ROLE:
+            continue
+        prerequisites = record.node.get("prerequisites")
+        if not is_string_list(prerequisites):
+            continue
+        for reference_index, reference in enumerate(prerequisites):
+            leaf = records.get(reference)
+            if (
+                leaf is None
+                or not is_gate_leaf_node(leaf.node)
+                or leaf.path == record.path
+            ):
+                continue
+            issues.append(
+                Issue(
+                    record.path,
+                    f"node[{record.index}].prerequisites[{reference_index}]: "
+                    f"{GATE_LEAF_TAG} prerequisite must be owned by the same Plan as its "
+                    f"{MILESTONE_GATE_ROLE} consumer",
+                )
+            )
+    return issues
 
 
 def workspace_dependency_issues(
@@ -641,6 +1083,14 @@ def workspace_dependency_issues(
             )
         )
 
+    issues.extend(
+        workspace_readable_tree_issues(
+            manifest,
+            records,
+            {node_id for node_id, _ in duplicate_issues},
+        )
+    )
+    issues.extend(workspace_milestone_gate_issues(records, included))
     return issues
 
 
@@ -651,6 +1101,9 @@ def workspace_semantic_issues(manifest: Path) -> list[Issue]:
         resolved = resolved / MANIFEST_NAME
 
     state_files = [resolved, *referenced_checkpoints_files(resolved)]
+    capabilities_path = resolved.parent / CAPABILITIES_NAME
+    if capabilities_path.is_file():
+        state_files.append(capabilities_path)
     all_issues: list[Issue] = []
     global_ids: dict[str, Path] = {}
     display_root = project_root_for(resolved.parent)
@@ -710,6 +1163,7 @@ def workspace_semantic_issues(manifest: Path) -> list[Issue]:
                 global_ids[entry_id] = state_file
 
     all_issues.extend(workspace_dependency_issues(resolved))
+    all_issues.extend(workspace_capability_issues(resolved))
     return all_issues
 
 

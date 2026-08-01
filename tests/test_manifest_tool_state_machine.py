@@ -23,7 +23,7 @@ def make_node(
     *,
     role: str = "implementation",
     prerequisites: list[str] | None = None,
-    difficulty: str = "medium",
+    difficulty: str = "standard",
     checked: bool = True,
     requirements: list[str] | None = None,
     description: str = "Test node for Better Plan state machine rules.",
@@ -73,6 +73,7 @@ def make_plan(status: str) -> dict[str, object]:
         "title": "Main Plan",
         "directory": "main-plan",
         "source_files": ["docs/plan.md"],
+        "purpose": "Exercise Plan-level state-machine consistency.",
         "goal": "Exercise plan state validation.",
         "description": "Test plan for Better Plan state machine rules.",
         "checkpoints": "main-plan/Checkpoints.json",
@@ -178,7 +179,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
                 NODE_B_ID,
                 "in_progress",
                 role="final_validation",
-                difficulty="high",
+                difficulty="complex",
                 prerequisites=[],
             ),
         ]
@@ -190,7 +191,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
             [issue.message for issue in issues],
         )
 
-    def test_only_one_checkpoint_node_may_be_in_progress(self) -> None:
+    def test_independent_implementation_nodes_may_be_in_progress_together(self) -> None:
         data = [
             make_node(NODE_A_ID, "in_progress"),
             make_node(NODE_B_ID, "in_progress"),
@@ -198,8 +199,27 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
+        self.assertFalse(
+            any("in_progress concurrently" in issue.message for issue in issues),
+            [issue.message for issue in issues],
+        )
+
+    def test_non_implementation_nodes_remain_exclusive(self) -> None:
+        data = [
+            make_node(NODE_A_ID, "in_progress"),
+            make_node(
+                NODE_B_ID,
+                "in_progress",
+                role="validation_matrix",
+                difficulty="complex",
+                with_regression=False,
+            ),
+        ]
+
+        _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
+
         self.assertTrue(
-            any("only one node may be in_progress" in issue.message for issue in issues),
+            any("only independent implementation nodes" in issue.message for issue in issues),
             [issue.message for issue in issues],
         )
 
@@ -260,18 +280,18 @@ class WorkflowStateMachineTests(unittest.TestCase):
             [issue.message for issue in issues],
         )
 
-    def test_foundation_roles_require_high_or_deep_difficulty(self) -> None:
-        data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="medium")]
+    def test_foundation_roles_require_complex_or_critical_difficulty(self) -> None:
+        data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="standard")]
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
         self.assertTrue(
-            any("role 'product_requirements' must use 'high' or 'deep'" in issue.message for issue in issues),
+            any("role 'product_requirements' must use 'complex' or 'critical'" in issue.message for issue in issues),
             [issue.message for issue in issues],
         )
 
-    def test_foundation_roles_accept_high_difficulty(self) -> None:
-        data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="high")]
+    def test_foundation_roles_accept_complex_difficulty(self) -> None:
+        data = [make_node(NODE_A_ID, "pending", role="product_requirements", difficulty="complex")]
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
 
@@ -279,8 +299,8 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
     def test_architecture_role_requires_prior_validation_matrix(self) -> None:
         data = [
-            make_node(NODE_A_ID, "pending", role="architecture_scaffold", difficulty="high"),
-            make_node(NODE_B_ID, "pending", role="validation_matrix", difficulty="deep"),
+            make_node(NODE_A_ID, "pending", role="architecture_scaffold", difficulty="complex"),
+            make_node(NODE_B_ID, "pending", role="validation_matrix", difficulty="critical"),
         ]
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
@@ -322,7 +342,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
                 NODE_B_ID,
                 "pending",
                 role="final_validation",
-                difficulty="high",
+                difficulty="complex",
                 requirements=["REQ-001"],
             ),
         ]
@@ -336,7 +356,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
 
     def test_final_validation_must_list_requirement_labels(self) -> None:
         data = [
-            make_node(NODE_A_ID, "pending", role="final_validation", difficulty="high", requirements=[]),
+            make_node(NODE_A_ID, "pending", role="final_validation", difficulty="complex", requirements=[]),
         ]
 
         _, issues = validation.validate_checkpoints_data(Path("Checkpoints.json"), data)
@@ -435,7 +455,7 @@ class WorkflowStateMachineTests(unittest.TestCase):
                 NODE_B_ID,
                 "pending",
                 role="final_validation",
-                difficulty="high",
+                difficulty="complex",
                 requirements=["PLAN-REQ-001"],
             ),
         ]

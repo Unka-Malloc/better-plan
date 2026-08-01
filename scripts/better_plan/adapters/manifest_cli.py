@@ -9,21 +9,22 @@ import hashlib
 import json
 import subprocess
 import sys
-from ..application.workflow import activate_command, advance_command as _advance_command, block_command, complete_command, defer_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
+from .capability_cli import capability_projection, register_capability_commands
+from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, dispatch_command, invalidate_preparation_after_plan_edit, next_action_command, pause_command, regress_command, skip_command, start_command
+from ..domain.capabilities import capability_schema_payload
 from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
-from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.tree import render_workspace_tree
 from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
 from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_dependency_issues, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan, write_state_entries
-
-
+from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_capability_issues, workspace_dependency_issues, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan, write_state_entries
 def validate_command(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     display_root = root.parent if root.is_file() else root
     manifests = find_manifests(root)
 
     if not manifests:
-        message = f"No {MANIFEST_NAME} or {CHECKPOINTS_NAME} files found at the supplied validation root"
+        message = f"No {MANIFEST_NAME}, {CAPABILITIES_NAME}, or {CHECKPOINTS_NAME} files found at the supplied validation root"
         if args.json:
             print(json.dumps({"ok": False, "state_files": 0, "items": 0, "issues": [{"path": ".", "message": message}]}, indent=2))
         else:
@@ -48,8 +49,10 @@ def validate_command(args: argparse.Namespace) -> int:
                     for node in load_state_entries(checkpoint_path)
                     if isinstance(node, dict) and isinstance(node.get("id"), str)
                 }
-    elif len(manifests) == 1 and manifests[0].name == MANIFEST_NAME:
-        manifests.extend(referenced_checkpoints_files(manifests[0]))
+    elif manifests[0].name == MANIFEST_NAME:
+        for checkpoints_path in referenced_checkpoints_files(manifests[0]):
+            if checkpoints_path not in manifests:
+                manifests.append(checkpoints_path)
 
     all_issues: list[Issue] = []
     total_entries = 0
@@ -92,6 +95,7 @@ def validate_command(args: argparse.Namespace) -> int:
         all_issues.extend(
             workspace_dependency_issues(manifests[0], roots=dependency_roots)
         )
+        all_issues.extend(workspace_capability_issues(manifests[0]))
 
     if args.json:
         payload = {
@@ -120,7 +124,6 @@ def validate_command(args: argparse.Namespace) -> int:
         print(f"OK: validated {len(manifests)} state file(s), {total_entries} item(s).")
     return 0
 
-
 def discover_command(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     manifests = discover_workspace_manifests(root)
@@ -133,12 +136,10 @@ def discover_command(args: argparse.Namespace) -> int:
         print(relative_path_label(manifest.parent, root))
     return 0
 
-
 def uuid_command(args: argparse.Namespace) -> int:
     for _ in range(args.count):
         print(generate_id())
     return 0
-
 
 def platform_command(args: argparse.Namespace) -> int:
     platform = current_platform()
@@ -147,7 +148,6 @@ def platform_command(args: argparse.Namespace) -> int:
     else:
         print(platform)
     return 0
-
 
 def transition_command(args: argparse.Namespace) -> int:
     issues = WORKFLOW_STATE_MACHINE.transition_issues(Path("<state-machine>"), "transition", args.current, args.target)
@@ -223,7 +223,7 @@ def check_command(args: argparse.Namespace) -> int:
     manifest = workspace_manifest_path(Path(args.root))
     location = locate_node(manifest, args.node_id)
     node = location.checkpoints_data[location.node_index]
-    if node.get("role") in REGRESSION_NODE_ROLES:
+    if node.get("role") in AUTOMATED_NODE_ROLES:
         raise ToolError(
             f"node {args.node_id}: automated acceptance rejects direct check; use next-action, dispatch, and advance"
         )
@@ -294,6 +294,78 @@ def plan_checkpoints_location(manifest: Path, manifest_data: list[Any], selector
     return plan_index, plan, checkpoints_path, load_state_entries(checkpoints_path)
 
 
+def record_decision_command(args: argparse.Namespace) -> int:
+    """Record one Reviewer-raised choice on its owning task group."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+    plan_index, plan = resolve_plan_entry(manifest, manifest_data, args.plan)
+    if plan.get("kind") != "group":
+        raise ToolError("user decisions may be recorded only on a task-group Plan")
+    for field, value in (("--question", args.question), ("--context", args.context)):
+        issue = safe_summary_issue(value)
+        if issue is not None:
+            raise ToolError(f"{field} {issue}")
+    if len(args.option) < 2:
+        raise ToolError("record-decision requires at least two --option values")
+    for value in args.option:
+        issue = safe_summary_issue(value)
+        if issue is not None:
+            raise ToolError(f"--option {issue}")
+    normalized_options = [value.strip() for value in args.option]
+    if len(set(normalized_options)) < 2:
+        raise ToolError("record-decision requires at least two distinct --option values")
+    decisions = plan.setdefault("decision_issues", [])
+    if not isinstance(decisions, list):
+        raise ToolError("the selected Plan has an invalid decision_issues field")
+    decision_id = generate_id()
+    decisions.append(
+        {
+            "id": decision_id,
+            "urgency": args.urgency,
+            "question": args.question.strip(),
+            "context": args.context.strip(),
+            "options": normalized_options,
+            "status": "open",
+        }
+    )
+    write_state_entries(manifest, manifest_data)
+    action = "report to the user now" if args.urgency == "immediate" else "include in the final decision report"
+    print(f"OK: plan[{plan_index}] recorded {args.urgency} decision {decision_id}; native main must {action}")
+    return 0
+
+def resolve_decision_command(args: argparse.Namespace) -> int:
+    """Record the developer's resolution without rewriting decision history."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+    _, plan = resolve_plan_entry(manifest, manifest_data, args.plan)
+    resolution_issue = safe_summary_issue(args.resolution)
+    if resolution_issue is not None:
+        raise ToolError(f"--resolution {resolution_issue}")
+    decisions = plan.get("decision_issues")
+    if not isinstance(decisions, list):
+        raise ToolError("the selected Plan has no decision issues")
+    match = next(
+        (
+            decision
+            for decision in decisions
+            if isinstance(decision, dict) and decision.get("id") == args.decision_id
+        ),
+        None,
+    )
+    if match is None:
+        raise ToolError("decision id was not found in the selected Plan")
+    if match.get("status") == "resolved":
+        if match.get("resolution") != args.resolution.strip():
+            raise ToolError("an idempotent resolution must use the existing text exactly")
+    else:
+        match["status"] = "resolved"
+        match["resolution"] = args.resolution.strip()
+        write_state_entries(manifest, manifest_data)
+    print(f"OK: decision {args.decision_id} resolved")
+    return 0
+
 def add_node_command(args: argparse.Namespace) -> int:
     manifest = workspace_manifest_path(Path(args.root))
     manifest_data = load_state_entries(manifest)
@@ -323,7 +395,7 @@ def add_node_command(args: argparse.Namespace) -> int:
         if design_issues:
             raise ToolError(f"--design-json is invalid: {'; '.join(design_issues)}")
         design = parsed_design
-    if args.role in REGRESSION_NODE_ROLES and design is None:
+    if args.role in DESIGN_NODE_ROLES and design is None:
         raise ToolError(f"role {args.role!r} requires --design-json before the Node can be added")
     regression_values_present = any(
         value is not None
@@ -753,8 +825,35 @@ def sync_plan_command(args: argparse.Namespace) -> int:
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0
+def tree_command(args: argparse.Namespace) -> int:
+    """Render the canonical workspace hierarchy without mutating state."""
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+    selected_index: int | None = None
+    if args.plan is not None:
+        selected_index, _ = resolve_plan_entry(manifest, manifest_data, args.plan)
 
+    checkpoints: list[list[Any] | None] = []
+    checkpoint_errors: list[str | None] = []
+    for plan in manifest_data:
+        if not isinstance(plan, dict):
+            checkpoints.append(None)
+            checkpoint_errors.append("plan entry is not an object")
+            continue
+        nodes, error = load_plan_checkpoints(manifest, plan)
+        checkpoints.append(nodes)
+        checkpoint_errors.append(error)
 
+    plan_projection = render_workspace_tree(
+        manifest_data,
+        checkpoints,
+        checkpoint_errors,
+        selected_index=selected_index,
+        details=args.details,
+    )
+    capability_text = capability_projection(manifest.parent, details=args.details)
+    print(f"{capability_text}\n\n{plan_projection}" if capability_text is not None else plan_projection)
+    return 0
 def status_command(args: argparse.Namespace) -> int:
     manifest = workspace_manifest_path(Path(args.root))
     manifest_data = load_state_entries(manifest)
@@ -769,7 +868,21 @@ def status_command(args: argparse.Namespace) -> int:
             "title": public_summary(plan.get("title"), f"plan[{index}]"),
             "status": plan.get("status"),
             "directory": plan.get("directory"),
+            "capability_key": plan.get("capability_key"),
         }
+        decisions = plan.get("decision_issues")
+        if isinstance(decisions, list):
+            payload["open_decisions"] = [
+                {
+                    "id": decision.get("id"),
+                    "urgency": decision.get("urgency"),
+                    "question": public_summary(decision.get("question"), "[redacted]"),
+                }
+                for decision in decisions
+                if isinstance(decision, dict) and decision.get("status") == "open"
+            ]
+        else:
+            payload["open_decisions"] = []
         nodes, error = load_plan_checkpoints(manifest, plan)
         if nodes is None:
             payload["error"] = error
@@ -832,6 +945,9 @@ def status_command(args: argparse.Namespace) -> int:
         for entry in payload["deferred"]:
             reason = entry.get("status_reason") or "no status_reason recorded"
             print(f"  deferred: {entry['id']} {entry['goal']} (reason: {reason})")
+        for decision in payload["open_decisions"]:
+            timing = "REPORT NOW" if decision.get("urgency") == "immediate" else "report at final handoff"
+            print(f"  user decision ({timing}): {decision.get('id')} {decision.get('question')}")
     return 0
 
 
@@ -857,20 +973,27 @@ def next_command(args: argparse.Namespace) -> int:
             return {
                 "id": node.get("id"),
                 "goal": public_summary(node.get("goal"), "[redacted]"),
+                "role": node.get("role"),
                 "difficulty": node.get("difficulty"),
                 "platform": node.get("platform"),
             }
 
-        resume = None
-        for node in nodes:
-            if isinstance(node, dict) and node.get("status") == "in_progress":
-                resume = node_entry(node)
-                break
+        active_nodes = [
+            node
+            for node in nodes
+            if isinstance(node, dict) and node.get("status") == "in_progress"
+        ]
+        active = [node_entry(node) for node in active_nodes]
+        parallel_worker_window = bool(active_nodes) and all(node.get("role") == "implementation" for node in active_nodes)
 
         eligible: list[dict[str, Any]] = []
-        if resume is None:
+        if not active_nodes or parallel_worker_window:
             for node in nodes:
                 if not isinstance(node, dict) or node.get("status") != "pending":
+                    continue
+                if active_nodes and node.get("role") != "implementation":
+                    continue
+                if node.get("role") == MILESTONE_GATE_ROLE and not has_same_plan_gate_leaf_prerequisite(node, nodes):
                     continue
                 prerequisites = node.get("prerequisites")
                 if not is_string_list(prerequisites):
@@ -881,15 +1004,10 @@ def next_command(args: argparse.Namespace) -> int:
                     continue
                 eligible.append(node_entry(node))
 
-        plans_payload.append(
-            {
-                "id": plan.get("id"),
-                "title": public_summary(plan.get("title"), f"plan[{index}]"),
-                "status": status,
-                "resume": resume,
-                "eligible": eligible,
-            }
-        )
+        plans_payload.append({
+            "id": plan.get("id"), "title": public_summary(plan.get("title"), f"plan[{index}]"),
+            "status": status, "capability_key": plan.get("capability_key"), "active": active, "eligible": eligible,
+        })
 
     if args.json:
         print(json.dumps({"workspace": workspace, "platform": platform, "plans": plans_payload}, indent=2, ensure_ascii=False))
@@ -897,15 +1015,14 @@ def next_command(args: argparse.Namespace) -> int:
 
     printed = False
     for payload in plans_payload:
-        resume = payload["resume"]
+        active = payload["active"]
         eligible = payload["eligible"]
-        if resume is None and not eligible:
+        if not active and not eligible:
             continue
         printed = True
         print(f"Plan: {payload.get('title')} [{payload.get('status')}]")
-        if resume is not None:
-            print(f"  resume: {resume['id']} {resume['goal']}")
-            continue
+        for entry in active:
+            print(f"  active: {entry['id']} {entry['goal']}")
         for entry in eligible:
             print(f"  next: {entry['id']} {entry['goal']} (difficulty {entry['difficulty']}, platform {entry['platform']})")
     if not printed:
@@ -914,13 +1031,22 @@ def next_command(args: argparse.Namespace) -> int:
 
 
 def schema_command(args: argparse.Namespace) -> int:
-    if args.kind == "plan":
+    if args.kind == "capability":
+        payload = capability_schema_payload()
+    elif args.kind == "plan":
         payload: dict[str, Any] = {
             "kind": "plan",
             "file": MANIFEST_NAME,
             "required_fields": sorted(PLAN_REQUIRED_FIELDS),
             "optional_fields": sorted(PLAN_OPTIONAL_FIELDS),
             "statuses": list(STATUS_ORDER),
+            "kinds": sorted(VALID_PLAN_KINDS),
+            "tree_modes": sorted(VALID_TREE_MODES),
+            "node_status_modes": sorted(VALID_NODE_STATUS_MODES),
+            "entry_gate_required_fields": sorted(ENTRY_GATE_REQUIRED_FIELDS),
+            "decision_issue_required_fields": sorted(DECISION_ISSUE_REQUIRED_FIELDS),
+            "decision_issue_optional_fields": sorted(DECISION_ISSUE_OPTIONAL_FIELDS),
+            "decision_urgencies": sorted(VALID_DECISION_URGENCIES),
             "template": PLAN_TEMPLATE,
         }
     else:
@@ -947,6 +1073,7 @@ def schema_command(args: argparse.Namespace) -> int:
             "design_decision_fields": sorted(DECISION_FIELDS),
             "statuses": list(STATUS_ORDER),
             "roles": sorted(VALID_NODE_ROLES),
+            "reserved_tags": sorted(RESERVED_NODE_TAGS),
             "difficulties": sorted(VALID_DIFFICULTIES),
             "platforms": sorted(VALID_PLATFORMS),
             "requirement_label_pattern": REQUIREMENT_LABEL_PATTERN.pattern,
@@ -959,6 +1086,7 @@ def schema_command(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Better Plan manifest utility")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    register_capability_commands(subparsers)
 
     validate = subparsers.add_parser("validate", help=f"validate a workspace {MANIFEST_NAME} and its referenced {CHECKPOINTS_NAME} files")
     validate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root, manifest file, or checkpoints file")
@@ -997,21 +1125,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     dispatch = subparsers.add_parser(
         "dispatch",
-        help="record one idempotent preparation, executor, or auditor dispatch for a delivery node",
+        help="record one idempotent Designer, Worker, Verifier, or Reviewer dispatch",
     )
     dispatch.add_argument("node_id", help="node UUID")
     dispatch.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     dispatch.add_argument(
         "--role",
         required=True,
-        choices=("acceptance_designer", "executor", "auditor"),
+        choices=("designer", "worker", "verifier", "reviewer"),
         help="fresh leaf-agent role",
     )
     dispatch.set_defaults(func=dispatch_command)
 
+    bind = subparsers.add_parser(
+        "bind-agent",
+        help="bind the opaque host agent identity returned by a real native spawn",
+    )
+    bind.add_argument("node_id", help="node UUID")
+    bind.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    bind.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
+    bind.add_argument("--agent-id", required=True, help="bounded opaque host agent id")
+    bind.set_defaults(func=bind_agent_command)
+
+    complete_agent = subparsers.add_parser(
+        "agent-complete",
+        help="consume one exact final host-agent callback",
+    )
+    complete_agent.add_argument("node_id", help="node UUID")
+    complete_agent.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    complete_agent.add_argument("--agent-id", required=True, help="bounded opaque host agent id")
+    complete_agent.add_argument("--dispatch-id", help="optional bounded Better Plan dispatch id from the host callback")
+    complete_agent.add_argument("--final", action="store_true", help="mark this callback as an unambiguous final completion")
+    complete_agent.set_defaults(func=agent_complete_command)
+
     advance = subparsers.add_parser(
         "advance",
-        help="submit one correlated preparation, executor, regression, or auditor event",
+        help="submit one correlated full-regression, Reviewer, or repair event",
     )
     advance.add_argument("node_id", help="node UUID")
     advance.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
@@ -1019,17 +1168,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--event",
         required=True,
         choices=(
-            "acceptance-designer-exited",
-            "executor-exited",
             "regression-requested",
-            "audit-failed",
-            "audit-passed",
+            "reviewer-finished",
             "repair-registered",
             "repair-completed",
         ),
         help="correlated acceptance event",
     )
-    advance.add_argument("--dispatch-id", help="bounded opaque correlation id for preparation, executor, regression, and audit events")
+    advance.add_argument("--dispatch-id", help="completed Reviewer dispatch id for reviewer-finished")
     advance.add_argument("--repair-node", help="UUID4 repair Node id for repair handoff events")
     advance.set_defaults(func=_advance_command)
 
@@ -1100,7 +1246,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_node.add_argument("--role", default="implementation", choices=sorted(VALID_NODE_ROLES), help="delivery role; defaults to implementation")
-    add_node.add_argument("--difficulty", default="medium", choices=sorted(VALID_DIFFICULTIES), help="difficulty; defaults to medium")
+    add_node.add_argument(
+        "--difficulty",
+        default="standard",
+        choices=sorted(VALID_DIFFICULTIES),
+        help="task difficulty; defaults to standard",
+    )
     add_node.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS), help="platform; defaults to any")
     add_node.add_argument(
         "--requirements",
@@ -1178,6 +1329,41 @@ def build_parser() -> argparse.ArgumentParser:
     sync_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     sync_plan.set_defaults(func=sync_plan_command)
 
+    record_decision = subparsers.add_parser("record-decision", help="record one Reviewer-raised developer choice on a task group")
+    record_decision.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    record_decision.add_argument("--plan", required=True, help="task-group plan id, directory, or title")
+    record_decision.add_argument("--urgency", required=True, choices=sorted(VALID_DECISION_URGENCIES))
+    record_decision.add_argument("--question", required=True, help="bounded decision question")
+    record_decision.add_argument("--context", required=True, help="why autonomous choice is inappropriate")
+    record_decision.add_argument("--option", required=True, action="append", help="one viable choice; repeat at least twice")
+    record_decision.set_defaults(func=record_decision_command)
+
+    resolve_decision = subparsers.add_parser(
+        "resolve-decision",
+        help="record the developer's resolution of one task-group decision",
+    )
+    resolve_decision.add_argument("decision_id", help="decision UUID4")
+    resolve_decision.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    resolve_decision.add_argument("--plan", required=True, help="task-group plan id, directory, or title")
+    resolve_decision.add_argument("--resolution", required=True, help="bounded resolution summary")
+    resolve_decision.set_defaults(func=resolve_decision_command)
+
+    tree = subparsers.add_parser(
+        "tree",
+        help="render the canonical Plan hierarchy and Node state as an ASCII tree",
+    )
+    tree.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    tree.add_argument(
+        "--plan",
+        help="render only one Plan and its descendants by id, directory, or title",
+    )
+    tree.add_argument(
+        "--details",
+        action="store_true",
+        help="render the complete Emoji-annotated canonical audit projection",
+    )
+    tree.set_defaults(func=tree_command)
+
     status = subparsers.add_parser(
         "status",
         help="report per-plan progress plus in_progress, blocked, and deferred nodes",
@@ -1186,13 +1372,13 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true", help="print machine-readable status")
     status.set_defaults(func=status_command)
 
-    next_parser = subparsers.add_parser("next", help="list the in_progress node or the eligible pending nodes per plan")
+    next_parser = subparsers.add_parser("next", help="list active nodes and every safely eligible pending node per plan")
     next_parser.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     next_parser.add_argument("--json", action="store_true", help="print machine-readable candidates")
     next_parser.set_defaults(func=next_command)
 
     schema = subparsers.add_parser("schema", help="print the canonical Plan or Node schema and template")
-    schema.add_argument("kind", choices=("plan", "node"), help="which schema to print")
+    schema.add_argument("kind", choices=("capability", "plan", "node"), help="which schema to print")
     schema.set_defaults(func=schema_command)
 
     return parser

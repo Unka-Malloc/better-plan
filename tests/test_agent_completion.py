@@ -1,3 +1,5 @@
+"""Exact native child-completion boundary tests."""
+
 from __future__ import annotations
 
 import json
@@ -8,17 +10,25 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.better_plan.application.agent_completion import reduce_agent_completion
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_TOOL = ROOT / "scripts" / "manifest_tool.py"
 HOOK_TOOL = ROOT / "scripts" / "hook_tool.py"
 PLAN_ID = "718a7541-4e80-46ce-9acc-e77a68d1f406"
-NODE_ID = "4ec7bbc3-88af-4df8-ad4f-468550bdc4c1"
+DESIGN_ID = "1ec7bbc3-88af-4df8-ad4f-468550bdc4c1"
+WORK_ID = "4ec7bbc3-88af-4df8-ad4f-468550bdc4c1"
+FINAL_ID = "5ec7bbc3-88af-4df8-ad4f-468550bdc4c2"
+PLAN_TWO_ID = "818a7541-4e80-46ce-9acc-e77a68d1f407"
+DESIGN_TWO_ID = "2ec7bbc3-88af-4df8-ad4f-468550bdc4c1"
+WORK_TWO_ID = "6ec7bbc3-88af-4df8-ad4f-468550bdc4c1"
+FINAL_TWO_ID = "7ec7bbc3-88af-4df8-ad4f-468550bdc4c2"
 
 
-def command(*values: str) -> str:
-    arguments = list(values)
-    return subprocess.list2cmdline(arguments) if sys.platform == "win32" else shlex.join(arguments)
+def command(program: str) -> str:
+    values = [sys.executable, "-c", program]
+    return subprocess.list2cmdline(values) if sys.platform == "win32" else shlex.join(values)
 
 
 class AgentCompletionHookTests(unittest.TestCase):
@@ -31,112 +41,184 @@ class AgentCompletionHookTests(unittest.TestCase):
         self.plan_dir = self.workspace / "agent-completion"
         self.plan_dir.mkdir(parents=True)
         self.checkpoints = self.plan_dir / "Checkpoints.json"
-        (self.project / "tracked.txt").write_text("stable\n", encoding="utf-8")
-        fixtures = self.project / "tests" / "agent-completion"
-        fixtures.mkdir(parents=True)
-        (fixtures / "design.md").write_text("design\n", encoding="utf-8")
-        (fixtures / "scaffold.py").write_text("VALUE = 1\n", encoding="utf-8")
-        (fixtures / "acceptance.md").write_text("acceptance\n", encoding="utf-8")
-        self._write_workspace(failing=False)
+        self._write_workspace()
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def _write_workspace(self, *, failing: bool) -> None:
-        regression = command(sys.executable, "-c", "import sys; sys.exit(7)" if failing else "pass")
-        node = {
-            "id": NODE_ID,
-            "status": "pending",
-            "role": "implementation",
-            "prerequisites": [],
+    def _design(self, stem: str) -> dict[str, object]:
+        artifact = f"tests/agent-completion/{stem}-design.md"
+        owned = f"src/{stem}.py"
+        acceptance = f"tests/agent-completion/{stem}-acceptance.md"
+        for relative, content in (
+            (artifact, "design\n"),
+            (owned, "VALUE = 1\n"),
+            (acceptance, "acceptance\n"),
+        ):
+            path = self.project / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return {
+            "artifact": artifact,
+            "owned_paths": [owned],
+            "scaffold_paths": [owned],
+            "acceptance_paths": [acceptance],
+            "symbols": [
+                {
+                    "path": owned,
+                    "kind": "module",
+                    "name": stem,
+                    "operation": "modify",
+                    "signature": f"{stem}() -> int",
+                }
+            ],
+            "interfaces": [
+                {
+                    "name": stem,
+                    "producer": owned,
+                    "consumers": [acceptance],
+                    "inputs": "one bounded request",
+                    "outputs": "one bounded result",
+                    "errors": ["ValueError for invalid input"],
+                }
+            ],
+            "dependencies": [],
+            "decisions": {
+                "composition": "one reducer",
+                "algorithms": "constant-time phase routing",
+                "data_structures": "bounded mapping",
+                "state": "state tool owns writes",
+                "isolation": "one fresh child",
+                "concurrency": "manifest lock",
+            },
+            "test_seams": [acceptance],
+        }
+
+    def _node(
+        self,
+        node_id: str,
+        role: str,
+        stem: str,
+        prerequisites: list[str],
+        *,
+        status: str = "pending",
+        accepted: bool = False,
+    ) -> dict[str, object]:
+        node: dict[str, object] = {
+            "id": node_id,
+            "status": status,
+            "role": role,
+            "prerequisites": prerequisites,
             "platform": "any",
-            "difficulty": "high",
-            "goal": "Exercise automatic Agent completion reduction.",
+            "difficulty": "critical" if role != "implementation" else "standard",
+            "goal": f"Exercise {role} child completion.",
             "description": (
-                "Scope: Closure: scenario - correlated Agent completion. Context: a leaf Agent "
-                "has returned to its native parent. Target: run deterministic regression and "
-                "route the next role. Design Considerations: one active Node and one dispatch. "
-                "Design Value: Review begins without continuing a stopped child. Constraints & "
-                "Risks: bounded context, no raw output, and no generic Stop continuation."
+                f"Scope: Closure: scenario - {stem}. Context: a native child exists. "
+                "Target: accept only its exact final callback. Design Considerations: bind opaque identity. "
+                "Design Value: prevents early asynchronous completion. Constraints & Risks: no raw output."
             ),
             "requirements": ["REQ-001"],
-            "design": {
-                "artifact": "tests/agent-completion/design.md",
-                "owned_paths": ["tests/agent-completion/scaffold.py"],
-                "scaffold_paths": ["tests/agent-completion/scaffold.py"],
-                "acceptance_paths": ["tests/agent-completion/acceptance.md"],
-                "symbols": [
-                    {
-                        "path": "tests/agent-completion/scaffold.py",
-                        "kind": "module",
-                        "name": "agent_completion_fixture",
-                        "operation": "modify",
-                        "signature": "agent_completion_fixture() -> int",
-                    }
-                ],
-                "interfaces": [
-                    {
-                        "name": "agent_completion_fixture",
-                        "producer": "tests/agent-completion/scaffold.py",
-                        "consumers": ["scripts/hook_tool.py"],
-                        "inputs": "one correlated Agent completion",
-                        "outputs": "one bounded next action",
-                        "errors": ["invalid state returns a no-op"],
-                    }
-                ],
-                "dependencies": [
-                    {
-                        "from": "scripts/hook_tool.py",
-                        "to": "tests/agent-completion/scaffold.py",
-                        "reason": "exercises the completion boundary",
-                    }
-                ],
-                "decisions": {
-                    "composition": "one reducer after one Agent return",
-                    "algorithms": "constant-time phase routing",
-                    "data_structures": "bounded immutable directive",
-                    "state": "manifest application owns writes",
-                    "isolation": "one outstanding dispatch",
-                    "concurrency": "serialized Node transitions",
-                },
-                "test_seams": ["tests/test_agent_completion.py"],
-            },
             "acceptance_criteria": [
-                {"checked": False, "text": "The correlated Agent completion selects Review safely."}
+                {"checked": accepted, "text": "Only an exact final callback advances state."}
             ],
-            "commit": {
-                "repository": ".git",
-                "message": "test: agent completion",
-                "target": "agent completion fixture",
-            },
-            "regression": {
-                "scope": "focused",
-                "commands": [regression],
-                "criteria": [0],
-                "paths": ["tracked.txt"],
-            },
+            "commit": {"repository": ".git", "message": f"test: {stem}", "target": stem},
             "next": [],
         }
-        self.checkpoints.write_text(json.dumps([node]), encoding="utf-8")
+        if not accepted:
+            node["design"] = self._design(stem)
+        if role in {"implementation", "final_validation"}:
+            node["regression"] = {
+                "scope": "full" if role == "final_validation" else "focused",
+                "commands": [command("pass")],
+                "criteria": [0],
+                "paths": [f"src/{stem}.py"],
+            }
+        if accepted:
+            node["acceptance"] = {"phase": "accepted", "attempt": 0, "outcome": "accepted"}
+        return node
+
+    def _write_workspace(self) -> None:
+        design = self._node(
+            DESIGN_ID,
+            "group_design",
+            "group_design",
+            [],
+            status="completed",
+            accepted=True,
+        )
+        work = self._node(WORK_ID, "implementation", "worker", [DESIGN_ID])
+        final = self._node(FINAL_ID, "final_validation", "final", [WORK_ID])
+        design["next"] = [WORK_ID]
+        work["next"] = [FINAL_ID]
+        self.checkpoints.write_text(json.dumps([design, work, final]), encoding="utf-8")
         manifest = [
             {
                 "id": PLAN_ID,
-                "status": "pending",
+                "status": "in_progress",
                 "title": "Agent completion fixture",
                 "directory": "agent-completion",
                 "source_files": [],
-                "goal": "Exercise automatic Agent completion reduction.",
-                "description": "A complete temporary Better Plan workflow.",
+                "purpose": "Exercise exact child completion correlation.",
+                "goal": "Validate native final callback handling.",
+                "description": "One isolated task group.",
                 "checkpoints": "agent-completion/Checkpoints.json",
+                "kind": "group",
+                "decision_issues": [],
             }
         ]
         (self.workspace / "Manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
+    def _append_second_group(self) -> None:
+        plan_dir = self.workspace / "agent-completion-two"
+        plan_dir.mkdir()
+        design = self._node(
+            DESIGN_TWO_ID,
+            "group_design",
+            "group_design_two",
+            [],
+            status="completed",
+            accepted=True,
+        )
+        work = self._node(
+            WORK_TWO_ID,
+            "implementation",
+            "worker_two",
+            [DESIGN_TWO_ID],
+        )
+        final = self._node(
+            FINAL_TWO_ID,
+            "final_validation",
+            "final_two",
+            [WORK_TWO_ID],
+        )
+        design["next"] = [WORK_TWO_ID]
+        work["next"] = [FINAL_TWO_ID]
+        (plan_dir / "Checkpoints.json").write_text(
+            json.dumps([design, work, final]),
+            encoding="utf-8",
+        )
+        manifest_path = self.workspace / "Manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.append(
+            {
+                "id": PLAN_TWO_ID,
+                "status": "pending",
+                "title": "Second completion fixture",
+                "directory": "agent-completion-two",
+                "source_files": [],
+                "purpose": "Exercise exact completion across concurrent task groups.",
+                "goal": "Correlate one of multiple active native children.",
+                "description": "A second isolated task group.",
+                "checkpoints": "agent-completion-two/Checkpoints.json",
+                "kind": "group",
+                "decision_issues": [],
+            }
+        )
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
     def cli(self, *arguments: str) -> dict[str, object]:
-        command_arguments = list(arguments)
-        command_arguments.insert(2, str(self.workspace))
         result = subprocess.run(
-            [sys.executable, str(MANIFEST_TOOL), *command_arguments],
+            [sys.executable, str(MANIFEST_TOOL), *arguments],
             cwd=ROOT,
             text=True,
             capture_output=True,
@@ -145,36 +227,49 @@ class AgentCompletionHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    def state(self) -> dict[str, object]:
-        return json.loads(self.checkpoints.read_text(encoding="utf-8"))[0]
+    def state(self, node_id: str = WORK_ID) -> dict[str, object]:
+        values = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        return next(value for value in values if value["id"] == node_id)
 
-    def dispatch(self, role: str) -> str:
-        payload = self.cli("dispatch", NODE_ID, "--role", role)
-        return str(payload["dispatch_id"])
+    def dispatch_and_bind(self, node_id: str, role: str, agent_id: str) -> str:
+        dispatch = self.cli(
+            "dispatch",
+            node_id,
+            str(self.workspace),
+            "--role",
+            role,
+        )
+        dispatch_id = str(dispatch["dispatch_id"])
+        self.cli(
+            "bind-agent",
+            node_id,
+            str(self.workspace),
+            "--dispatch-id",
+            dispatch_id,
+            "--agent-id",
+            agent_id,
+        )
+        return dispatch_id
 
-    def advance(self, event: str, dispatch_id: str) -> None:
-        self.cli("advance", NODE_ID, "--event", event, "--dispatch-id", dispatch_id)
-
-    def prime_executor(self) -> None:
-        self.cli("next-action", NODE_ID)
-        designer = self.dispatch("acceptance_designer")
-        self.advance("acceptance-designer-exited", designer)
-        self.dispatch("executor")
-
-    def run_completion_hook(self) -> dict[str, object]:
+    def run_hook(
+        self,
+        payload: dict[str, object],
+        *,
+        agent: str = "codex",
+    ) -> dict[str, object]:
         result = subprocess.run(
             [
                 sys.executable,
                 str(HOOK_TOOL),
                 "--agent",
-                "codex",
+                agent,
                 "--event",
                 "agent-complete",
                 "--managed-by",
                 "better-plan",
             ],
             cwd=ROOT,
-            input=json.dumps({"cwd": str(self.project), "tool_name": "spawn_agent"}),
+            input=json.dumps({"cwd": str(self.project), **payload}),
             text=True,
             capture_output=True,
             check=False,
@@ -182,51 +277,177 @@ class AgentCompletionHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    def test_executor_completion_runs_regression_then_routes_review(self) -> None:
-        self.prime_executor()
+    def codex_callback(
+        self,
+        agent_id: str,
+        *,
+        final: object = True,
+        node_id: str | None = None,
+        dispatch_id: str | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Agent",
+            "agent_id": agent_id,
+            "final": final,
+        }
+        if node_id is not None:
+            payload["node_id"] = node_id
+        if dispatch_id is not None:
+            payload["dispatch_id"] = dispatch_id
+        return self.run_hook(payload)
 
-        response = self.run_completion_hook()
-
-        self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_auditor")
-        context = response["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("action dispatch_auditor", context)
-        self.assertIn("Focused regression passed", context)
-        self.assertNotIn(str(self.project), context)
-        self.assertEqual(self.run_completion_hook(), {})
-
-    def test_first_regression_failure_returns_control_to_main(self) -> None:
-        self._write_workspace(failing=True)
-        self.prime_executor()
-
-        response = self.run_completion_hook()
-
-        self.assertEqual(self.state()["acceptance"]["phase"], "correction_required")
-        self.assertIn(
-            "action main_correction_decision",
-            response["hookSpecificOutput"]["additionalContext"],
+    def close_implementation(self) -> None:
+        worker_id = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
+        self.codex_callback(
+            "host.worker-1",
+            node_id=WORK_ID,
+            dispatch_id=worker_id,
         )
-        self.assertNotIn(
-            "dispatch exactly one fresh repair executor",
-            response["hookSpecificOutput"]["additionalContext"].lower(),
+        verifier_id = self.dispatch_and_bind(WORK_ID, "verifier", "host.verifier-1")
+        self.codex_callback(
+            "host.verifier-1",
+            node_id=WORK_ID,
+            dispatch_id=verifier_id,
         )
 
-    def test_auditor_completion_reports_to_main_without_deciding(self) -> None:
-        self.prime_executor()
-        self.run_completion_hook()
-        self.dispatch("auditor")
+    def test_spawn_return_nonfinal_wrong_id_and_wrong_node_are_noops(self) -> None:
+        dispatch_id = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
         before = self.checkpoints.read_bytes()
-
-        response = self.run_completion_hook()
-
-        self.assertEqual(self.checkpoints.read_bytes(), before)
-        self.assertEqual(self.state()["acceptance"]["phase"], "auditor_running")
-        context = response["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("action main_audit_decision", context)
-        self.assertIn(
-            "choose audit-passed, same-Node implementation correction, design repair only for a "
-            "real design or product-semantics error, or pause to defer",
-            context,
+        for payload in (
+            self.codex_callback("host.worker-1", final=False),
+            self.codex_callback("host.unrelated-1"),
+            self.codex_callback(
+                "host.worker-1",
+                node_id=FINAL_ID,
+                dispatch_id=dispatch_id,
+            ),
+            self.codex_callback(
+                "host.worker-1",
+                node_id=WORK_ID,
+                dispatch_id="wrong-dispatch",
+            ),
+        ):
+            self.assertEqual(payload, {})
+            self.assertEqual(self.checkpoints.read_bytes(), before)
+        self.assertIsNone(
+            reduce_agent_completion(
+                self.workspace / "Manifest.json",
+                agent_id="host.worker-1",
+                final=False,
+            )
         )
+
+    def test_exact_bound_worker_final_routes_verifier_and_replay_is_noop(self) -> None:
+        dispatch_id = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
+        response = self.codex_callback(
+            "host.worker-1",
+            node_id=WORK_ID,
+            dispatch_id=dispatch_id,
+        )
+        self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_verifier")
+        context = response["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("action dispatch_verifier", context)
+        self.assertIn("write-capable Verifier", context)
+        after = self.checkpoints.read_bytes()
+        self.assertEqual(self.codex_callback("host.worker-1"), {})
+        self.assertEqual(self.checkpoints.read_bytes(), after)
+
+    def test_bound_agent_id_selects_one_of_multiple_active_task_groups(self) -> None:
+        first_dispatch = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
+        self._append_second_group()
+        second_dispatch = self.dispatch_and_bind(
+            WORK_TWO_ID,
+            "worker",
+            "host.worker-2",
+        )
+
+        first = self.codex_callback(
+            "host.worker-1",
+            dispatch_id=first_dispatch,
+        )
+
+        self.assertIn("hookSpecificOutput", first)
+        self.assertEqual(self.state(WORK_ID)["acceptance"]["phase"], "awaiting_verifier")
+        second_state = json.loads(
+            (self.workspace / "agent-completion-two" / "Checkpoints.json").read_text(
+                encoding="utf-8"
+            )
+        )[1]
+        self.assertEqual(second_state["acceptance"]["phase"], "worker_running")
+        second = self.codex_callback(
+            "host.worker-2",
+            node_id=WORK_TWO_ID,
+            dispatch_id=second_dispatch,
+        )
+        self.assertIn("hookSpecificOutput", second)
+
+    def test_exact_bound_verifier_final_completes_implementation(self) -> None:
+        worker_id = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
+        self.codex_callback("host.worker-1", dispatch_id=worker_id)
+        verifier_id = self.dispatch_and_bind(WORK_ID, "verifier", "host.verifier-1")
+        response = self.codex_callback(
+            "host.verifier-1",
+            node_id=WORK_ID,
+            dispatch_id=verifier_id,
+        )
+        self.assertEqual(self.state()["status"], "completed")
+        self.assertIn("action complete_node", response["hookSpecificOutput"]["additionalContext"])
+
+    def test_reviewer_final_returns_decisions_to_main_and_is_replay_safe(self) -> None:
+        self.close_implementation()
+        self.cli(
+            "advance",
+            FINAL_ID,
+            str(self.workspace),
+            "--event",
+            "regression-requested",
+        )
+        reviewer_id = self.dispatch_and_bind(FINAL_ID, "reviewer", "host.reviewer-1")
+        response = self.codex_callback(
+            "host.reviewer-1",
+            node_id=FINAL_ID,
+            dispatch_id=reviewer_id,
+        )
+        state = self.state(FINAL_ID)
+        self.assertEqual(state["acceptance"]["phase"], "reviewer_complete")
+        self.assertEqual(state["acceptance"]["review"]["dispatch_id"], reviewer_id)
+        context = response["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("action main_reviewer_decision", context)
+        self.assertIn("report immediate items", context)
+        after = self.checkpoints.read_bytes()
+        self.assertEqual(self.codex_callback("host.reviewer-1"), {})
+        self.assertEqual(self.checkpoints.read_bytes(), after)
+
+    def test_claude_advances_only_on_explicit_subagent_stop(self) -> None:
+        dispatch_id = self.dispatch_and_bind(WORK_ID, "worker", "host.worker-1")
+        before = self.checkpoints.read_bytes()
+        post_tool = self.run_hook(
+            {
+                "hook_event_name": "PostToolUse",
+                "agent_id": "host.worker-1",
+                "agent_type": "worker-standard",
+                "final": True,
+                "dispatch_id": dispatch_id,
+                "node_id": WORK_ID,
+            },
+            agent="claude",
+        )
+        self.assertEqual(post_tool, {})
+        self.assertEqual(self.checkpoints.read_bytes(), before)
+        stopped = self.run_hook(
+            {
+                "hook_event_name": "SubagentStop",
+                "agent_id": "host.worker-1",
+                "agent_type": "worker-standard",
+                "final": True,
+                "dispatch_id": dispatch_id,
+                "node_id": WORK_ID,
+            },
+            agent="claude",
+        )
+        self.assertIn("hookSpecificOutput", stopped)
+        self.assertEqual(self.state()["acceptance"]["phase"], "awaiting_verifier")
 
 
 if __name__ == "__main__":

@@ -6,10 +6,11 @@ from typing import Any
 from pathlib import Path
 import argparse
 import json
-from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, GIT_SHA_PATTERN, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
+from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, GIT_SHA_PATTERN, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
+from ..domain.roles import knowledge_references_for_action as _knowledge_references_for_action, reference_for_action as _reference_for_action
 from ..domain.transitions import next_action as acceptance_next_action, transition as acceptance_transition
 from ..infrastructure.regression import current_platform, ensure_node_regression, evidence_timestamp, platform_matches, preparation_fingerprints, regression_receipt_status, run_node_regression, run_regression_at_location as _run_regression_at_location, validated_design_contract, validated_regression_contract
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
+from ..infrastructure.workspace import NodeLocation as _NodeLocation, capability_scope_for_plan, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_lock, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
 
 
 def run_node_mutation(
@@ -132,51 +133,21 @@ def run_node_mutation(
 
 
 def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[str, Any]:
-    """Invalidate a stale pre-execution freeze and return the current bounded snapshot."""
+    """Invalidate stale preparation without automatically re-running Designer or Reviewer."""
+
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance.get("phase"))
-    freshness_phases = {
-        "acceptance_designer_running",
-        "correction_required",
-        "executor_running",
-        "awaiting_auditor",
-        "auditor_running",
-        "awaiting_executor",
-        "awaiting_regression",
-        "repair_plan_required",
-        "awaiting_repair",
-    }
-    if phase not in freshness_phases:
+    role = node.get("role")
+    if phase in {"awaiting_designer", "awaiting_worker", "awaiting_regression", "awaiting_repair_regression", "accepted"}:
         return acceptance
 
     current = preparation_fingerprints(location)
-    if phase == "acceptance_designer_running":
+    if phase == "designer_running":
         dispatch = acceptance.get("dispatch")
         stale = not isinstance(dispatch, dict) or dispatch.get("design_digest") != current["design_digest"]
-    elif node.get("role") == "implementation" and phase == "awaiting_executor":
-        compare_fields = (
-            ACCEPTANCE_PREPARATION_FIELDS
-            if (
-                isinstance(acceptance.get("scaffold_fingerprint"), str)
-                and SHA256_PATTERN.fullmatch(str(acceptance.get("scaffold_fingerprint")))
-            )
-            else ACCEPTANCE_STABLE_PREPARATION_FIELDS
-        )
-        stale = any(acceptance.get(field) != current[field] for field in compare_fields)
-    elif node.get("role") == "implementation" and phase in {"executor_running", "correction_required", "awaiting_auditor", "auditor_running"}:
-        stale = any(
-            acceptance.get(field) != current[field] for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS
-        )
-    elif node.get("role") == "final_validation" and phase in {
-        "awaiting_regression",
-        "awaiting_auditor",
-        "auditor_running",
-        "repair_plan_required",
-        "awaiting_repair",
-    }:
-        stale = any(acceptance.get(field) != value for field, value in current.items())
     else:
-        stale = any(acceptance.get(field) != value for field, value in current.items())
+        fields = ACCEPTANCE_STABLE_PREPARATION_FIELDS if role == "implementation" else ACCEPTANCE_PREPARATION_FIELDS
+        stale = any(acceptance.get(field) != current[field] for field in fields)
     if not stale:
         return acceptance
 
@@ -184,25 +155,35 @@ def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[s
     if node.get("status") not in {"blocked", "deferred"}:
         node["status"] = "pending"
         node.pop("status_reason", None)
-    reset = {
-        "phase": "acceptance_revision_required",
-        "attempt": int(acceptance.get("attempt", 0)),
-        "outcome": "none",
-    }
+    if role == "group_design":
+        reset_phase = "awaiting_designer"
+    elif role == "implementation":
+        reset_phase = "awaiting_worker"
+    else:
+        reset_phase = "awaiting_repair_regression" if isinstance(acceptance.get("review"), dict) else "awaiting_regression"
+    reset = {"phase": reset_phase, "attempt": int(acceptance.get("attempt", 0)), "outcome": "none"}
+    if isinstance(acceptance.get("review"), dict) and role == "final_validation":
+        reset["review"] = acceptance["review"]
+        reset.update({field: current[field] for field in ACCEPTANCE_PREPARATION_FIELDS})
     node["acceptance"] = reset
     return reset
 
 
 def automated_node_role(node: dict[str, Any]) -> str:
     role = node.get("role")
-    if role not in REGRESSION_NODE_ROLES:
-        raise ToolError("acceptance commands require an implementation or final_validation node")
+    if role not in AUTOMATED_NODE_ROLES:
+        raise ToolError("delivery commands require a group_design, implementation, or final_validation node")
     return str(role)
 
 
 def implicit_acceptance_snapshot(node: dict[str, Any]) -> dict[str, Any]:
-    automated_node_role(node)
-    return {"phase": "awaiting_acceptance_design", "attempt": 0, "outcome": "none"}
+    role = automated_node_role(node)
+    phase = {
+        "group_design": "awaiting_designer",
+        "implementation": "awaiting_worker",
+        "final_validation": "awaiting_regression",
+    }[role]
+    return {"phase": phase, "attempt": 0, "outcome": "none"}
 
 
 def acceptance_snapshot(node: dict[str, Any], *, required: bool = False) -> dict[str, Any]:
@@ -232,12 +213,13 @@ def ensure_node_can_start(location: _NodeLocation, node: dict[str, Any]) -> None
             f"node {node_id}: declared platform does not match the current runtime platform"
         )
     validated_design_contract(location)
-    regression = validated_regression_contract(location)
-    criteria = node.get("acceptance_criteria")
-    criterion_count = len(criteria) if isinstance(criteria, list) else 0
-    mapped = regression.get("criteria")
-    if not isinstance(mapped, list) or len(mapped) != criterion_count or set(mapped) != set(range(criterion_count)):
-        raise ToolError("automated acceptance requires regression criteria to map every acceptance criterion exactly once")
+    if node.get("role") in REGRESSION_NODE_ROLES:
+        regression = validated_regression_contract(location)
+        criteria = node.get("acceptance_criteria")
+        criterion_count = len(criteria) if isinstance(criteria, list) else 0
+        mapped = regression.get("criteria")
+        if not isinstance(mapped, list) or len(mapped) != criterion_count or set(mapped) != set(range(criterion_count)):
+            raise ToolError("automated delivery requires regression criteria to map every acceptance criterion exactly once")
 
     status_by_id = workspace_node_statuses(location.manifest)
     prerequisites = node.get("prerequisites")
@@ -260,13 +242,20 @@ def ensure_node_can_start(location: _NodeLocation, node: dict[str, Any]) -> None
                 "final_validation cannot start until every non-skipped implementation node is completed"
             )
 
-    for entry in location.checkpoints_data:
-        if (
-            isinstance(entry, dict)
-            and entry.get("status") == "in_progress"
-            and entry.get("id") != node.get("id")
-        ):
-            raise ToolError("another node is already in_progress in this plan")
+    other_active = [
+        entry
+        for entry in location.checkpoints_data
+        if isinstance(entry, dict)
+        and entry.get("status") == "in_progress"
+        and entry.get("id") != node.get("id")
+    ]
+    if other_active and (
+        node.get("role") != "implementation"
+        or any(entry.get("role") != "implementation" for entry in other_active)
+    ):
+        raise ToolError(
+            "only independent implementation nodes may run concurrently in one task group"
+        )
 
 
 def clear_regression_proof(node: dict[str, Any]) -> None:
@@ -289,8 +278,10 @@ def clear_regression_proof(node: dict[str, Any]) -> None:
 
 
 def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
-    """Clear reviewed preparation and park an enrolled lifecycle for main judgment."""
-    if node.get("role") not in REGRESSION_NODE_ROLES:
+    """Clear stale proof while preserving the one-Reviewer-per-group invariant."""
+
+    role = node.get("role")
+    if role not in AUTOMATED_NODE_ROLES:
         return
     status = node.get("status")
     if status in WORKFLOW_STATE_MACHINE.terminal_statuses:
@@ -302,15 +293,16 @@ def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
     prior = node.get("acceptance")
     attempt = prior.get("attempt", 0) if isinstance(prior, dict) else 0
     safe_attempt = int(attempt) if type(attempt) is int and attempt >= 0 else 0
-    node["acceptance"] = {
-        "phase": (
-            "acceptance_revision_required"
-            if isinstance(prior, dict)
-            else "awaiting_acceptance_design"
-        ),
-        "attempt": safe_attempt,
-        "outcome": "none",
-    }
+    if role == "group_design":
+        phase = "awaiting_designer"
+    elif role == "implementation":
+        phase = "awaiting_worker"
+    else:
+        phase = "awaiting_repair_regression" if isinstance(prior, dict) and isinstance(prior.get("review"), dict) else "awaiting_regression"
+    reset: dict[str, Any] = {"phase": phase, "attempt": safe_attempt, "outcome": "none"}
+    if isinstance(prior, dict) and isinstance(prior.get("review"), dict):
+        reset["review"] = prior["review"]
+    node["acceptance"] = reset
     if status == "in_progress":
         node["status"] = "pending"
         node.pop("status_reason", None)
@@ -319,7 +311,7 @@ def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
 def normalize_delivery_administrative_transition(node: dict[str, Any], target: str) -> None:
     """Cancel automated proof before a delivery node is paused, blocked, deferred, or skipped."""
     role = node.get("role")
-    if role not in REGRESSION_NODE_ROLES or target not in {
+    if role not in AUTOMATED_NODE_ROLES or target not in {
         "pending",
         "blocked",
         "deferred",
@@ -327,8 +319,9 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
     }:
         return
 
-    clear_regression_proof(node)
-    if target in {"deferred", "skipped"}:
+    if role in REGRESSION_NODE_ROLES:
+        clear_regression_proof(node)
+    if target == "skipped":
         node.pop("acceptance", None)
         return
 
@@ -341,6 +334,26 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
         raise ToolError("cannot administratively suspend an invalid acceptance attempt")
 
     phase = acceptance.get("phase")
+    if target == "deferred":
+        review = acceptance.get("review")
+        if role != "final_validation" or not isinstance(review, dict):
+            node.pop("acceptance", None)
+            return
+        if phase in {"repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}:
+            preserved = dict(acceptance)
+            preserved.pop("dispatch", None)
+        else:
+            preserved = {
+                "phase": "awaiting_repair_regression",
+                "attempt": attempt,
+                "outcome": "none",
+                "review": review,
+            }
+            for field in ACCEPTANCE_PREPARATION_FIELDS:
+                if field in acceptance:
+                    preserved[field] = acceptance[field]
+        node["acceptance"] = preserved
+        return
     if role == "final_validation" and phase in {"repair_plan_required", "awaiting_repair"}:
         preserved = {
             "phase": phase,
@@ -352,31 +365,29 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
                 preserved[field] = acceptance[field]
         if phase == "awaiting_repair" and "repair_node_id" in acceptance:
             preserved["repair_node_id"] = acceptance["repair_node_id"]
+        if isinstance(acceptance.get("review"), dict):
+            preserved["review"] = acceptance["review"]
         node["acceptance"] = preserved
         return
 
-    preparation_incomplete = phase in {
-        "awaiting_acceptance_design",
-        "acceptance_designer_running",
-    }
-    if phase == "acceptance_revision_required":
-        resumed_phase = "acceptance_revision_required"
-    elif preparation_incomplete:
-        resumed_phase = "awaiting_acceptance_design"
+    if role == "group_design":
+        resumed_phase = "awaiting_designer"
     elif role == "implementation":
-        resumed_phase = "awaiting_executor"
+        resumed_phase = "awaiting_worker"
     else:
-        resumed_phase = "awaiting_regression"
+        resumed_phase = "awaiting_repair_regression" if isinstance(acceptance.get("review"), dict) else "awaiting_regression"
     normalized = {
         "phase": resumed_phase,
         "attempt": attempt,
         "outcome": "none",
     }
-    if not preparation_incomplete and phase != "acceptance_revision_required":
+    if role != "group_design":
         fields = ACCEPTANCE_PREPARATION_FIELDS if role == "final_validation" else ACCEPTANCE_STABLE_PREPARATION_FIELDS
         for field in fields:
             if field in acceptance:
                 normalized[field] = acceptance[field]
+    if isinstance(acceptance.get("review"), dict):
+        normalized["review"] = acceptance["review"]
     node["acceptance"] = normalized
 
 
@@ -387,21 +398,6 @@ def regression_failure_outcome(error: ToolError) -> str:
     if "could not be started" in message or "required" in message or "invalid regression" in message:
         return "regression_unavailable"
     return "regression_failed"
-
-
-def current_regression_binding(location: _NodeLocation) -> dict[str, str]:
-    fresh, _ = regression_receipt_status(location)
-    if not fresh:
-        raise ToolError("auditor event requires a current passing regression fingerprint")
-    node = location.checkpoints_data[location.node_index]
-    regression = node.get("regression")
-    receipt = regression.get("last_pass") if isinstance(regression, dict) else None
-    if not isinstance(receipt, dict):
-        raise ToolError("auditor event requires a current passing regression fingerprint")
-    return {
-        "contract_digest": str(receipt["contract_digest"]),
-        "content_fingerprint": str(receipt["content_fingerprint"]),
-    }
 
 
 def ensure_matching_dispatch(
@@ -421,7 +417,40 @@ def ensure_matching_dispatch(
     return dispatch
 
 
-def bounded_acceptance_payload(node: dict[str, Any], *, action: str | None = None) -> dict[str, Any]:
+def _relative_leaf_paths(node: dict[str, Any]) -> list[str]:
+    design = node.get("design")
+    if not isinstance(design, dict):
+        raise ToolError("leaf dispatch requires a validated design contract")
+    values: list[str] = []
+    for field in ("artifact", "owned_paths", "scaffold_paths", "acceptance_paths"):
+        raw = design.get(field)
+        raw_values = [raw] if field == "artifact" else raw if isinstance(raw, list) else []
+        for value in raw_values:
+            if not isinstance(value, str):
+                raise ToolError("leaf dispatch contains an invalid repository path")
+            normalized = value.strip().replace("\\", "/")
+            parts = [part for part in normalized.split("/") if part]
+            if (
+                not parts
+                or normalized.startswith("/")
+                or ":/" in normalized
+                or any(part in {".", ".."} for part in parts)
+            ):
+                raise ToolError("leaf dispatch contains an invalid repository path")
+            if normalized not in values:
+                values.append(normalized)
+    if not values:
+        raise ToolError("leaf dispatch requires repository-relative paths")
+    return sorted(values)
+
+
+def bounded_acceptance_payload(
+    node: dict[str, Any],
+    *,
+    action: str | None = None,
+    group_nodes: list[Any] | None = None,
+    capability_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance["phase"])
     if action is None:
@@ -440,11 +469,68 @@ def bounded_acceptance_payload(node: dict[str, Any], *, action: str | None = Non
     dispatch = acceptance.get("dispatch")
     if isinstance(dispatch, dict) and isinstance(dispatch.get("id"), str):
         payload["dispatch_id"] = dispatch["id"]
+    if capability_context is not None:
+        payload["capability_scope"] = capability_context
+    if action.startswith("dispatch_"):
+        agent_type = {
+            "dispatch_designer": "designer",
+            "dispatch_worker": f"worker-{node.get('difficulty')}",
+            "dispatch_verifier": "verifier",
+            "dispatch_reviewer": "reviewer",
+        }.get(action)
+        role_reference = _reference_for_action(action)
+        if agent_type is None or role_reference is None:
+            raise ToolError("unsupported leaf dispatch action")
+        payload.update(
+            {
+                "agent_type": agent_type,
+                "fork_turns": "none",
+                "role_reference": role_reference,
+                "repository_paths": _relative_leaf_paths(node),
+            }
+        )
+        knowledge_references = _knowledge_references_for_action(action)
+        if knowledge_references:
+            payload["knowledge_references"] = list(knowledge_references)
+            payload["required_outputs"] = ["design_pattern_assessment"]
+        if action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None:
+            group_ids: list[str] = []
+            group_paths: set[str] = set(payload["repository_paths"])
+            for group_node in group_nodes:
+                if not isinstance(group_node, dict):
+                    continue
+                group_id = group_node.get("id")
+                if isinstance(group_id, str):
+                    group_ids.append(group_id)
+                if isinstance(group_node.get("design"), dict):
+                    group_paths.update(_relative_leaf_paths(group_node))
+                regression = group_node.get("regression")
+                if isinstance(regression, dict) and is_string_list(regression.get("paths")):
+                    group_paths.update(str(value) for value in regression["paths"])
+            payload["group_node_ids"] = group_ids
+            payload["repository_paths"] = sorted(group_paths)
     return payload
 
 
-def print_acceptance_payload(node: dict[str, Any], *, action: str | None = None) -> None:
-    print(json.dumps(bounded_acceptance_payload(node, action=action), sort_keys=True, separators=(",", ":")))
+def print_acceptance_payload(
+    node: dict[str, Any],
+    *,
+    action: str | None = None,
+    group_nodes: list[Any] | None = None,
+    location: _NodeLocation | None = None,
+) -> None:
+    capability_context = None
+    if location is not None:
+        plan = location.manifest_data[location.plan_index]
+        if isinstance(plan, dict):
+            capability_context = capability_scope_for_plan(location.manifest, plan)
+    payload = bounded_acceptance_payload(
+        node,
+        action=action,
+        group_nodes=group_nodes,
+        capability_context=capability_context,
+    )
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 
 
 def next_action_command(args: argparse.Namespace) -> int:
@@ -454,7 +540,7 @@ def next_action_command(args: argparse.Namespace) -> int:
     node = location.checkpoints_data[location.node_index]
     automated_node_role(node)
     if node.get("status") == "deferred":
-        print_acceptance_payload(node, action="none")
+        print_acceptance_payload(node, action="none", group_nodes=location.checkpoints_data, location=location)
         return 0
     if node.get("status") in {"pending", "blocked", "in_progress"} and "acceptance" not in node:
         ensure_node_can_start(location, node)
@@ -463,7 +549,7 @@ def next_action_command(args: argparse.Namespace) -> int:
     after = json.dumps(node, sort_keys=True, separators=(",", ":"))
     if after != before:
         write_location_and_sync_plan(location)
-    print_acceptance_payload(node)
+    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
     return 0
 
 
@@ -478,80 +564,152 @@ def dispatch_command(args: argparse.Namespace) -> int:
     phase = acceptance.get("phase")
 
     running_roles = {
-        "acceptance_designer_running": "acceptance_designer",
-        "executor_running": "executor",
-        "auditor_running": "auditor",
+        "designer_running": "designer",
+        "worker_running": "worker",
+        "verifier_running": "verifier",
+        "reviewer_running": "reviewer",
     }
     if phase in running_roles:
         dispatch = acceptance.get("dispatch")
         expected_role = running_roles[str(phase)]
         if not isinstance(dispatch, dict) or args.role != expected_role:
             raise ToolError("a different acceptance dispatch is already outstanding")
-        if expected_role == "acceptance_designer":
+        if expected_role == "designer":
             binding = preparation_fingerprints(location)
             if dispatch.get("design_digest") != binding["design_digest"]:
-                raise ToolError("the outstanding acceptance designer dispatch is stale")
-        elif expected_role == "auditor":
-            binding = current_regression_binding(location)
-            if any(dispatch.get(field) != binding[field] for field in binding):
-                raise ToolError("the outstanding auditor dispatch is stale")
-        print_acceptance_payload(node)
+                raise ToolError("the outstanding Designer dispatch is stale")
+        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
         return 0
 
-    if args.role == "acceptance_designer":
-        if phase not in {"awaiting_acceptance_design", "acceptance_revision_required"}:
-            raise ToolError("acceptance designer dispatch is out of order for the current acceptance phase")
+    if args.role == "designer":
+        if node_role != "group_design" or phase != "awaiting_designer":
+            raise ToolError("Designer dispatch is out of order for this task group")
         ensure_node_can_start(location, node)
         binding = preparation_fingerprints(location)
         node["status"] = "in_progress"
         node.pop("status_reason", None)
-        clear_regression_proof(node)
         acceptance = {
-            "phase": acceptance_transition(str(phase), "acceptance-designer-dispatched", "acceptance_designer"),
+            "phase": acceptance_transition(str(phase), "designer-dispatched", "designer"),
             "attempt": int(acceptance.get("attempt", 0)),
             "dispatch": {
                 "id": generate_id(),
-                "role": "acceptance_designer",
+                "role": "designer",
                 "design_digest": binding["design_digest"],
             },
             "outcome": "none",
         }
-    elif args.role == "executor":
-        if node_role != "implementation" or phase not in {"awaiting_executor", "correction_required"}:
-            raise ToolError("executor dispatch is out of order for the current acceptance phase")
+    elif args.role == "worker":
+        if node_role != "implementation" or phase not in {"awaiting_worker", "correction_required"}:
+            raise ToolError("Worker dispatch is out of order for the current delivery phase")
         ensure_node_can_start(location, node)
         node["status"] = "in_progress"
         node.pop("status_reason", None)
         clear_regression_proof(node)
+        current = preparation_fingerprints(location)
         acceptance = {
-            "phase": acceptance_transition(str(phase), "executor-dispatched", "executor"),
+            "phase": acceptance_transition(str(phase), "worker-dispatched", "worker"),
             "attempt": int(acceptance.get("attempt", 0)) + 1,
-            "dispatch": {"id": generate_id(), "role": "executor"},
+            "dispatch": {"id": generate_id(), "role": "worker"},
             "outcome": "none",
+            **{field: current[field] for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS},
+        }
+    elif args.role == "verifier":
+        if node_role != "implementation" or phase != "awaiting_verifier" or node.get("status") != "in_progress":
+            raise ToolError("Verifier dispatch is out of order for the current delivery phase")
+        acceptance = {
+            "phase": acceptance_transition(str(phase), "verifier-dispatched", "verifier"),
+            "attempt": int(acceptance.get("attempt", 0)),
+            "dispatch": {"id": generate_id(), "role": "verifier"},
+            "outcome": "regression_passed",
         }
         for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS:
             if field in prior_acceptance:
                 acceptance[field] = prior_acceptance[field]
-    elif args.role == "auditor":
-        if phase != "awaiting_auditor" or node.get("status") != "in_progress":
-            raise ToolError("auditor dispatch is out of order for the current acceptance phase")
-        binding = current_regression_binding(location)
+    elif args.role == "reviewer":
+        if node_role != "final_validation" or phase != "awaiting_reviewer" or node.get("status") != "in_progress":
+            raise ToolError("Reviewer dispatch is out of order for the current task group")
+        if isinstance(prior_acceptance.get("review"), dict):
+            raise ToolError("the task group's one Reviewer has already completed")
         acceptance = {
-            "phase": acceptance_transition(str(phase), "auditor-dispatched", "auditor"),
+            "phase": acceptance_transition(str(phase), "reviewer-dispatched", "reviewer"),
             "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {"id": generate_id(), "role": "auditor", **binding},
-            "outcome": "regression_passed",
+            "dispatch": {"id": generate_id(), "role": "reviewer"},
+            "outcome": str(prior_acceptance.get("outcome")),
         }
-        fields = ACCEPTANCE_PREPARATION_FIELDS if node_role == "final_validation" else ACCEPTANCE_STABLE_PREPARATION_FIELDS
-        for field in fields:
+        for field in ACCEPTANCE_PREPARATION_FIELDS:
             if field in prior_acceptance:
                 acceptance[field] = prior_acceptance[field]
     else:
-        raise ToolError("unsupported acceptance dispatch role")
+        raise ToolError("unsupported delivery dispatch role")
 
     node["acceptance"] = acceptance
     write_location_and_sync_plan(location)
-    print_acceptance_payload(node)
+    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    return 0
+
+
+def ensure_host_agent_id(value: Any) -> str:
+    """Validate one bounded opaque identity returned by the native host."""
+
+    if not isinstance(value, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(value):
+        raise ToolError("--agent-id must be a bounded opaque host agent id")
+    return value
+
+
+def bind_agent_command(args: argparse.Namespace) -> int:
+    """Commit the real host identity to one outstanding dispatch."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    ensure_location_is_valid(location)
+    dispatch_id = ensure_event_id(args.dispatch_id)
+    agent_id = ensure_host_agent_id(args.agent_id)
+    node = location.checkpoints_data[location.node_index]
+    acceptance = acceptance_snapshot(node, required=True)
+    dispatch = acceptance.get("dispatch")
+    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id:
+        raise ToolError("bind-agent does not match the outstanding dispatch")
+    if acceptance.get("phase") not in {
+        "designer_running",
+        "worker_running",
+        "verifier_running",
+        "reviewer_running",
+    }:
+        raise ToolError("bind-agent is out of order for the current delivery phase")
+    prior = dispatch.get("host_agent_id")
+    if prior is not None:
+        if prior != agent_id:
+            raise ToolError("bind-agent cannot replace an existing host identity")
+        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+        return 0
+    dispatch["host_agent_id"] = agent_id
+    write_location_and_sync_plan(location)
+    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    return 0
+
+
+def agent_complete_command(args: argparse.Namespace) -> int:
+    """Reduce one explicit final host callback, or emit a safe no-op."""
+
+    from .agent_completion import reduce_agent_completion
+
+    manifest = workspace_manifest_path(Path(args.root))
+    # Validate the identity before invoking the reducer so malformed values
+    # cannot be correlated accidentally and are never echoed in output.
+    agent_id = ensure_host_agent_id(args.agent_id)
+    directive = reduce_agent_completion(
+        manifest,
+        agent_id=agent_id,
+        final=bool(args.final),
+        node_id=args.node_id,
+        dispatch_id=getattr(args, "dispatch_id", None),
+    )
+    if directive is None:
+        print("{}")
+    else:
+        from dataclasses import asdict
+
+        print(json.dumps(asdict(directive), sort_keys=True, separators=(",", ":")))
     return 0
 
 
@@ -572,52 +730,60 @@ def _delivery_preparation_binding(
     return binding
 
 
-def advance_acceptance_design_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+def _complete_mapped_criteria(location: _NodeLocation, node: dict[str, Any]) -> None:
+    regression = validated_regression_contract(location)
+    criteria = node.get("acceptance_criteria")
+    if not isinstance(criteria, list):
+        raise ToolError("acceptance criteria are unavailable for automatic completion")
+    for criterion_index in regression["criteria"]:
+        criterion = criteria[criterion_index]
+        if not isinstance(criterion, dict):
+            raise ToolError("acceptance criteria are invalid for automatic completion")
+        criterion["checked"] = True
+
+
+def advance_designer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
     node = location.checkpoints_data[location.node_index]
-    automated_node_role(node)
+    if automated_node_role(node) != "group_design":
+        raise ToolError("Designer exit events require a group_design node")
     acceptance = acceptance_snapshot(node, required=True)
-    dispatch = ensure_matching_dispatch(
+    ensure_matching_dispatch(
         acceptance,
-        expected_phase="acceptance_designer_running",
-        expected_role="acceptance_designer",
+        expected_phase="designer_running",
+        expected_role="designer",
         dispatch_id=dispatch_id,
     )
-    binding = preparation_fingerprints(location)
-    if dispatch.get("design_digest") != binding["design_digest"]:
-        raise ToolError("acceptance designer exit does not match the current design fingerprint")
+    criteria = node.get("acceptance_criteria")
+    if not isinstance(criteria, list):
+        raise ToolError("group design criteria are unavailable")
+    for criterion in criteria:
+        if not isinstance(criterion, dict):
+            raise ToolError("group design criteria are invalid")
+        criterion["checked"] = True
     node["acceptance"] = {
-        "phase": (
-            "awaiting_regression"
-            if node.get("role") == "final_validation"
-            else acceptance_transition(
-            "acceptance_designer_running",
-            "acceptance-designer-exited",
-            "acceptance_designer",
-            )
-        ),
+        "phase": acceptance_transition("designer_running", "agent-complete", "designer"),
         "attempt": int(acceptance.get("attempt", 0)),
-        "outcome": "none",
-        **binding,
+        "outcome": "accepted",
     }
-    node["status"] = "pending"
+    node["status"] = "completed"
     node.pop("status_reason", None)
     write_location_and_sync_plan(location)
     return node
 
 
-def advance_executor_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
     node = location.checkpoints_data[location.node_index]
     if automated_node_role(node) != "implementation":
-        raise ToolError("executor exit events require an implementation node")
+        raise ToolError("worker exit events require an implementation node")
     acceptance = acceptance_snapshot(node, required=True)
     ensure_matching_dispatch(
         acceptance,
-        expected_phase="executor_running",
-        expected_role="executor",
+        expected_phase="worker_running",
+        expected_role="worker",
         dispatch_id=dispatch_id,
     )
     acceptance = refresh_preparation(location, node)
-    if acceptance.get("phase") != "executor_running":
+    if acceptance.get("phase") != "worker_running":
         write_location_and_sync_plan(location)
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
@@ -627,14 +793,14 @@ def advance_executor_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     except ToolError as exc:
         clear_regression_proof(node)
         acceptance = {
-            "phase": acceptance_transition("executor_running", "regression-failed", "system"),
+            "phase": acceptance_transition("worker_running", "regression-failed", "system"),
             "attempt": int(acceptance["attempt"]),
             "outcome": regression_failure_outcome(exc),
             **preparation,
         }
     else:
         acceptance = {
-            "phase": acceptance_transition("executor_running", "regression-passed", "system"),
+            "phase": acceptance_transition("worker_running", "regression-passed", "system"),
             "attempt": int(acceptance["attempt"]),
             "outcome": "regression_passed",
             **preparation,
@@ -644,16 +810,60 @@ def advance_executor_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     return node
 
 
+def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+    """Let a write-capable Verifier repair the Node, then prove its final state."""
+
+    node = location.checkpoints_data[location.node_index]
+    if automated_node_role(node) != "implementation":
+        raise ToolError("Verifier exit events require an implementation node")
+    acceptance = acceptance_snapshot(node, required=True)
+    ensure_matching_dispatch(
+        acceptance,
+        expected_phase="verifier_running",
+        expected_role="verifier",
+        dispatch_id=dispatch_id,
+    )
+    acceptance = refresh_preparation(location, node)
+    if acceptance.get("phase") != "verifier_running":
+        write_location_and_sync_plan(location)
+        return node
+    preparation = _delivery_preparation_binding(location, acceptance)
+    clear_regression_proof(node)
+    try:
+        _run_regression_at_location(location, persist=False)
+    except ToolError as exc:
+        clear_regression_proof(node)
+        node["acceptance"] = {
+            "phase": acceptance_transition("verifier_running", "regression-failed", "verifier"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": regression_failure_outcome(exc),
+            **preparation,
+        }
+    else:
+        _complete_mapped_criteria(location, node)
+        node["acceptance"] = {
+            "phase": acceptance_transition("verifier_running", "regression-passed", "verifier"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": "accepted",
+            **preparation,
+        }
+        node["status"] = "completed"
+        node.pop("status_reason", None)
+    write_location_and_sync_plan(location)
+    return node
+
+
 def advance_final_regression(location: _NodeLocation) -> dict[str, Any]:
     node = location.checkpoints_data[location.node_index]
     if automated_node_role(node) != "final_validation":
         raise ToolError("regression-requested events require a final_validation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    if acceptance.get("phase") != "awaiting_regression":
+    acceptance = acceptance_snapshot(node)
+    phase = acceptance.get("phase")
+    if phase not in {"awaiting_regression", "awaiting_repair_regression"}:
         raise ToolError("acceptance event is out of order for the current phase")
+    if phase == "awaiting_repair_regression" and isinstance(acceptance.get("review"), dict):
+        ensure_immediate_decisions_resolved(location)
     current_preparation = preparation_fingerprints(location)
-    if any(acceptance.get(field) != value for field, value in current_preparation.items()):
-        raise ToolError("final regression requires current reviewed preparation fingerprints")
     ensure_node_can_start(location, node)
     node["status"] = "in_progress"
     node.pop("status_reason", None)
@@ -664,80 +874,118 @@ def advance_final_regression(location: _NodeLocation) -> dict[str, Any]:
         _run_regression_at_location(location, persist=False)
     except ToolError as exc:
         clear_regression_proof(node)
+        next_phase = acceptance_transition(str(phase), "regression-failed", "system")
         acceptance = {
-            "phase": acceptance_transition("awaiting_regression", "regression-failed", "system"),
+            "phase": next_phase,
             "attempt": int(acceptance.get("attempt", 0)),
             "outcome": regression_failure_outcome(exc),
             **current_preparation,
         }
-        node["status"] = "pending"
-        node.pop("status_reason", None)
+        if isinstance(node.get("acceptance", {}).get("review"), dict):
+            acceptance["review"] = node["acceptance"]["review"]
+        if next_phase == "repair_plan_required":
+            node["status"] = "pending"
+            node.pop("status_reason", None)
     else:
+        next_phase = acceptance_transition(str(phase), "regression-passed", "system")
         acceptance = {
-            "phase": acceptance_transition("awaiting_regression", "regression-passed", "system"),
+            "phase": next_phase,
             "attempt": int(acceptance.get("attempt", 0)),
-            "outcome": "regression_passed",
+            "outcome": "accepted" if next_phase == "accepted" else "regression_passed",
             **current_preparation,
         }
+        review = node.get("acceptance", {}).get("review")
+        if isinstance(review, dict):
+            acceptance["review"] = review
+        if next_phase == "accepted":
+            _complete_mapped_criteria(location, node)
+            node["status"] = "completed"
+            node.pop("status_reason", None)
     node["acceptance"] = acceptance
     write_location_and_sync_plan(location)
     return node
 
 
-def advance_audit_verdict(location: _NodeLocation, dispatch_id: str, *, passed: bool) -> dict[str, Any]:
+def advance_reviewer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+    """Persist the one group Reviewer completion for native-main decision handling."""
+
     node = location.checkpoints_data[location.node_index]
-    node_role = automated_node_role(node)
+    if automated_node_role(node) != "final_validation":
+        raise ToolError("Reviewer exit events require a final_validation node")
     acceptance = acceptance_snapshot(node, required=True)
-    dispatch = ensure_matching_dispatch(
+    ensure_matching_dispatch(
         acceptance,
-        expected_phase="auditor_running",
-        expected_role="auditor",
+        expected_phase="reviewer_running",
+        expected_role="reviewer",
         dispatch_id=dispatch_id,
     )
-    acceptance = refresh_preparation(location, node)
-    if acceptance.get("phase") != "auditor_running":
-        write_location_and_sync_plan(location)
-        return node
-    binding = current_regression_binding(location)
-    if any(dispatch.get(field) != binding[field] for field in binding):
-        raise ToolError("audit verdict does not match the current regression fingerprint")
-
-    if not passed:
-        phase = acceptance_transition("auditor_running", "audit-failed", node_role)
-        clear_regression_proof(node)
-        node["acceptance"] = {
-            "phase": phase,
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "audit_failed",
-            **_delivery_preparation_binding(location, acceptance),
-        }
-        if node_role == "final_validation":
-            node["status"] = "pending"
-            node.pop("status_reason", None)
-        write_location_and_sync_plan(location)
-        return node
-
-    phase = acceptance_transition("auditor_running", "audit-passed", "auditor")
-    regression = validated_regression_contract(location)
-    criteria = node.get("acceptance_criteria")
-    if not isinstance(criteria, list):
-        raise ToolError("acceptance criteria are unavailable for automatic completion")
-    for criterion_index in regression["criteria"]:
-        criterion = criteria[criterion_index]
-        if not isinstance(criterion, dict):
-            raise ToolError("acceptance criteria are invalid for automatic completion")
-        criterion["checked"] = True
+    current = preparation_fingerprints(location)
     node["acceptance"] = {
-        "phase": phase,
+        "phase": acceptance_transition("reviewer_running", "agent-complete", "reviewer"),
         "attempt": int(acceptance["attempt"]),
-        "outcome": "accepted",
-        "audit": {"recorded_at": evidence_timestamp(), **binding},
-        **_delivery_preparation_binding(location, acceptance),
+        "outcome": str(acceptance["outcome"]),
+        "review": {"recorded_at": evidence_timestamp(), "dispatch_id": dispatch_id},
+        **current,
     }
-    node["status"] = "completed"
-    node.pop("status_reason", None)
     write_location_and_sync_plan(location)
     return node
+
+
+def advance_reviewer_finished(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+    """After main records decisions, verify the Reviewer's repairs with full regression."""
+
+    node = location.checkpoints_data[location.node_index]
+    if automated_node_role(node) != "final_validation":
+        raise ToolError("reviewer-finished events require a final_validation node")
+    acceptance = acceptance_snapshot(node, required=True)
+    review = acceptance.get("review")
+    if acceptance.get("phase") != "reviewer_complete" or not isinstance(review, dict) or review.get("dispatch_id") != dispatch_id:
+        raise ToolError("reviewer-finished does not match the completed group Reviewer")
+    ensure_immediate_decisions_resolved(location)
+    current = preparation_fingerprints(location)
+    clear_regression_proof(node)
+    try:
+        _run_regression_at_location(location, persist=False)
+    except ToolError as exc:
+        clear_regression_proof(node)
+        node["acceptance"] = {
+            "phase": acceptance_transition("reviewer_complete", "regression-failed", "system"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": regression_failure_outcome(exc),
+            "review": review,
+            **current,
+        }
+        node["status"] = "pending"
+        node.pop("status_reason", None)
+    else:
+        _complete_mapped_criteria(location, node)
+        node["acceptance"] = {
+            "phase": acceptance_transition("reviewer_complete", "regression-passed", "system"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": "accepted",
+            "review": review,
+            **current,
+        }
+        node["status"] = "completed"
+        node.pop("status_reason", None)
+    write_location_and_sync_plan(location)
+    return node
+
+
+def ensure_immediate_decisions_resolved(location: _NodeLocation) -> None:
+    """Prevent every post-Reviewer regression path from bypassing a blocking choice."""
+
+    plan = location.manifest_data[location.plan_index]
+    decisions = plan.get("decision_issues") if isinstance(plan, dict) else None
+    if isinstance(decisions, list) and any(
+        isinstance(decision, dict)
+        and decision.get("status") == "open"
+        and decision.get("urgency") == "immediate"
+        for decision in decisions
+    ):
+        raise ToolError(
+            "post-Reviewer regression requires every immediate developer decision to be resolved"
+        )
 
 
 def ensure_repair_node_id(value: Any) -> str:
@@ -796,6 +1044,7 @@ def advance_repair_registration(location: _NodeLocation, repair_node_id: str) ->
         "attempt": int(acceptance["attempt"]),
         "outcome": str(acceptance["outcome"]),
         "repair_node_id": repair_node_id,
+        "review": acceptance["review"],
         **preserved_preparation,
     }
     node["status"] = "pending"
@@ -816,21 +1065,13 @@ def advance_repair_completion(location: _NodeLocation, repair_node_id: str) -> d
     validated_final_repair_node(location, repair_node_id, required_status="completed")
 
     current = preparation_fingerprints(location)
-    approved_is_current = all(acceptance.get(field) == value for field, value in current.items())
-    node["acceptance"] = (
-        {
-            "phase": acceptance_transition("awaiting_repair", "repair-completed", "final_validation"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "none",
-            **current,
-        }
-        if approved_is_current
-        else {
-            "phase": "acceptance_revision_required",
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "none",
-        }
-    )
+    node["acceptance"] = {
+        "phase": acceptance_transition("awaiting_repair", "repair-completed", "final_validation"),
+        "attempt": int(acceptance["attempt"]),
+        "outcome": "none",
+        "review": acceptance["review"],
+        **current,
+    }
     node["status"] = "pending"
     node.pop("status_reason", None)
     write_location_and_sync_plan(location)
@@ -844,41 +1085,40 @@ def advance_command(args: argparse.Namespace) -> int:
             raise ToolError("repair handoff events reject --dispatch-id")
         repair_node_id = ensure_repair_node_id(args.repair_node)
         dispatch_id = None
-    else:
+    elif args.event == "reviewer-finished":
         if args.repair_node is not None:
-            raise ToolError("executor, regression, and audit events reject --repair-node")
+            raise ToolError("regression and Reviewer events reject --repair-node")
         dispatch_id = ensure_event_id(args.dispatch_id)
+        repair_node_id = None
+    else:
+        if args.repair_node is not None or args.dispatch_id is not None:
+            raise ToolError("regression-requested rejects dispatch and repair ids")
+        dispatch_id = None
         repair_node_id = None
 
     manifest = workspace_manifest_path(Path(args.root))
     location = locate_node(manifest, args.node_id)
     ensure_location_is_valid(location)
 
-    if args.event == "acceptance-designer-exited":
-        assert dispatch_id is not None
-        node = advance_acceptance_design_exit(location, dispatch_id)
-    elif args.event == "executor-exited":
-        assert dispatch_id is not None
-        node = advance_executor_exit(location, dispatch_id)
-    elif args.event == "regression-requested":
+    if args.event == "regression-requested":
         node = location.checkpoints_data[location.node_index]
-        if node.get("acceptance", {}).get("phase") != "awaiting_regression" and "acceptance" in node:
+        phase = node.get("acceptance", {}).get("phase") if isinstance(node.get("acceptance"), dict) else None
+        if phase not in {None, "awaiting_regression", "awaiting_repair_regression"}:
             raise ToolError("acceptance event is out of order for the current phase")
         node = advance_final_regression(location)
-    elif args.event == "audit-failed":
+    elif args.event == "reviewer-finished":
         assert dispatch_id is not None
-        node = advance_audit_verdict(location, dispatch_id, passed=False)
-    elif args.event == "audit-passed":
-        assert dispatch_id is not None
-        node = advance_audit_verdict(location, dispatch_id, passed=True)
+        node = advance_reviewer_finished(location, dispatch_id)
     elif args.event == "repair-registered":
         assert repair_node_id is not None
         node = advance_repair_registration(location, repair_node_id)
-    else:
+    elif args.event == "repair-completed":
         assert repair_node_id is not None
         node = advance_repair_completion(location, repair_node_id)
+    else:
+        raise ToolError("unsupported acceptance event")
 
-    print_acceptance_payload(node)
+    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
     return 0
 
 
@@ -894,7 +1134,7 @@ def reject_manual_delivery_command(root: str | Path, node_id: str, command: str)
     manifest = workspace_manifest_path(Path(root))
     location = locate_node(manifest, node_id)
     node = location.checkpoints_data[location.node_index]
-    if node.get("role") in REGRESSION_NODE_ROLES:
+    if node.get("role") in AUTOMATED_NODE_ROLES:
         raise ToolError(
             f"node {node_id}: automated acceptance rejects direct {command}; use next-action, dispatch, and advance"
         )

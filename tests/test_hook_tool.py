@@ -52,7 +52,7 @@ def active_node(
         "role": role,
         "prerequisites": [],
         "platform": platform,
-        "difficulty": "high",
+        "difficulty": "complex",
         "goal": goal,
         "description": "Scope: Closure: module - Hook test fixture. Context: test. Target: deterministic behavior.",
         "requirements": ["REQ-004"],
@@ -118,6 +118,7 @@ def plan(directory: str) -> dict[str, object]:
         "title": "Hook fixture",
         "directory": directory,
         "source_files": [],
+        "purpose": "Exercise bounded Better Plan lifecycle Hook behavior.",
         "goal": "Exercise Hook behavior.",
         "description": "Temporary structural Better Plan workspace.",
         "checkpoints": f"{directory}/Checkpoints.json",
@@ -175,6 +176,8 @@ class HookToolTests(unittest.TestCase):
         self.assertRegex(lowered, r"\buser(?:'s)? (?:request|instructions?|direction)\b")
         self.assertRegex(lowered, r"\b(?:answer|respond|native workflow)\b")
         self.assertRegex(lowered, r"\botherwise\b[^.]*\baccordingly\b")
+        self.assertIn("better plan source repository", lowered)
+        self.assertIn("native workflow", lowered)
         self.assertNotRegex(lowered, r"\bnormally\b")
         for policy_term in ENTRY_LIFECYCLE_POLICY_TERMS:
             self.assertNotIn(policy_term, lowered)
@@ -353,7 +356,7 @@ class HookToolTests(unittest.TestCase):
             {
                 "SessionStart": "session-start",
                 "UserPromptSubmit": "prompt-submit",
-                "PostToolUse": "agent-complete",
+                "SubagentStop": "agent-complete",
             },
         )
         self.assertEqual(
@@ -372,6 +375,49 @@ class HookToolTests(unittest.TestCase):
                 "SubagentStop": "agent-complete",
             },
         )
+
+    def test_completion_responses_preserve_actual_host_event_and_have_defined_fallbacks(self) -> None:
+        value = "bounded completion directive"
+        cases = (
+            (
+                "codex",
+                "PostToolUse",
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": value,
+                    }
+                },
+            ),
+            (
+                "claude",
+                "SubagentStop",
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SubagentStop",
+                        "additionalContext": value,
+                    }
+                },
+            ),
+            ("cursor", "postToolUse", {"additional_context": value}),
+            ("kimi", "SubagentStop", value),
+        )
+        for agent, actual_event, expected in cases:
+            with self.subTest(agent=agent, mode="actual"):
+                self.assertEqual(
+                    protocols.context_response(
+                        agent,
+                        "agent-complete",
+                        value,
+                        host_event_name=actual_event,
+                    ),
+                    expected,
+                )
+            with self.subTest(agent=agent, mode="fallback"):
+                self.assertEqual(
+                    protocols.context_response(agent, "agent-complete", value),
+                    expected,
+                )
 
     def test_protocols_reject_unknown_agent(self) -> None:
         with self.assertRaises(protocols.HookProtocolError):
