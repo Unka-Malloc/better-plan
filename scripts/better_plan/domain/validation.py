@@ -226,17 +226,19 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     valid_phases = {
         "group_design": {"awaiting_designer", "designer_running", "accepted"},
         "implementation": {"awaiting_worker", "worker_running", "correction_required", "awaiting_verifier", "verifier_running", "accepted"},
-        "final_validation": {"awaiting_regression", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression", "accepted"},
+        "final_validation": {"awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair", "accepted"},
     }
     if role in valid_phases and phase not in valid_phases[str(role)]:
         issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for {role!r}"))
 
-    pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_regression", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}
+    pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "repair_plan_required", "awaiting_repair"}
     if phase == "accepted" and status != "completed":
         issues.append(Issue(path, f"{prefix}.status: an accepted node must be completed"))
     elif phase in pending_phases and status not in {"pending", "blocked", "deferred"}:
         issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires pending, blocked, or deferred"))
-    elif phase not in pending_phases | {"accepted"} and status != "in_progress":
+    elif phase == "reviewer_complete" and status not in {"pending", "blocked", "deferred", "in_progress"}:
+        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires an active or resumable status"))
+    elif phase not in pending_phases | {"reviewer_complete", "accepted"} and status != "in_progress":
         issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires in_progress"))
 
     expected_outcomes: dict[str, set[str]] = {
@@ -245,15 +247,13 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
         "awaiting_worker": {"none"},
         "worker_running": {"none"},
         "correction_required": ACCEPTANCE_FAILURE_OUTCOMES,
-        "awaiting_verifier": {"regression_passed"},
-        "verifier_running": {"regression_passed"},
-        "awaiting_regression": {"none"},
-        "awaiting_reviewer": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
-        "reviewer_running": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
-        "reviewer_complete": {"regression_passed", *ACCEPTANCE_FAILURE_OUTCOMES},
+        "awaiting_verifier": {"none"},
+        "verifier_running": {"none"},
+        "awaiting_reviewer": {"none"},
+        "reviewer_running": {"none"},
+        "reviewer_complete": {"none"},
         "repair_plan_required": ACCEPTANCE_FAILURE_OUTCOMES,
         "awaiting_repair": ACCEPTANCE_FAILURE_OUTCOMES,
-        "awaiting_repair_regression": {"none"},
         "accepted": {"accepted"},
     }
     if phase in expected_outcomes and outcome not in expected_outcomes[phase]:
@@ -305,14 +305,14 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     required_preparation: tuple[str, ...] = ()
     if role == "implementation" and phase not in {"awaiting_worker"}:
         required_preparation = ACCEPTANCE_STABLE_PREPARATION_FIELDS
-    elif role == "final_validation" and phase not in {"awaiting_regression", "awaiting_repair_regression"}:
+    elif role == "final_validation" and phase not in {"awaiting_reviewer", "reviewer_complete"}:
         required_preparation = ACCEPTANCE_PREPARATION_FIELDS
     for field in required_preparation:
         if field not in acceptance:
             issues.append(Issue(path, f"{prefix}.acceptance.{field}: phase {phase!r} requires current preparation"))
 
     review = acceptance.get("review")
-    review_phases = {"reviewer_complete", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression", "accepted"}
+    review_phases = {"reviewer_complete", "repair_plan_required", "awaiting_repair", "accepted"}
     if role == "final_validation" and phase in review_phases and not isinstance(review, dict):
         issues.append(Issue(path, f"{prefix}.acceptance.review: phase {phase!r} requires the one group Reviewer receipt"))
     elif (role != "final_validation" or phase not in review_phases) and "review" in acceptance:
@@ -329,10 +329,10 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
 
     regression = node.get("regression")
     last_pass = regression.get("last_pass") if isinstance(regression, dict) else None
-    must_have_pass = phase in {"awaiting_verifier", "verifier_running", "accepted"} and role in REGRESSION_NODE_ROLES
+    must_have_pass = phase == "accepted" and role in REGRESSION_NODE_ROLES
     if must_have_pass and not isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} requires a passing regression receipt"))
-    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_regression", "repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}
+    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_verifier", "verifier_running", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair"}
     if phase in obsolete_pass_phases and isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} must not retain an obsolete receipt"))
     return issues

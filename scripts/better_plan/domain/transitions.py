@@ -15,21 +15,17 @@ _TRANSITION_TABLE: Final[Mapping[TransitionKey, str]] = MappingProxyType(
         ("designer_running", "agent-complete", "designer"): "accepted",
         ("awaiting_worker", "worker-dispatched", "worker"): "worker_running",
         ("correction_required", "worker-dispatched", "worker"): "worker_running",
-        ("worker_running", "regression-passed", "system"): "awaiting_verifier",
-        ("worker_running", "regression-failed", "system"): "correction_required",
+        ("worker_running", "agent-complete", "worker"): "awaiting_verifier",
         ("awaiting_verifier", "verifier-dispatched", "verifier"): "verifier_running",
         ("verifier_running", "regression-passed", "verifier"): "accepted",
         ("verifier_running", "regression-failed", "verifier"): "correction_required",
-        ("awaiting_regression", "regression-passed", "system"): "awaiting_reviewer",
-        ("awaiting_regression", "regression-failed", "system"): "awaiting_reviewer",
         ("awaiting_reviewer", "reviewer-dispatched", "reviewer"): "reviewer_running",
         ("reviewer_running", "agent-complete", "reviewer"): "reviewer_complete",
         ("reviewer_complete", "regression-passed", "system"): "accepted",
         ("reviewer_complete", "regression-failed", "system"): "repair_plan_required",
         ("repair_plan_required", "repair-registered", "final_validation"): "awaiting_repair",
-        ("awaiting_repair", "repair-completed", "final_validation"): "awaiting_repair_regression",
-        ("awaiting_repair_regression", "regression-passed", "system"): "accepted",
-        ("awaiting_repair_regression", "regression-failed", "system"): "repair_plan_required",
+        ("awaiting_repair", "regression-passed", "system"): "accepted",
+        ("awaiting_repair", "regression-failed", "system"): "repair_plan_required",
     }
 )
 
@@ -42,13 +38,11 @@ _NEXT_ACTIONS: Final[Mapping[str, str]] = MappingProxyType(
         "correction_required": "main_correction_decision",
         "awaiting_verifier": "dispatch_verifier",
         "verifier_running": "await_verifier_exit",
-        "awaiting_regression": "run_regression",
         "awaiting_reviewer": "dispatch_reviewer",
         "reviewer_running": "await_reviewer_exit",
         "reviewer_complete": "main_reviewer_decision",
         "repair_plan_required": "create_repair_plan",
         "awaiting_repair": "await_repair_completion",
-        "awaiting_repair_regression": "run_regression",
         "accepted": "complete_node",
     }
 )
