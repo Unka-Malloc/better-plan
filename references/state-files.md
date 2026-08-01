@@ -212,9 +212,9 @@ Optional fields:
   explanatory only and never creates a Node dependency.
 - `acceptance` (tool-written for automated delivery Nodes): deterministic lifecycle state. Its
   phase is one of `awaiting_designer`, `designer_running`, `awaiting_worker`, `worker_running`,
-  `correction_required`, `awaiting_verifier`, `verifier_running`, `awaiting_regression`,
-  `awaiting_reviewer`, `reviewer_running`, `reviewer_complete`, `repair_plan_required`,
-  `awaiting_repair`, `awaiting_repair_regression`, or `accepted`. `attempt` is a non-negative
+  `correction_required`, `awaiting_verifier`, `verifier_running`, `awaiting_reviewer`,
+  `reviewer_running`, `reviewer_complete`, `repair_plan_required`, `awaiting_repair`, or `accepted`.
+  `attempt` is a non-negative
   counter and `outcome` is bounded state-machine data. A running dispatch stores an opaque ID,
   role, optional bound host-agent ID, and only role-required fingerprints. Final-validation state
   retains one `review` receipt after the group's sole Reviewer returns and may temporarily bind one
@@ -289,17 +289,16 @@ Operational transition gates:
   Spawn return is not completion; only an exact final callback from the bound child may advance
   state.
 - While `worker_running`, the fresh code-only worker implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
-- The Worker's correlated final callback runs focused regression. Failure enters
-  `correction_required`; success enters `awaiting_verifier`. The write-capable Verifier repairs the
-  Node, and its final callback reruns focused regression. A passing rerun checks the mapped criteria
-  and completes the Node. Command output is discarded.
+- The Worker's correlated final callback enters `awaiting_verifier` without running the frozen
+  regression. The write-capable Verifier repairs the Node, and its final callback runs focused
+  regression once. A passing run checks the mapped criteria and completes the Node; failure enters
+  `correction_required`. Command output is discarded.
 - Node completion is terminal for that user-visible capability lifecycle. It does not select or enroll a different Node; adjacent findings and possible follow-up capabilities return to the native main.
 - A `final_validation` Node becomes eligible only after every non-skipped implementation Node is
-  completed. Its initial `regression-requested` event runs full regression, then routes to the
-  group's one Reviewer on either pass or failure. The Reviewer repairs all autonomous findings and
-  returns developer choices. After the native main records them, `reviewer-finished` reruns full
-  regression. Failure may bind a separately authored repair Node; subsequent full regression never
-  runs another Reviewer.
+  completed. It routes directly to the group's one Reviewer. The Reviewer repairs all autonomous
+  findings and returns developer choices. After the native main records them, `reviewer-finished`
+  runs full regression once. Failure may bind a separately authored repair Node; completing that
+  Node triggers a failure-driven rerun and never another Reviewer.
 
 Mutation commands apply exactly one single-step transition. `validate` compares each Plan and Node status against the file's git HEAD version using path reachability: a change is legal when some sequence of single-step transitions connects the old status to the new one (for example `pending` to `completed` through `in_progress`), and illegal when no path exists (for example `completed` back to `in_progress`, or anything out of `skipped`).
 
@@ -318,10 +317,10 @@ Checkpoint snapshot and workflow invariants:
   `status_reason`, Plan hierarchy, descriptions, and architecture prose do not affect eligibility.
 - A Node is `completed` only when every acceptance criterion is checked.
 - An implementation Node is one independently acceptable closure and completes only after Worker,
-  focused regression, Verifier repair, and a passing focused rerun.
-- A final-validation Node runs only after all non-skipped implementation Nodes complete; its initial
-  full regression, one whole-group Reviewer, and post-review full regression produce the group's
-  acceptance result.
+  Verifier repair, and one passing focused regression.
+- A final-validation Node runs only after all non-skipped implementation Nodes complete; its one
+  whole-group Reviewer and one normal post-review full regression produce the group's acceptance
+  result. Additional runs are failure-driven repair retries only.
 - A non-terminal Node with a `skipped` (or transitively unstartable) prerequisite fails validation. Rewire its prerequisites or skip it; skip dependents before their prerequisite.
 - Terminal Nodes are historical snapshots. Do not rewrite a completed Node's goal, description, or criteria to match later reality; record current truth in the plan documents and new Nodes. `edit-node` enforces this and only allows requirements-label corrections on terminal Nodes.
 
@@ -351,7 +350,7 @@ Plan consistency rules:
 | `dispatch <node-id> [root] --role designer\|worker\|verifier\|reviewer` | create or reuse one correlated native-agent dispatch when that role is required; the installed native role already owns its pinned model assignment |
 | `bind-agent <node-id> [root] --dispatch-id <id> --agent-id <id>` | bind the validated opaque native host identity returned by the real spawn call |
 | `agent-complete <node-id> [root] --agent-id <id> --final` | consume one exact final host callback; unbound, ambiguous, mismatched, and replayed callbacks are no-ops |
-| `advance <node-id> [root] --event <event> [--dispatch-id <id>] [--repair-node <id>]` | consume `regression-requested`, `reviewer-finished`, `repair-registered`, or `repair-completed`; guarded events run full regression, route repair, and auto complete |
+| `advance <node-id> [root] --event <event> [--dispatch-id <id>] [--repair-node <id>]` | consume `reviewer-finished`, `repair-registered`, or `repair-completed`; guarded events run the post-review full regression, route repair, and auto complete |
 | `start <node-id> [root]` | start a non-delivery foundation Node; rejected for group-design, implementation, and final-validation lifecycles |
 | `pause <node-id> [root] [--reason "..."]` | return the `in_progress` Node to `pending` so another Node can start |
 | `regress <node-id> [root]` | manual foundation command entry; rejected for automated delivery Nodes |

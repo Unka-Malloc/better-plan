@@ -80,37 +80,39 @@ complete. Serialize the short Better Plan `dispatch` mutations against the lates
 their bounded payloads. Start all corresponding native spawn calls concurrently with fresh contexts;
 do not wait for one spawn or Worker before starting another eligible Worker. As host IDs return,
 serialize the short `bind-agent` mutations while the children continue running. Independent Workers
-therefore execute concurrently. As each exact callback arrives, run that Node's focused regression
-and dispatch its Verifier immediately on pass. Independent Verifiers may overlap with Workers or
-Verifiers on other Nodes. Correlate every result by its bound Node, dispatch ID, and host-agent ID.
+therefore execute concurrently. As each exact callback arrives, dispatch that Node's Verifier
+immediately; do not run the frozen focused regression between the two leaves. Independent Verifiers
+may overlap with Workers or Verifiers on other Nodes. The Verifier's exact callback runs the Node's
+one focused regression. Correlate every result by its bound Node, dispatch ID, and host-agent ID.
 
 Keep compiler, type, lint, import, test, and ordinary integration defects inside this Node and its
 frozen design. Do not create a new Node merely to repair the current Node.
 
 ### Group closing: Reviewer
 
-After all implementation Nodes finish, request the final-validation Node's initial full regression.
-Then dispatch exactly one fresh Reviewer whether the run passed or failed. Give it the complete
-group, requirements, design and acceptance artifacts, changed code and tests, and regression
-outcome. The Reviewer reviews and repairs the bound capability end to end plus actually impacted
+After all implementation Nodes finish, dispatch exactly one fresh Reviewer before full regression.
+Give it the complete group, requirements, design and acceptance artifacts, and changed code and
+tests. The Reviewer reviews and repairs the bound capability end to end plus actually impacted
 shared paths. It does not audit or expand known untouched branches.
 
 When it returns, record every genuine developer trade-off with `record-decision`. Report and resolve
 `immediate` issues now, applying the chosen outcome before continuing; retain `deferred` issues for
 final handoff when work can safely continue. Submit `reviewer-finished` with the completed Reviewer
 dispatch ID only after recording its decision list and resolving every immediate item. The state
-tool then runs full regression again.
+tool then runs the group's one normal full regression.
 
-The Reviewer runs once per group. If that post-review regression fails, author and complete a
-bounded implementation repair Node, then rerun full regression directly. Never launch a second
-Reviewer for the same group.
+The Reviewer runs once per group. If that regression fails, author and complete a bounded
+implementation repair Node; its completion triggers a failure-driven full-regression rerun. Never
+launch a second Reviewer for the same group. Do not add duplicate focused or full runs merely for
+reassurance; expand validation only for new failure evidence, an explicit release policy, or a
+direct user request.
 
 ## Model assignments
 
 Do not recommend or select a model at dispatch time. The installer pins native role files once.
 Codex uses this fixed default matrix for any role not replaced by a qualifying local configuration:
 Designer and Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
-`gpt-5.6-luna/max`; Verifier uses `gpt-5.6-sol/medium`. This is a Codex-specific user preference,
+`gpt-5.6-luna/max`; Verifier uses `gpt-5.6-sol/high`. This is a Codex-specific user preference,
 not a cross-host recommendation. Other hosts retain local-first benchmark routing. Missing table
 entries are ignored rather than guessed.
 

@@ -257,7 +257,7 @@ class GroupLifecycleTests(unittest.TestCase):
             "designer_running",
         )
         self.assertEqual(
-            transitions.transition("worker_running", "regression-passed", "system"),
+            transitions.transition("worker_running", "agent-complete", "worker"),
             "awaiting_verifier",
         )
         self.assertEqual(
@@ -265,16 +265,12 @@ class GroupLifecycleTests(unittest.TestCase):
             "accepted",
         )
         self.assertEqual(
-            transitions.transition("awaiting_regression", "regression-failed", "system"),
-            "awaiting_reviewer",
-        )
-        self.assertEqual(
             transitions.transition("reviewer_complete", "regression-passed", "system"),
             "accepted",
         )
         self.assertEqual(
             transitions.transition(
-                "awaiting_repair_regression",
+                "awaiting_repair",
                 "regression-passed",
                 "system",
             ),
@@ -351,12 +347,50 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(payload["agent_type"], "worker-standard")
         worker = self.complete_role(WORK_ID, "worker")
         self.assertEqual(worker["action"], "dispatch_verifier")
-        self.assertEqual(self.state(WORK_ID)["acceptance"]["phase"], "awaiting_verifier")
+        worker_state = self.state(WORK_ID)
+        self.assertEqual(worker_state["acceptance"]["phase"], "awaiting_verifier")
+        self.assertNotIn("last_pass", worker_state["regression"])
         verifier = self.complete_role(WORK_ID, "verifier")
         self.assertEqual(verifier["action"], "complete_node")
         state = self.state(WORK_ID)
         self.assertEqual(state["status"], "completed")
         self.assertTrue(state["acceptance_criteria"][0]["checked"])
+
+    def test_only_the_exact_bound_final_callback_advances_a_child(self) -> None:
+        self.complete_role(DESIGN_ID, "designer")
+        dispatch_id, agent_id = self.dispatch(WORK_ID, "worker")
+        before = self.state(WORK_ID)
+        wrong = json.loads(
+            self.cli(
+                "agent-complete",
+                WORK_ID,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--agent-id",
+                "host.worker.wrong",
+                "--final",
+            ).stdout
+        )
+        early = json.loads(
+            self.cli(
+                "agent-complete",
+                WORK_ID,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--agent-id",
+                agent_id,
+            ).stdout
+        )
+        self.assertEqual(wrong, {})
+        self.assertEqual(early, {})
+        self.assertEqual(self.state(WORK_ID), before)
+        self.assertEqual(
+            self.complete(WORK_ID, dispatch_id, agent_id)["action"],
+            "dispatch_verifier",
+        )
+        self.assertEqual(self.complete(WORK_ID, dispatch_id, agent_id), {})
 
     def test_independent_workers_and_verifiers_run_concurrently_in_one_group(self) -> None:
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
@@ -406,15 +440,7 @@ class GroupLifecycleTests(unittest.TestCase):
 
     def test_reviewer_runs_once_and_post_review_full_regression_closes_group(self) -> None:
         self.complete_opening_and_implementation()
-        first = json.loads(
-            self.cli(
-                "advance",
-                FINAL_ID,
-                str(self.root),
-                "--event",
-                "regression-requested",
-            ).stdout
-        )
+        first = self.next_action(FINAL_ID)
         self.assertEqual(first["action"], "dispatch_reviewer")
         reviewer_id, agent_id = self.dispatch(FINAL_ID, "reviewer")
         returned = self.complete(FINAL_ID, reviewer_id, agent_id)
@@ -528,105 +554,6 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.assertIn("out of order", second.stderr)
 
-    def test_failed_initial_full_regression_still_routes_to_reviewer(self) -> None:
-        self._write_workspace(final_program="raise SystemExit(7)")
-        self.complete_opening_and_implementation()
-        payload = json.loads(
-            self.cli(
-                "advance",
-                FINAL_ID,
-                str(self.root),
-                "--event",
-                "regression-requested",
-            ).stdout
-        )
-        self.assertEqual(payload["action"], "dispatch_reviewer")
-        self.assertEqual(self.state(FINAL_ID)["acceptance"]["outcome"], "regression_failed")
-
-    def test_deferring_after_reviewer_preserves_the_once_only_review_receipt(self) -> None:
-        self.complete_opening_and_implementation()
-        self.cli(
-            "advance",
-            FINAL_ID,
-            str(self.root),
-            "--event",
-            "regression-requested",
-        )
-        reviewer_id, agent_id = self.dispatch(FINAL_ID, "reviewer")
-        self.complete(FINAL_ID, reviewer_id, agent_id)
-        self.cli(
-            "record-decision",
-            str(self.root),
-            "--plan",
-            PLAN_ID,
-            "--urgency",
-            "immediate",
-            "--question",
-            "Should the resumed group retain the reviewed contract?",
-            "--context",
-            "The answer controls the post-review regression target.",
-            "--option",
-            "Retain the reviewed contract.",
-            "--option",
-            "Replace the reviewed contract.",
-        )
-        decision_id = json.loads(
-            (self.root / "Manifest.json").read_text(encoding="utf-8")
-        )[0]["decision_issues"][0]["id"]
-
-        self.cli(
-            "defer",
-            FINAL_ID,
-            str(self.root),
-            "--reason",
-            "Resume the post-review regression later.",
-        )
-        deferred = self.state(FINAL_ID)
-        self.assertEqual(deferred["status"], "deferred")
-        self.assertEqual(deferred["acceptance"]["phase"], "awaiting_repair_regression")
-        self.assertEqual(deferred["acceptance"]["review"]["dispatch_id"], reviewer_id)
-
-        self.cli("activate", FINAL_ID, str(self.root))
-        self.assertEqual(self.next_action(FINAL_ID)["action"], "run_regression")
-        blocked = self.cli(
-            "advance",
-            FINAL_ID,
-            str(self.root),
-            "--event",
-            "regression-requested",
-            ok=False,
-        )
-        self.assertIn("immediate developer decision", blocked.stderr)
-        self.cli(
-            "resolve-decision",
-            decision_id,
-            str(self.root),
-            "--plan",
-            PLAN_ID,
-            "--resolution",
-            "Retain the reviewed contract.",
-        )
-        duplicate = self.cli(
-            "dispatch",
-            FINAL_ID,
-            str(self.root),
-            "--role",
-            "reviewer",
-            ok=False,
-        )
-        self.assertIn("out of order", duplicate.stderr)
-        closed = json.loads(
-            self.cli(
-                "advance",
-                FINAL_ID,
-                str(self.root),
-                "--event",
-                "regression-requested",
-            ).stdout
-        )
-        self.assertEqual(closed["action"], "none")
-        self.assertEqual(self.state(FINAL_ID)["status"], "completed")
-
     def test_post_review_failure_repairs_then_regresses_without_second_reviewer(self) -> None:
         final_file = self.root / "src" / "full_regression.py"
         program = (
@@ -636,13 +563,6 @@ class GroupLifecycleTests(unittest.TestCase):
         self._write_workspace(final_program=program)
         final_file.write_text("broken", encoding="utf-8")
         self.complete_opening_and_implementation()
-        self.cli(
-            "advance",
-            FINAL_ID,
-            str(self.root),
-            "--event",
-            "regression-requested",
-        )
         reviewer_id, agent_id = self.dispatch(FINAL_ID, "reviewer")
         self.complete(FINAL_ID, reviewer_id, agent_id)
         post = json.loads(
@@ -681,15 +601,6 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.complete_role(REPAIR_ID, "worker")
         self.complete_role(REPAIR_ID, "verifier")
-        self.cli(
-            "advance",
-            FINAL_ID,
-            str(self.root),
-            "--event",
-            "repair-completed",
-            "--repair-node",
-            REPAIR_ID,
-        )
         final_file.write_text("fixed", encoding="utf-8")
         closed = json.loads(
             self.cli(
@@ -697,7 +608,9 @@ class GroupLifecycleTests(unittest.TestCase):
                 FINAL_ID,
                 str(self.root),
                 "--event",
-                "regression-requested",
+                "repair-completed",
+                "--repair-node",
+                REPAIR_ID,
             ).stdout
         )
         self.assertEqual(closed["action"], "none")

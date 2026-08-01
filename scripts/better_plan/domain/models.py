@@ -282,7 +282,6 @@ ACCEPTANCE_PHASES = {
     "awaiting_worker",
     "worker_running",
     "correction_required",
-    "awaiting_regression",
     "awaiting_verifier",
     "verifier_running",
     "awaiting_reviewer",
@@ -290,7 +289,6 @@ ACCEPTANCE_PHASES = {
     "reviewer_complete",
     "repair_plan_required",
     "awaiting_repair",
-    "awaiting_repair_regression",
     "accepted",
 }
 

@@ -228,10 +228,10 @@ class PlanningReachabilityAcceptanceTests(unittest.TestCase):
 
             dispatch = run_cli(
                 root,
-                "advance",
+                "dispatch",
                 NODE_B_ID,
-                "--event",
-                "regression-requested",
+                "--role",
+                "reviewer",
             )
             self.assertNotEqual(dispatch.returncode, 0)
             self.assertIn("prerequisites must be completed", dispatch.stderr)

@@ -138,7 +138,7 @@ def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[s
     acceptance = acceptance_snapshot(node)
     phase = str(acceptance.get("phase"))
     role = node.get("role")
-    if phase in {"awaiting_designer", "awaiting_worker", "awaiting_regression", "awaiting_repair_regression", "accepted"}:
+    if phase in {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "accepted"}:
         return acceptance
 
     current = preparation_fingerprints(location)
@@ -160,7 +160,7 @@ def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[s
     elif role == "implementation":
         reset_phase = "awaiting_worker"
     else:
-        reset_phase = "awaiting_repair_regression" if isinstance(acceptance.get("review"), dict) else "awaiting_regression"
+        reset_phase = "reviewer_complete" if isinstance(acceptance.get("review"), dict) else "awaiting_reviewer"
     reset = {"phase": reset_phase, "attempt": int(acceptance.get("attempt", 0)), "outcome": "none"}
     if isinstance(acceptance.get("review"), dict) and role == "final_validation":
         reset["review"] = acceptance["review"]
@@ -181,7 +181,7 @@ def implicit_acceptance_snapshot(node: dict[str, Any]) -> dict[str, Any]:
     phase = {
         "group_design": "awaiting_designer",
         "implementation": "awaiting_worker",
-        "final_validation": "awaiting_regression",
+        "final_validation": "awaiting_reviewer",
     }[role]
     return {"phase": phase, "attempt": 0, "outcome": "none"}
 
@@ -298,7 +298,7 @@ def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
     elif role == "implementation":
         phase = "awaiting_worker"
     else:
-        phase = "awaiting_repair_regression" if isinstance(prior, dict) and isinstance(prior.get("review"), dict) else "awaiting_regression"
+        phase = "reviewer_complete" if isinstance(prior, dict) and isinstance(prior.get("review"), dict) else "awaiting_reviewer"
     reset: dict[str, Any] = {"phase": phase, "attempt": safe_attempt, "outcome": "none"}
     if isinstance(prior, dict) and isinstance(prior.get("review"), dict):
         reset["review"] = prior["review"]
@@ -339,12 +339,12 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
         if role != "final_validation" or not isinstance(review, dict):
             node.pop("acceptance", None)
             return
-        if phase in {"repair_plan_required", "awaiting_repair", "awaiting_repair_regression"}:
+        if phase in {"repair_plan_required", "awaiting_repair"}:
             preserved = dict(acceptance)
             preserved.pop("dispatch", None)
         else:
             preserved = {
-                "phase": "awaiting_repair_regression",
+                "phase": "reviewer_complete",
                 "attempt": attempt,
                 "outcome": "none",
                 "review": review,
@@ -375,7 +375,7 @@ def normalize_delivery_administrative_transition(node: dict[str, Any], target: s
     elif role == "implementation":
         resumed_phase = "awaiting_worker"
     else:
-        resumed_phase = "awaiting_repair_regression" if isinstance(acceptance.get("review"), dict) else "awaiting_regression"
+        resumed_phase = "reviewer_complete" if isinstance(acceptance.get("review"), dict) else "awaiting_reviewer"
     normalized = {
         "phase": resumed_phase,
         "attempt": attempt,
@@ -620,25 +620,28 @@ def dispatch_command(args: argparse.Namespace) -> int:
             "phase": acceptance_transition(str(phase), "verifier-dispatched", "verifier"),
             "attempt": int(acceptance.get("attempt", 0)),
             "dispatch": {"id": generate_id(), "role": "verifier"},
-            "outcome": "regression_passed",
+            "outcome": "none",
         }
         for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS:
             if field in prior_acceptance:
                 acceptance[field] = prior_acceptance[field]
     elif args.role == "reviewer":
-        if node_role != "final_validation" or phase != "awaiting_reviewer" or node.get("status") != "in_progress":
+        if node_role != "final_validation" or phase != "awaiting_reviewer":
             raise ToolError("Reviewer dispatch is out of order for the current task group")
         if isinstance(prior_acceptance.get("review"), dict):
             raise ToolError("the task group's one Reviewer has already completed")
+        ensure_node_can_start(location, node)
+        node["status"] = "in_progress"
+        node.pop("status_reason", None)
+        clear_regression_proof(node)
+        current = preparation_fingerprints(location)
         acceptance = {
             "phase": acceptance_transition(str(phase), "reviewer-dispatched", "reviewer"),
             "attempt": int(acceptance.get("attempt", 0)),
             "dispatch": {"id": generate_id(), "role": "reviewer"},
-            "outcome": str(prior_acceptance.get("outcome")),
+            "outcome": "none",
+            **{field: current[field] for field in ACCEPTANCE_PREPARATION_FIELDS},
         }
-        for field in ACCEPTANCE_PREPARATION_FIELDS:
-            if field in prior_acceptance:
-                acceptance[field] = prior_acceptance[field]
     else:
         raise ToolError("unsupported delivery dispatch role")
 
@@ -787,24 +790,13 @@ def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, 
         write_location_and_sync_plan(location)
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
-
-    try:
-        _run_regression_at_location(location, persist=False)
-    except ToolError as exc:
-        clear_regression_proof(node)
-        acceptance = {
-            "phase": acceptance_transition("worker_running", "regression-failed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": regression_failure_outcome(exc),
-            **preparation,
-        }
-    else:
-        acceptance = {
-            "phase": acceptance_transition("worker_running", "regression-passed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "regression_passed",
-            **preparation,
-        }
+    clear_regression_proof(node)
+    acceptance = {
+        "phase": acceptance_transition("worker_running", "agent-complete", "worker"),
+        "attempt": int(acceptance["attempt"]),
+        "outcome": "none",
+        **preparation,
+    }
     node["acceptance"] = acceptance
     write_location_and_sync_plan(location)
     return node
@@ -853,59 +845,6 @@ def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     return node
 
 
-def advance_final_regression(location: _NodeLocation) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "final_validation":
-        raise ToolError("regression-requested events require a final_validation node")
-    acceptance = acceptance_snapshot(node)
-    phase = acceptance.get("phase")
-    if phase not in {"awaiting_regression", "awaiting_repair_regression"}:
-        raise ToolError("acceptance event is out of order for the current phase")
-    if phase == "awaiting_repair_regression" and isinstance(acceptance.get("review"), dict):
-        ensure_immediate_decisions_resolved(location)
-    current_preparation = preparation_fingerprints(location)
-    ensure_node_can_start(location, node)
-    node["status"] = "in_progress"
-    node.pop("status_reason", None)
-    clear_regression_proof(node)
-    node["acceptance"] = acceptance
-
-    try:
-        _run_regression_at_location(location, persist=False)
-    except ToolError as exc:
-        clear_regression_proof(node)
-        next_phase = acceptance_transition(str(phase), "regression-failed", "system")
-        acceptance = {
-            "phase": next_phase,
-            "attempt": int(acceptance.get("attempt", 0)),
-            "outcome": regression_failure_outcome(exc),
-            **current_preparation,
-        }
-        if isinstance(node.get("acceptance", {}).get("review"), dict):
-            acceptance["review"] = node["acceptance"]["review"]
-        if next_phase == "repair_plan_required":
-            node["status"] = "pending"
-            node.pop("status_reason", None)
-    else:
-        next_phase = acceptance_transition(str(phase), "regression-passed", "system")
-        acceptance = {
-            "phase": next_phase,
-            "attempt": int(acceptance.get("attempt", 0)),
-            "outcome": "accepted" if next_phase == "accepted" else "regression_passed",
-            **current_preparation,
-        }
-        review = node.get("acceptance", {}).get("review")
-        if isinstance(review, dict):
-            acceptance["review"] = review
-        if next_phase == "accepted":
-            _complete_mapped_criteria(location, node)
-            node["status"] = "completed"
-            node.pop("status_reason", None)
-    node["acceptance"] = acceptance
-    write_location_and_sync_plan(location)
-    return node
-
-
 def advance_reviewer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
     """Persist the one group Reviewer completion for native-main decision handling."""
 
@@ -923,10 +862,56 @@ def advance_reviewer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     node["acceptance"] = {
         "phase": acceptance_transition("reviewer_running", "agent-complete", "reviewer"),
         "attempt": int(acceptance["attempt"]),
-        "outcome": str(acceptance["outcome"]),
+        "outcome": "none",
         "review": {"recorded_at": evidence_timestamp(), "dispatch_id": dispatch_id},
         **current,
     }
+    write_location_and_sync_plan(location)
+    return node
+
+
+def _run_group_regression_after_review(
+    location: _NodeLocation,
+    acceptance: dict[str, Any],
+    *,
+    source_phase: str,
+) -> dict[str, Any]:
+    """Run one normal group regression, or a failure-driven repair rerun."""
+
+    node = location.checkpoints_data[location.node_index]
+    review = acceptance.get("review")
+    if not isinstance(review, dict):
+        raise ToolError("full regression requires the completed group Reviewer receipt")
+    ensure_immediate_decisions_resolved(location)
+    ensure_node_can_start(location, node)
+    node["status"] = "in_progress"
+    node.pop("status_reason", None)
+    current = preparation_fingerprints(location)
+    clear_regression_proof(node)
+    try:
+        _run_regression_at_location(location, persist=False)
+    except ToolError as exc:
+        clear_regression_proof(node)
+        node["acceptance"] = {
+            "phase": acceptance_transition(source_phase, "regression-failed", "system"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": regression_failure_outcome(exc),
+            "review": review,
+            **current,
+        }
+        node["status"] = "pending"
+        node.pop("status_reason", None)
+    else:
+        _complete_mapped_criteria(location, node)
+        node["acceptance"] = {
+            "phase": acceptance_transition(source_phase, "regression-passed", "system"),
+            "attempt": int(acceptance["attempt"]),
+            "outcome": "accepted",
+            "review": review,
+            **current,
+        }
+        node["status"] = "completed"
+        node.pop("status_reason", None)
     write_location_and_sync_plan(location)
     return node
 
@@ -941,35 +926,11 @@ def advance_reviewer_finished(location: _NodeLocation, dispatch_id: str) -> dict
     review = acceptance.get("review")
     if acceptance.get("phase") != "reviewer_complete" or not isinstance(review, dict) or review.get("dispatch_id") != dispatch_id:
         raise ToolError("reviewer-finished does not match the completed group Reviewer")
-    ensure_immediate_decisions_resolved(location)
-    current = preparation_fingerprints(location)
-    clear_regression_proof(node)
-    try:
-        _run_regression_at_location(location, persist=False)
-    except ToolError as exc:
-        clear_regression_proof(node)
-        node["acceptance"] = {
-            "phase": acceptance_transition("reviewer_complete", "regression-failed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": regression_failure_outcome(exc),
-            "review": review,
-            **current,
-        }
-        node["status"] = "pending"
-        node.pop("status_reason", None)
-    else:
-        _complete_mapped_criteria(location, node)
-        node["acceptance"] = {
-            "phase": acceptance_transition("reviewer_complete", "regression-passed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "accepted",
-            "review": review,
-            **current,
-        }
-        node["status"] = "completed"
-        node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
+    return _run_group_regression_after_review(
+        location,
+        acceptance,
+        source_phase="reviewer_complete",
+    )
 
 
 def ensure_immediate_decisions_resolved(location: _NodeLocation) -> None:
@@ -1063,19 +1024,11 @@ def advance_repair_completion(location: _NodeLocation, repair_node_id: str) -> d
     if acceptance.get("repair_node_id") != repair_node_id:
         raise ToolError("repair completion does not match the bound repair node")
     validated_final_repair_node(location, repair_node_id, required_status="completed")
-
-    current = preparation_fingerprints(location)
-    node["acceptance"] = {
-        "phase": acceptance_transition("awaiting_repair", "repair-completed", "final_validation"),
-        "attempt": int(acceptance["attempt"]),
-        "outcome": "none",
-        "review": acceptance["review"],
-        **current,
-    }
-    node["status"] = "pending"
-    node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
+    return _run_group_regression_after_review(
+        location,
+        acceptance,
+        source_phase="awaiting_repair",
+    )
 
 
 def advance_command(args: argparse.Namespace) -> int:
@@ -1087,26 +1040,17 @@ def advance_command(args: argparse.Namespace) -> int:
         dispatch_id = None
     elif args.event == "reviewer-finished":
         if args.repair_node is not None:
-            raise ToolError("regression and Reviewer events reject --repair-node")
+            raise ToolError("Reviewer events reject --repair-node")
         dispatch_id = ensure_event_id(args.dispatch_id)
         repair_node_id = None
     else:
-        if args.repair_node is not None or args.dispatch_id is not None:
-            raise ToolError("regression-requested rejects dispatch and repair ids")
-        dispatch_id = None
-        repair_node_id = None
+        raise ToolError("unsupported acceptance event")
 
     manifest = workspace_manifest_path(Path(args.root))
     location = locate_node(manifest, args.node_id)
     ensure_location_is_valid(location)
 
-    if args.event == "regression-requested":
-        node = location.checkpoints_data[location.node_index]
-        phase = node.get("acceptance", {}).get("phase") if isinstance(node.get("acceptance"), dict) else None
-        if phase not in {None, "awaiting_regression", "awaiting_repair_regression"}:
-            raise ToolError("acceptance event is out of order for the current phase")
-        node = advance_final_regression(location)
-    elif args.event == "reviewer-finished":
+    if args.event == "reviewer-finished":
         assert dispatch_id is not None
         node = advance_reviewer_finished(location, dispatch_id)
     elif args.event == "repair-registered":

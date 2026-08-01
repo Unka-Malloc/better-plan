@@ -29,8 +29,8 @@ conflict to the native main rather than silently overdesigning the Node.
 Do not change role or model selection at dispatch time. Do not modify group design, frozen
 acceptance, Plan state, decision issues, criteria, or receipts. Resolve ordinary compiler, type,
 lint, import, and local integration errors caused by the Node before returning. Run only the
-smallest implementation-local build or static check; the state tool runs focused regression and a
-separate Verifier follows a passing Worker run. Do not delegate.
+smallest implementation-local build or static check; a separate Verifier follows immediately and
+the state tool runs the frozen focused regression once after that Verifier returns. Do not delegate.
 
 Begin the result with the injected `assignment:` line. Then return only changed repository-relative
 implementation paths, reasons for adjacent changes, and blockers.
