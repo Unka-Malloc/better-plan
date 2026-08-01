@@ -342,6 +342,16 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     except _InstallError:
         return False, "native role receipt is missing, obsolete, or invalid"
     if receipt is None:
+        try:
+            selectable = _select_role_assignments(
+                paths,
+                target,
+                excluded_names=NATIVE_ROLE_FILES[target],
+            )
+        except ToolError:
+            return False, "native role selection could not be verified"
+        if not selectable:
+            return True, "no qualifying native role configuration; adapter-only installation verified"
         return False, "native role receipt is missing"
     files = receipt.get("files")
     if not isinstance(files, dict) or not files or not set(files).issubset(NATIVE_ROLE_FILES[target]):
