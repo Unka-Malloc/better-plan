@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 AGENTS = (
     "codex",
     "claude",
@@ -61,6 +61,8 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/domain/transitions.py",
     "scripts/better_plan/domain/roles.py",
     "scripts/better_plan/domain/model_catalog.json",
+    "scripts/better_plan/domain/webdev_model_catalog.json",
+    "scripts/better_plan/domain/webdev_routing.py",
     "scripts/better_plan/domain/coding_agent_catalog.json",
     "scripts/better_plan/domain/model_routing.py",
     "scripts/better_plan/infrastructure/__init__.py",
