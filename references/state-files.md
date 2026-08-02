@@ -154,8 +154,9 @@ Required fields:
   fixes the module and file decomposition, layer boundaries, dependency direction, interface
   contracts, and deliberate design-pattern choices in `Architecture.md` before implementation
   Nodes start. `group_design`, `implementation`, and `final_validation` are automated delivery
-  roles. Designer handles `group_design` once for the group; Worker and Verifier handle each
-  implementation; Reviewer handles final validation once for the group.
+  roles. Designer handles `group_design` once for the group; Worker handles each implementation,
+  with Verifier added only for Critical implementations; Reviewer handles final validation once
+  for the group.
   `milestone_gate` is a non-delivery aggregate evidence gate: it uses the manual `start`, `check`,
   and `complete` path and never enters implementation dispatch.
 - `prerequisites`: the sole execution-dependency authority: a list of globally unique Node IDs in
@@ -173,12 +174,14 @@ Required fields:
   `group_design`, `milestone_gate`, and `final_validation`; group final validation must be
   `critical`. Use `critical` for new-product or feature-foundation work unless Step 1 verified the
   corresponding artifact is already complete.
-- `verification_profile`: `code`, `visual`, or `hybrid`. This is independent of difficulty. `code`
-  routes implementation and final validation to the rigorous code Verifier/Reviewer. `visual` and
-  `hybrid` require Visual Verifier/Reviewer roles with vision, real-browser control, and rendered
-  evidence for declared viewports and interaction states; `hybrid` also requires complete code and
-  data-flow verification. The final-validation profile must equal the sole non-skipped
-  implementation profile, or `hybrid` when implementation profiles are mixed or already hybrid.
+- `verification_profile`: `code`, `visual`, or `hybrid`. This is independent of difficulty and
+  selects the Verifier only when an implementation is Critical. Non-Critical implementations never
+  dispatch a Verifier. For Critical implementations, `code` routes to the rigorous code Verifier,
+  while `visual` and `hybrid` require the Visual Verifier with vision, real-browser control, and
+  rendered evidence. The profile always selects the code or Visual Reviewer at final validation;
+  `hybrid` also requires complete code and data-flow verification. The final-validation profile
+  must equal the sole non-skipped implementation profile, or `hybrid` when implementation profiles
+  are mixed or already hybrid.
 - `goal`: brief task goal tied to product delivery, not only file edits.
 - `description`: structured task design brief. Do not target a fixed sentence count and do not write free-form filler. Populate the following sections in order inside the string, using clear labels or compact labeled clauses when that keeps JSON readable:
   - `Scope`: name the concrete artifacts touched or inspected, such as code files, tests, scripts, configs, generated artifacts, documentation pages, or plan files. Also name the conceptual surface, such as modules, packages, components, commands, APIs, protocols, data models, feature areas, user-visible behaviors, or project capabilities. Include the Node's dependency-tree position when useful: its parent foundation or contract, its current level responsibility, and the child branches or consumers it unlocks. When exact files are not yet known, provide search targets such as symbols, routes, CLI flags, doc headings, config keys, schemas, or error strings. Begin every implementation Node with exactly one independently acceptable closure declaration: `Closure: capability - <target>`, `Closure: module - <target>`, or `Closure: scenario - <target>`. Name only the modules, directories, and files necessary for that closure, aligned with the `Architecture.md` module map, plus the interfaces consumed from other modules. Split distinct closures into separate Nodes so Nodes without a prerequisite path stay on disjoint files and can run in parallel.
@@ -235,8 +238,9 @@ Optional fields:
 Acceptance criterion object:
 
 - `checked`: boolean. Group-design criteria are checked when the bound Designer completes;
-  implementation criteria are checked only after the bound Verifier returns and focused regression
-  passes; final-validation criteria are checked after the one Reviewer returns and post-review full
+  implementation criteria are checked after focused regression passes: directly after the Worker
+  for Routine, Standard, and Complex Nodes, or after the bound Verifier returns for Critical Nodes.
+  Final-validation criteria are checked after the one Reviewer returns and post-review full
   regression passes. A foundation Node may record its own evidence before manual completion.
 - `text`: non-empty description of a concrete check that proves the task is complete. Reference requirement labels, evidence artifacts, tests, verifiers, or generated-artifact checks. Every implementation Node includes the smallest focused check for its declared closure. Add conditional criteria for redacted backend or sensitive evidence, open-source comparison and performance decisions for algorithm or data-structure work, and a purpose-built one-time removal check for refactors. Only final-validation Nodes may require the complete regression suite.
 - `evidence` (optional): minimal redacted, single-line summary of what verification proved this criterion, recorded by `check --evidence`. The validator rejects concrete paths, network endpoints, server identifiers, secret-shaped assignments, credentials, and backend runtime output.
@@ -299,10 +303,11 @@ Operational transition gates:
   obtain the real rendered state; source inspection, DOM text, snapshots, and successful builds are
   not visual acceptance.
 - While `worker_running`, the fresh code-only worker implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
-- The Worker's correlated final callback enters `awaiting_verifier` without running the frozen
-  regression. The write-capable Verifier repairs the Node, and its final callback runs focused
-  regression once. A passing run checks the mapped criteria and completes the Node; failure enters
-  `correction_required`. Command output is discarded.
+- A Routine, Standard, or Complex Worker's correlated final callback runs focused regression once
+  and never enters `awaiting_verifier`. A Critical Worker's callback enters `awaiting_verifier`
+  without running regression; the write-capable Verifier repairs the Node, and its final callback
+  runs focused regression once. A passing run checks the mapped criteria and completes the Node;
+  failure enters `correction_required`. Command output is discarded.
 - Node completion is terminal for that user-visible capability lifecycle. It does not select or enroll a different Node; adjacent findings and possible follow-up capabilities return to the native main.
 - A `final_validation` Node becomes eligible only after every non-skipped implementation Node is
   completed. It routes directly to the group's one Reviewer. The Reviewer repairs all autonomous
@@ -326,8 +331,9 @@ Checkpoint snapshot and workflow invariants:
 - Node prerequisites resolve across every Plan referenced by the workspace Manifest. `next`,
   `status_reason`, Plan hierarchy, descriptions, and architecture prose do not affect eligibility.
 - A Node is `completed` only when every acceptance criterion is checked.
-- An implementation Node is one independently acceptable closure and completes only after Worker,
-  Verifier repair, and one passing focused regression.
+- An implementation Node is one independently acceptable closure and completes after its Worker
+  plus one passing focused regression; a Critical implementation additionally requires Verifier
+  repair before that regression.
 - A final-validation Node runs only after all non-skipped implementation Nodes complete; its one
   whole-group Reviewer and one normal post-review full regression produce the group's acceptance
   result. Additional runs are failure-driven repair retries only.
@@ -359,7 +365,7 @@ Plan consistency rules:
 | `next-action <node-id> [root]` | return an automated delivery Node's bounded phase, sole next action, transcript-free `work_items`, role and knowledge references, capability scope with known untouched descendants omitted, native agent type, and necessary paths without choosing a model |
 | `dispatch <node-id> [root] --role designer\|worker\|verifier\|reviewer [--native-host codex]` | create or reuse one correlated native-agent dispatch with the same structured delegation facts; Codex freezes the installed role selector first and falls back to the packaged recommendation |
 | `bind-agent <node-id> [root] --dispatch-id <id> --agent-id <id>` | bind the validated opaque native host identity returned by the real spawn call |
-| `delegation-failed <node-id> [root] --dispatch-id <id> (--spawn-refused\|--agent-id <id>\|--unavailable)` | record one explicitly qualified delegation failure and enter native-main fallback at the retry ceiling |
+| `delegation-failed <node-id> [root] --dispatch-id <id> (--spawn-refused\|--terminal-failed-agent-id <id>\|--unavailable)` | record one explicitly qualified delegation failure and enter native-main fallback at the retry ceiling; interruption, cancellation, silence, elapsed time, missing artifacts, and context compaction are not failure evidence |
 | `main-complete <node-id> [root] --dispatch-id <id> --role designer\|worker\|verifier\|reviewer` | record completion of the exact role by the native main after bounded delegation failure |
 | `agent-complete <node-id> [root] --agent-id <id> --final` | consume one exact final host callback; unbound, ambiguous, mismatched, and replayed callbacks are no-ops |
 | `advance <node-id> [root] --event <event> [--dispatch-id <id>] [--repair-node <id>]` | consume `reviewer-finished`, `repair-registered`, or `repair-completed`; guarded events run the post-review full regression, route repair, and auto complete |

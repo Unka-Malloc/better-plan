@@ -261,9 +261,7 @@ class GroupLifecycleTests(unittest.TestCase):
     def complete_opening_and_implementation(self) -> None:
         self.complete_role(DESIGN_ID, "designer")
         worker = self.complete_role(WORK_ID, "worker")
-        self.assertEqual(worker["action"], "dispatch_verifier")
-        verifier = self.complete_role(WORK_ID, "verifier")
-        self.assertEqual(verifier["action"], "complete_node")
+        self.assertEqual(worker["action"], "complete_node")
 
     def test_transition_table_matches_grouped_role_sequence(self) -> None:
         self.assertEqual(
@@ -273,6 +271,10 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(
             transitions.transition("worker_running", "agent-complete", "worker"),
             "awaiting_verifier",
+        )
+        self.assertEqual(
+            transitions.transition("worker_running", "regression-passed", "worker"),
+            "accepted",
         )
         self.assertEqual(
             transitions.transition("verifier_running", "regression-passed", "verifier"),
@@ -380,7 +382,7 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(completed["action"], "complete_node")
         self.assertEqual(self.state(DESIGN_ID)["status"], "completed")
 
-    def test_silence_cannot_consume_a_delegation_attempt(self) -> None:
+    def test_only_explicit_terminal_failure_can_consume_a_bound_delegation_attempt(self) -> None:
         dispatched = json.loads(
             self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
         )
@@ -407,6 +409,20 @@ class GroupLifecycleTests(unittest.TestCase):
             "--agent-id",
             "host.designer.failed",
         )
+        rejected = self.cli(
+            "delegation-failed",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            ok=False,
+        )
+        self.assertIn("interruption, cancellation", rejected.stderr)
+        self.assertIn("missing artifacts", rejected.stderr)
+        self.assertNotIn(
+            "delegation_failures",
+            self.state(DESIGN_ID)["acceptance"]["dispatch"],
+        )
         failed = json.loads(
             self.cli(
                 "delegation-failed",
@@ -414,7 +430,7 @@ class GroupLifecycleTests(unittest.TestCase):
                 str(self.root),
                 "--dispatch-id",
                 dispatch_id,
-                "--agent-id",
+                "--terminal-failed-agent-id",
                 "host.designer.failed",
             ).stdout
         )
@@ -487,6 +503,9 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertIn("cannot replace a live bound child", refused.stderr)
 
     def test_native_main_fallback_preserves_worker_verifier_and_reviewer_lifecycle(self) -> None:
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "critical"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
 
         for node_id, role, expected_action in (
@@ -573,10 +592,13 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertNotIn("repository/sibling", serialized)
 
     def test_worker_then_repairing_verifier_closes_one_node(self) -> None:
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "critical"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
         payload = self.next_action(WORK_ID)
         self.assertEqual(payload["action"], "dispatch_worker")
-        self.assertEqual(payload["agent_type"], "worker-standard")
+        self.assertEqual(payload["agent_type"], "worker-critical")
         worker = self.complete_role(WORK_ID, "worker")
         self.assertEqual(worker["action"], "dispatch_verifier")
         worker_state = self.state(WORK_ID)
@@ -587,6 +609,29 @@ class GroupLifecycleTests(unittest.TestCase):
         state = self.state(WORK_ID)
         self.assertEqual(state["status"], "completed")
         self.assertTrue(state["acceptance_criteria"][0]["checked"])
+
+    def test_noncritical_worker_runs_focused_regression_without_verifier(self) -> None:
+        self.complete_role(DESIGN_ID, "designer")
+        worker = self.complete_role(WORK_ID, "worker")
+        self.assertEqual(worker["action"], "complete_node")
+        state = self.state(WORK_ID)
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(state["acceptance"]["phase"], "accepted")
+        self.assertTrue(state["acceptance_criteria"][0]["checked"])
+
+    def test_validation_rejects_noncritical_verifier_phase(self) -> None:
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "critical"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
+        self.complete_role(DESIGN_ID, "designer")
+        worker = self.complete_role(WORK_ID, "worker")
+        self.assertEqual(worker["action"], "dispatch_verifier")
+
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "standard"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
+        rejected = self.cli("validate", str(self.root), "--no-git", ok=False)
+        self.assertIn("only critical implementation nodes may enter Verifier phases", rejected.stderr)
 
     def test_codex_dispatch_freezes_installed_critical_worker_selector(self) -> None:
         self.complete_role(DESIGN_ID, "designer")
@@ -676,7 +721,7 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(self.state(WORK_ID), before)
         self.assertEqual(
             self.complete(WORK_ID, dispatch_id, agent_id)["action"],
-            "dispatch_verifier",
+            "complete_node",
         )
         self.assertEqual(self.complete(WORK_ID, dispatch_id, agent_id), {})
 
@@ -687,9 +732,10 @@ class GroupLifecycleTests(unittest.TestCase):
             "implementation",
             "implementation_two",
             [DESIGN_ID],
-            difficulty="complex",
+            difficulty="critical",
         )
         nodes.insert(-1, second_worker)
+        nodes[1]["difficulty"] = "critical"
         nodes[-1]["prerequisites"] = [WORK_ID, WORK_TWO_ID]
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
 
@@ -887,8 +933,8 @@ class GroupLifecycleTests(unittest.TestCase):
             "--repair-node",
             REPAIR_ID,
         )
-        self.complete_role(REPAIR_ID, "worker")
-        self.complete_role(REPAIR_ID, "verifier")
+        repair_worker = self.complete_role(REPAIR_ID, "worker")
+        self.assertEqual(repair_worker["action"], "complete_node")
         final_file.write_text("fixed", encoding="utf-8")
         closed = json.loads(
             self.cli(

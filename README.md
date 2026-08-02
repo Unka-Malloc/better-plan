@@ -7,14 +7,15 @@ four isolated native roles:
 ```text
 task group
   Designer once
-    code Node -> Worker -> Verifier -> focused regression once
-    visual/hybrid Node -> Worker -> Visual Verifier -> focused regression once
+    routine/standard/complex Node -> Worker -> focused regression once
+    critical code Node -> Worker -> Verifier -> focused regression once
+    critical visual/hybrid Node -> Worker -> Visual Verifier -> focused regression once
   Reviewer or Visual Reviewer once -> developer decisions -> full regression once
 ```
 
 Designer and Reviewer close the two ends of a task group. Designer predicts cross-node problems and
-plans the progression once. Workers implement individual Nodes. Verifiers frequently inspect and
-repair those Nodes. Reviewer performs one full-chain review, repairs all autonomous findings, and
+plans the progression once. Workers implement individual Nodes. Verifiers independently inspect and
+repair only Critical Nodes. Reviewer performs one full-chain review, repairs all autonomous findings, and
 returns choices that genuinely need the user.
 
 ## Repository self-maintenance
@@ -71,8 +72,8 @@ paths and stable interfaces and never gain an artificial prerequisite merely to 
 | --- | --- | --- | --- |
 | Designer | once at group opening | predicts risks and writes/refines group design and executable acceptance across multiple Nodes | strongest locally callable model-only Intelligence Index |
 | Worker | once or more per implementation Node | implements frozen design and resolves ordinary build/integration defects | cheapest measured LLM + Agent combination above the Node difficulty floor |
-| Verifier | after each Worker | inspects and directly repairs one Node, then its one focused regression runs | next distinct locally callable Intelligence tier when possible |
-| Visual Verifier | after a visual or hybrid Worker | exercises the real UI with browser and vision, repairs code and presentation defects, and returns rendered evidence | same Verifier intelligence tier, in a role that requires vision and browser capability |
+| Verifier | after a Critical code Worker | inspects and directly repairs the Critical Node, then its one focused regression runs | next distinct locally callable Intelligence tier when possible |
+| Visual Verifier | after a Critical visual or hybrid Worker | exercises the real UI with browser and vision, repairs code and presentation defects, and returns rendered evidence | same Verifier intelligence tier, in a role that requires vision and browser capability |
 | Reviewer | once after all implementation Nodes | reviews the bound capability end to end plus actually impacted shared paths, repairs autonomous issues, and returns developer choices; known untouched branches stay outside scope | strongest locally callable model-only Intelligence Index |
 | Visual Reviewer | once when final validation is visual or hybrid | performs the one full-chain code and rendered-UI review and repairs autonomous findings | same Reviewer intelligence tier, in a role that requires vision and browser capability |
 
@@ -282,16 +283,18 @@ python3 scripts/manifest_tool.py bind-agent <node-id> <workspace> \
   --dispatch-id <better-plan-dispatch-id> --agent-id <native-child-id>
 ```
 
-A short wait or temporary lack of output is not by itself a failure. Check the child's latest
-progress before deciding whether to keep waiting or intervene; concrete ongoing progress normally
-means the role is still working. When the host conclusively refuses a spawn or terminates the exact
-child unsuccessfully, record the failure:
+A short wait, temporary lack of output, elapsed wall-clock time, missing artifacts, or context
+compaction is not a failure. Concrete ongoing progress means the role is still working. Never
+interrupt or cancel a bound child to accelerate delivery or manufacture recovery evidence; a
+main-initiated `interrupted` or `cancelled` status cannot consume an attempt. Keep waiting unless a
+new user request supersedes the work. When the host conclusively refuses a spawn or independently
+reports the exact child as terminally failed, record the failure:
 
 ```sh
 python3 scripts/manifest_tool.py delegation-failed <node-id> <workspace> \
   --dispatch-id <better-plan-dispatch-id> --spawn-refused
 python3 scripts/manifest_tool.py delegation-failed <node-id> <workspace> \
-  --dispatch-id <better-plan-dispatch-id> --agent-id <failed-child-id>
+  --dispatch-id <better-plan-dispatch-id> --terminal-failed-agent-id <failed-child-id>
 ```
 
 Use `--unavailable` instead only when the host or provider conclusively reports that delegation is
@@ -327,10 +330,12 @@ correlation uses the bound child ID rather than a singleton.
 
 ## Implementation and group closure
 
-Worker completion routes directly to the Verifier selected by `verification_profile`. Both code and
-visual Verifiers repair rather than merely report; visual/hybrid work must additionally exercise
-the real UI with browser and vision. Completion runs the declared focused regression once. A passing run completes the
-implementation Node; failure returns `main_correction_decision`.
+Routine, Standard, and Complex Worker completion runs the declared focused regression directly.
+Critical Worker completion first routes to the Verifier selected by `verification_profile`; code
+and visual Verifiers repair rather than merely report, and a Critical visual/hybrid Node must
+exercise the real UI with browser and vision. The focused regression runs exactly once at the
+selected boundary. A passing run completes the implementation Node; failure returns
+`main_correction_decision`.
 
 After all implementation Nodes complete, dispatch the code or visual Reviewer selected by final
 validation directly. That Reviewer runs once, repairs

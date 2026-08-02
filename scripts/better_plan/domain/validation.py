@@ -230,6 +230,8 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     }
     if role in valid_phases and phase not in valid_phases[str(role)]:
         issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for {role!r}"))
+    if role == "implementation" and phase in {"awaiting_verifier", "verifier_running"} and node.get("difficulty") != "critical":
+        issues.append(Issue(path, f"{prefix}.acceptance.phase: only critical implementation nodes may enter Verifier phases"))
 
     pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "repair_plan_required", "awaiting_repair"}
     if phase == "accepted" and status != "completed":
