@@ -297,18 +297,25 @@ must read the exact installed `agents/<agent_type>.toml` first and freeze its pu
 effort, and explicitly pinned provider into the dispatch payload. If that file is absent, unreadable,
 unsafe, or lacks a model, use the matching project recommendation from the packaged Codex matrix.
 This is deterministic configuration lookup, not benchmark reselection. Spawn the returned
-`agent_type` with the payload's explicit `model` and `reasoning_effort`; never substitute a cached,
-remembered, or previously advertised selector. If neither installed nor recommended configuration
-exists, do not spawn: enter the native-main fallback for that exact role.
+`agent_type` with the payload's explicit `model` and `reasoning_effort`. Use the returned structured
+facts and role references to author the fresh child's task brief with full native-main judgment:
+explain the concrete outcome, relevant context, bounded scope, expected artifacts or evidence, and
+important constraints in the clearest form for that task. The main may prioritize, summarize, and
+add source-grounded observations; never reduce the task to selector metadata or opaque IDs, dump a
+payload mechanically, or copy parent conversation history. If neither installed nor recommended
+configuration exists, do not spawn: enter the native-main fallback for that exact role.
 
 ### Bounded delegation recovery
 
 Apply this rule to Designer, every Worker, Verifier, Visual Verifier, Reviewer, and Visual Reviewer;
 do not repeat it in delegated prompts or routine progress updates. A short wait timeout, a quiet
-child, or a wait call returning no new output is not a delegation failure. Once a real child ID is
-returned, keep waiting through bounded host waits and never redispatch merely because one wait was
-too short. Record `delegation-failed` only when spawn is refused before an ID or the host
-unambiguously reports that the exact bound child has terminated unsuccessfully.
+child, or a wait call returning no new output is not by itself a delegation failure. Observe the
+child's latest progress before deciding whether to keep waiting or intervene; concrete ongoing
+progress normally means the role is still working. Record `delegation-failed` only when spawn is
+refused before an ID or the host
+unambiguously reports that the exact bound child has terminated unsuccessfully. Use
+`--spawn-refused` for the former and the exact bound `--agent-id` for the latter; a bare failure
+record is invalid.
 
 Allow at most three delegation attempts for one outstanding dispatch: the pinned role once, the
 same role once more, then one locally callable equivalent model that preserves the required
@@ -344,9 +351,10 @@ install and update continue to reject unowned same-name collisions.
 For every leaf dispatch:
 
 1. call the native child-agent facility with `fork_turns: "none"`;
-2. pass only the selected Node—or the full group for Designer and Reviewer—the one matching role
-   reference, the bounded `capability_scope`, every action-specific local knowledge reference, and
-   necessary repository-relative files; `capability_scope` omits known untouched descendants;
+2. use the returned selected `work_items`—the full group for Designer and Reviewer—the matching role
+   reference, bounded `capability_scope`, action-specific knowledge references, and necessary paths
+   as the factual floor for a task-specific brief authored by the native main; `capability_scope`
+   omits known untouched descendants;
 3. bind the real opaque child-agent ID returned by the host with `bind-agent`; and
 4. wait for the host's unambiguous final child completion notification.
 
@@ -415,7 +423,7 @@ prompt, poll work, or select another Node. The native host owns child lifetime a
 - `scripts/manifest_tool.py next-action <node-id> [workspace] [--native-host codex]`
 - `scripts/manifest_tool.py dispatch <node-id> [workspace] --role designer|worker|verifier|reviewer [--native-host codex]`
 - `scripts/manifest_tool.py bind-agent <node-id> [workspace] --dispatch-id ... --agent-id ...`
-- `scripts/manifest_tool.py delegation-failed <node-id> [workspace] --dispatch-id ... [--agent-id ...] [--unavailable]`
+- `scripts/manifest_tool.py delegation-failed <node-id> [workspace] --dispatch-id ... (--spawn-refused|--agent-id ...|--unavailable)`
 - `scripts/manifest_tool.py main-complete <node-id> [workspace] --dispatch-id ... --role designer|worker|verifier|reviewer`
 - `scripts/manifest_tool.py agent-complete <node-id> [workspace] --agent-id ... --final`
 - `scripts/manifest_tool.py advance <node-id> [workspace] --event ...`

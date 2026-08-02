@@ -298,7 +298,31 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(payload["action"], "dispatch_designer")
         self.assertEqual(payload["fork_turns"], "none")
         self.assertEqual(payload["group_node_ids"], [DESIGN_ID, WORK_ID, FINAL_ID])
-        result = self.complete_role(DESIGN_ID, "designer")
+        dispatched = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        self.assertEqual(dispatched["action"], "dispatch_designer")
+        self.assertEqual(
+            [item["id"] for item in dispatched["work_items"]],
+            [DESIGN_ID, WORK_ID, FINAL_ID],
+        )
+        self.assertEqual(dispatched["required_outputs"], ["design_pattern_assessment"])
+        repeated = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        self.assertEqual(repeated["dispatch_id"], dispatched["dispatch_id"])
+        self.assertEqual(repeated["work_items"], dispatched["work_items"])
+        agent_id = "host.designer.group"
+        self.cli(
+            "bind-agent",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            str(dispatched["dispatch_id"]),
+            "--agent-id",
+            agent_id,
+        )
+        result = self.complete(DESIGN_ID, str(dispatched["dispatch_id"]), agent_id)
         self.assertEqual(result["action"], "complete_node")
         state = self.state(DESIGN_ID)
         self.assertEqual(state["status"], "completed")
@@ -330,6 +354,7 @@ class GroupLifecycleTests(unittest.TestCase):
                     str(self.root),
                     "--dispatch-id",
                     dispatch_id,
+                    "--spawn-refused",
                 ).stdout
             )
             self.assertEqual(failed["delegation_failures"], expected)
@@ -354,6 +379,47 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(completed["action"], "complete_node")
         self.assertEqual(self.state(DESIGN_ID)["status"], "completed")
+
+    def test_silence_cannot_consume_a_delegation_attempt(self) -> None:
+        dispatched = json.loads(
+            self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer").stdout
+        )
+        dispatch_id = str(dispatched["dispatch_id"])
+
+        rejected = self.cli(
+            "delegation-failed",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            ok=False,
+        )
+        self.assertIn("silence and bounded wait expiry are not failures", rejected.stderr)
+        dispatch = self.state(DESIGN_ID)["acceptance"]["dispatch"]
+        self.assertNotIn("delegation_failures", dispatch)
+
+        self.cli(
+            "bind-agent",
+            DESIGN_ID,
+            str(self.root),
+            "--dispatch-id",
+            dispatch_id,
+            "--agent-id",
+            "host.designer.failed",
+        )
+        failed = json.loads(
+            self.cli(
+                "delegation-failed",
+                DESIGN_ID,
+                str(self.root),
+                "--dispatch-id",
+                dispatch_id,
+                "--agent-id",
+                "host.designer.failed",
+            ).stdout
+        )
+        self.assertEqual(failed["delegation_failures"], 1)
+        self.assertEqual(failed["action"], "retry_delegation")
 
     def test_unavailable_delegation_skips_retries_and_enters_main_fallback(self) -> None:
         dispatched = json.loads(
@@ -572,6 +638,7 @@ class GroupLifecycleTests(unittest.TestCase):
                 str(self.root),
                 "--dispatch-id",
                 str(dispatched["dispatch_id"]),
+                "--spawn-refused",
             ).stdout
         )
         self.assertEqual((failed["model"], failed["reasoning_effort"]), ("gpt-5.6-sol", "medium"))
