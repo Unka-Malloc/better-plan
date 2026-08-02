@@ -34,10 +34,17 @@ For other repositories:
 On the first Better Plan activation in a conversation, inspect the current host's installed Better
 Plan role files and receipt read-only, and compare them with the role matrix recommended by this
 skill package. Before discovering or mutating Plan state or dispatching any role agent, show the
-user one Markdown table containing every role, its purpose, installed model, reasoning effort,
-installed and recommended model provider when explicitly pinned, recommended model and effort, and
-whether they differ. Mark missing roles and unpinned providers explicitly; never infer a provider
-or inspect credentials.
+user one Markdown table containing every role, its purpose, installed selector, recommended
+selector, and whether they differ. Render each selector compactly as `model / effort`; when either
+side explicitly pins a model provider, append `@ provider` to the affected selector and
+`@ unpinned` to its unpinned counterpart. When no role pins a provider on either side, omit provider
+cells entirely and state once below the table that every role uses the host's default provider.
+Mark missing roles explicitly; never infer a provider or inspect credentials. Localize the headings
+and values to the user's language, using this five-column structure as the reporting reference:
+
+| 角色 | 用途 | 已安装选择器 | 推荐选择器 | 差异 |
+|---|---|---|---|---|
+| Designer | 整组预测式设计 | `gpt-5.6-sol / max` | `gpt-5.6-sol / max` | 无 |
 
 A complete valid installed matrix is authoritative. Use it automatically, do not ask the user to
 choose between the installed and recommended matrices, and do not pause the workflow for such a
@@ -55,11 +62,12 @@ them. Do not repeat this gate in the same conversation and do not inject it from
 Whenever the user requests any change to a native role configuration, repeat the complete
 installed-versus-recommended role table before editing anything, even if the first-use table or an
 earlier role-change table was already shown in the same conversation. Include every role, not only
-the requested roles, with purpose, installed provider/model/reasoning effort, packaged recommended
-provider/model/reasoning effort, and an explicit difference status. Label client-specific overrides
-and the package recommendation as separate configuration layers; never describe a local override as
-a recommendation change. The table remains informational: it never asks the user to choose the
-installed matrix or the packaged matrix as a whole.
+the requested roles, using the same compact five-column selector format defined above, including
+provider suffixes only when either side explicitly pins one, and show an explicit difference
+status. Label client-specific overrides and the package recommendation as separate configuration
+layers; never describe a local override as a recommendation change. The table remains
+informational: it never asks the user to choose the installed matrix or the packaged matrix as a
+whole.
 
 After the table, restate the exact requested mutations, ask the user to confirm them, then stop and
 wait. Until that fresh confirmation arrives, do not edit role files, provider configuration,
