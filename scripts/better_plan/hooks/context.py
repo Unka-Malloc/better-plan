@@ -31,7 +31,8 @@ def agent_completion_context(node_id: str, phase: str, action: str) -> str:
     elif action == "main_correction_decision":
         duty = (
             "Focused regression failed. The native main must classify the evidence: keep an "
-            "ordinary implementation defect inside the same Node. Escalate to group redesign "
+            "ordinary implementation defect inside the same Node and prefer the same compatible "
+            "idle Worker for correction. Escalate to group redesign "
             "only for a real cross-node design or product-semantics error. Do not redispatch "
             "automatically."
         )
@@ -47,5 +48,6 @@ def agent_completion_context(node_id: str, phase: str, action: str) -> str:
         duty = "Read next-action and handle the current state in the native main."
     return (
         f"Better Plan agent-complete event: Node {node_id}, phase {phase}, action {action}. "
-        f"{duty} Do not continue the stopped child agent."
+        f"{duty} A completed turn is not a failed child lifetime: a successfully completed Worker "
+        "may remain idle for a later compatible continuation after its Node reaches acceptance."
     )[:MAX_CONTEXT_LENGTH]

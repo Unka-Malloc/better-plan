@@ -53,6 +53,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        cls.host = (ROOT / "references" / "host-configuration.md").read_text(encoding="utf-8")
         cls.main = (ROOT / "references" / "orchestration-main.md").read_text(encoding="utf-8")
         cls.rules = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         cls.hook_context = (ROOT / "scripts" / "better_plan" / "hooks" / "context.py").read_text(encoding="utf-8")
@@ -70,26 +71,26 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("do not create or maintain a repository-local better plan workspace", self.rules.lower())
 
     def test_first_use_reports_roles_and_keeps_valid_local_matrix_authoritative(self) -> None:
-        skill = self.skill.lower()
-        normalized = " ".join(skill.split())
-        self.assertIn("first better plan activation", skill)
+        host = self.host.lower()
+        normalized = " ".join(host.split())
+        self.assertIn("first better plan activation", host)
         for host in ("codex", "claude code", "opencode", "cursor"):
-            self.assertIn(host, skill)
+            self.assertIn(host, self.host.lower())
         self.assertIn("first-use role visibility gate", normalized)
         self.assertIn("inspect the current host's installed better plan role files and receipt read-only", normalized)
-        self.assertIn("show the user one markdown table containing every role", normalized)
-        self.assertIn("render each selector compactly as `model / effort`", normalized)
-        self.assertIn("using this five-column structure as the reporting reference", normalized)
-        self.assertIn("| 角色 | 用途 | 已安装选择器 | 推荐选择器 | 差异 |", skill)
-        self.assertIn("when no role pins a provider on either side, omit provider cells entirely", normalized)
-        self.assertNotIn("已安装 provider", skill)
-        self.assertNotIn("推荐 provider", skill)
+        self.assertIn("compare every installed role with the package recommendation", normalized)
+        self.assertIn("one localized markdown table", normalized)
+        self.assertIn("render selectors as `model / effort`", normalized)
+        self.assertIn("| 角色 | 用途 | 已安装选择器 | 推荐选择器 | 差异 |", self.host)
+        self.assertIn("otherwise omit provider cells", normalized)
+        self.assertNotIn("已安装 provider", host)
+        self.assertNotIn("推荐 provider", host)
         self.assertIn("never infer a provider or inspect credentials", normalized)
         self.assertIn("a complete valid installed matrix is authoritative", normalized)
-        self.assertIn("do not ask the user to choose between the installed and recommended matrices", normalized)
-        self.assertIn("do not pause the workflow for such a choice", normalized)
-        self.assertIn("the package recommendation is never allowed to override an installed role", normalized)
-        self.assertIn("do not solicit installation or configuration changes unless the user requested them", normalized)
+        self.assertIn("do not ask the user to choose between installed and recommended matrices", normalized)
+        self.assertIn("or pause for that choice", normalized)
+        self.assertIn("never overrides or mutates an installed role", normalized)
+        self.assertIn("do not solicit configuration changes unless requested", normalized)
         self.assertIn(
             "before discovering or mutating plan state or dispatching any role agent",
             normalized,
@@ -106,28 +107,53 @@ class OrchestrationWorkflowTests(unittest.TestCase):
             self.assertIn("per-role fallback", payload)
 
     def test_host_integration_is_strictly_additive(self) -> None:
-        normalized = " ".join(self.skill.lower().split())
+        normalized = " ".join(self.host.lower().split())
         self.assertIn("additive host integration — iron rule", normalized)
         self.assertIn("every pre-existing host or user file as immutable", normalized)
         self.assertIn("never converts a pre-existing file into a managed file", normalized)
-        self.assertIn("fail closed, leave the original untouched", normalized)
-        self.assertIn("general installation, update, provider, model, or routing requests never do", normalized)
+        self.assertIn("fail closed and leave the original untouched", normalized)
+        self.assertIn("general installation, update, provider, model, routing", normalized)
 
     def test_every_role_change_repeats_the_full_comparison_and_waits(self) -> None:
-        normalized = " ".join(self.skill.lower().split())
+        normalized = " ".join(self.host.lower().split())
         self.assertIn("role-change reconfirmation gate", normalized)
-        self.assertIn("whenever the user requests any change to a native role configuration", normalized)
-        self.assertIn("repeat the complete installed-versus-recommended role table", normalized)
-        self.assertIn("include every role, not only the requested roles", normalized)
-        self.assertIn("same compact five-column selector format defined above", normalized)
-        self.assertIn("client-specific overrides and the package recommendation as separate", normalized)
+        self.assertIn("whenever the user requests any native role configuration change", normalized)
+        self.assertIn("repeat the complete installed-versus-recommended table", normalized)
+        self.assertIn("include every role", normalized)
+        self.assertIn("same five-column selector format", normalized)
+        self.assertIn("client-specific overrides separately from package recommendations", normalized)
         self.assertIn("never describe a local override as a recommendation change", normalized)
         self.assertIn("ask the user to confirm them, then stop and wait", normalized)
         self.assertIn("a prior confirmation never satisfies a later role-change request", normalized)
-        self.assertIn("this gate always repeats", normalized)
         self.assertIn("do not edit role files, provider configuration, receipts, templates", normalized)
 
-    def test_worker_payload_uses_difficulty_agent_and_fresh_context_without_model(self) -> None:
+    def test_skill_uses_relevance_based_progressive_disclosure(self) -> None:
+        normalized = " ".join(self.skill.lower().split())
+        self.assertIn("progressive-disclosure router", normalized)
+        self.assertIn("information-relevance rule", normalized)
+        self.assertIn("never a token, word, character, or line quota", normalized)
+        self.assertIn("tell each role every material fact", normalized)
+        self.assertIn("omit only information that is irrelevant or redundant", normalized)
+        self.assertIn("never hide useful context merely to shorten a prompt", normalized)
+        self.assertIn("may inspect any accessible skill, reference, repository file", normalized)
+        self.assertIn("never block useful self-directed reading", normalized)
+        self.assertNotIn("additive host integration — iron rule", normalized)
+        self.assertNotIn("role-change reconfirmation gate", normalized)
+        for reference in (
+            "references/host-configuration.md",
+            "references/state-files.md",
+            "references/orchestration-main.md",
+            "references/designer.md",
+            "references/worker.md",
+            "references/verifier.md",
+            "references/visual-verifier.md",
+            "references/reviewer.md",
+            "references/visual-reviewer.md",
+            "references/design-patterns.md",
+        ):
+            self.assertIn(reference, self.skill)
+
+    def test_worker_payload_uses_difficulty_agent_and_continuation_key_without_model(self) -> None:
         payload = bounded_acceptance_payload(
             node(
                 "worker-node",
@@ -144,8 +170,35 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertNotIn("required_outputs", payload)
         self.assertNotIn("model", payload)
         self.assertNotIn("recommendation", payload)
+        self.assertRegex(payload["worker_continuation_key"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            payload["continuation_policy"],
+            "prefer_idle_compatible_worker_after_acceptance",
+        )
         self.assertEqual(payload["work_items"][0]["goal"], "Complete the bounded worker-node role contract.")
         self.assertNotIn("TRANSCRIPT_SENTINEL", str(payload))
+
+    def test_worker_continuation_key_is_stable_only_for_compatible_lanes(self) -> None:
+        scope = {"target_key": "repository/group"}
+        first = bounded_acceptance_payload(
+            node("one", "implementation", "awaiting_worker", difficulty="standard"),
+            capability_context=scope,
+        )
+        second = bounded_acceptance_payload(
+            node("two", "implementation", "awaiting_worker", difficulty="standard"),
+            capability_context=scope,
+        )
+        different_difficulty = bounded_acceptance_payload(
+            node("three", "implementation", "awaiting_worker", difficulty="complex"),
+            capability_context=scope,
+        )
+        different_capability = bounded_acceptance_payload(
+            node("four", "implementation", "awaiting_worker", difficulty="standard"),
+            capability_context={"target_key": "repository/other"},
+        )
+        self.assertEqual(first["worker_continuation_key"], second["worker_continuation_key"])
+        self.assertNotEqual(first["worker_continuation_key"], different_difficulty["worker_continuation_key"])
+        self.assertNotEqual(first["worker_continuation_key"], different_capability["worker_continuation_key"])
 
     def test_group_endcaps_receive_group_ids_and_union_of_needed_paths(self) -> None:
         group = [
@@ -229,11 +282,16 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("whole ordered group", normalized)
         self.assertIn("reviewer runs once", normalized)
         self.assertIn("directly repairs", normalized)
-        self.assertIn("only a `critical` node dispatches the verifier", normalized)
-        self.assertIn("non-critical nodes never dispatch a verifier", normalized)
+        self.assertIn("routine, standard, or complex node", normalized)
+        self.assertIn("never dispatches a verifier", normalized)
+        self.assertIn("a critical node dispatches the code or visual verifier", normalized)
         self.assertIn("must not override this mechanical gate", normalized)
         self.assertIn('fork_turns: "none"', normalized)
-        self.assertIn("spawn return is not completion", normalized)
+        self.assertIn("spawn or continuation return is not completion", normalized)
+        self.assertIn("worker_continuation_key", normalized)
+        self.assertIn("followup_task", normalized)
+        self.assertIn("a leaf may inspect `skill.md`", normalized)
+        self.assertIn("never prevent such self-directed reading", normalized)
 
     def test_docs_require_parallel_plans_and_concurrent_independent_workers(self) -> None:
         normalized = " ".join((self.skill + self.main + self.readme).lower().split())
@@ -241,13 +299,12 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("artificial prerequisite", normalized)
         self.assertIn("spawn calls concurrently", normalized)
         self.assertIn("execute concurrently", normalized)
-        self.assertIn("state mutations", normalized)
-        self.assertIn("serialized", normalized)
+        self.assertIn("serialize the short better plan `dispatch` mutations", normalized)
+        self.assertIn("serialize the short `bind-agent` mutations", normalized)
 
     def test_docs_bound_delegation_retries_and_fallback_to_native_main(self) -> None:
         normalized = " ".join((self.skill + self.main + self.readme).lower().split())
-        self.assertIn("bounded delegation recovery", normalized)
-        self.assertIn("do not repeat it in delegated prompts or routine progress updates", normalized)
+        self.assertIn("delegation and recovery kernel", normalized)
         self.assertIn("a short wait", normalized)
         self.assertIn("missing artifacts", normalized)
         self.assertIn("context compaction", normalized)
@@ -258,16 +315,15 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("at most three delegation attempts", normalized)
         self.assertIn("main-complete", normalized)
         self.assertIn("never bind a fabricated main-thread agent id", normalized)
-        self.assertIn("delegation failure alone never interrupts the task", normalized)
+        self.assertIn("delegation failure alone never blocks an authorized task", normalized)
         self.assertIn("configured-model unavailability", normalized)
-        self.assertIn("expected compliant outcome", normalized)
-        self.assertIn("received no task body is a payload-delivery failure", normalized)
-        self.assertIn("not evidence of quota exhaustion", normalized)
-        self.assertIn("full native-main judgment", normalized)
-        self.assertIn("task-specific brief authored by the native main", normalized)
+        self.assertIn("reports no task body indicates payload-delivery failure", normalized)
+        self.assertIn("not quota exhaustion", normalized)
+        self.assertIn("exercise native-main judgment", normalized)
+        self.assertIn("compact task brief", normalized)
         self.assertIn("do not merely forward json", normalized)
         self.assertIn("--spawn-refused", normalized)
-        self.assertIn("bare failure record", normalized)
+        self.assertIn("rejects an unqualified failure record", normalized)
         for role in ("designer", "worker", "verifier", "reviewer"):
             self.assertIn(role, normalized)
 
@@ -285,7 +341,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("coding_agent_catalog.json", normalized)
         self.assertIn("model_catalog.json", normalized)
         self.assertIn("local", normalized)
-        self.assertIn("pins", normalized)
+        self.assertIn("pinned", normalized)
         self.assertIn("normal updates", normalized)
         self.assertIn("missing agent combinations are ignored", normalized)
 

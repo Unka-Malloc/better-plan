@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from pathlib import Path
 import argparse
+import hashlib
 import json
 import os
 from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, GIT_SHA_PATTERN, MAX_DELEGATION_FAILURES, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
@@ -568,6 +569,21 @@ def bounded_acceptance_payload(
                 payload["reasoning_effort"] = native_role_selector.reasoning_effort
             if native_role_selector.model_provider is not None:
                 payload["model_provider"] = native_role_selector.model_provider
+        if dispatch_action == "dispatch_worker":
+            target_key = ""
+            if isinstance(capability_context, dict) and isinstance(capability_context.get("target_key"), str):
+                target_key = str(capability_context["target_key"])
+            continuation_facts = {
+                "agent_type": str(payload.get("agent_type", "")),
+                "model": str(payload.get("model", "")),
+                "reasoning_effort": str(payload.get("reasoning_effort", "")),
+                "model_provider": str(payload.get("model_provider", "")),
+                "capability_key": target_key,
+                "platform": str(node.get("platform", "")),
+            }
+            canonical = json.dumps(continuation_facts, sort_keys=True, separators=(",", ":"))
+            payload["worker_continuation_key"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            payload["continuation_policy"] = "prefer_idle_compatible_worker_after_acceptance"
         if dispatch_action in {"dispatch_verifier", "dispatch_reviewer"}:
             payload["required_capabilities"] = (
                 ["code_reasoning", "vision", "browser"]
