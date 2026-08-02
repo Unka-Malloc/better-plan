@@ -16,6 +16,8 @@ _TRANSITION_TABLE: Final[Mapping[TransitionKey, str]] = MappingProxyType(
         ("awaiting_worker", "worker-dispatched", "worker"): "worker_running",
         ("correction_required", "worker-dispatched", "worker"): "worker_running",
         ("worker_running", "agent-complete", "worker"): "awaiting_verifier",
+        ("worker_running", "regression-passed", "worker"): "accepted",
+        ("worker_running", "regression-failed", "worker"): "correction_required",
         ("awaiting_verifier", "verifier-dispatched", "verifier"): "verifier_running",
         ("verifier_running", "regression-passed", "verifier"): "accepted",
         ("verifier_running", "regression-failed", "verifier"): "correction_required",
