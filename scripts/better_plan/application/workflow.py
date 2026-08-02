@@ -15,6 +15,38 @@ from ..infrastructure.native_roles import NativeRoleSelector, resolve_codex_role
 from ..infrastructure.workspace import NodeLocation as _NodeLocation, capability_scope_for_plan, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_lock, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
 
 
+_CHILD_WORK_ITEM_FIELDS = (
+    "id",
+    "status",
+    "role",
+    "prerequisites",
+    "platform",
+    "difficulty",
+    "verification_profile",
+    "goal",
+    "description",
+    "requirements",
+    "acceptance_criteria",
+    "next",
+    "design",
+    "regression",
+    "code",
+    "title",
+    "tags",
+    "conditions",
+)
+
+
+def _child_work_item(node: dict[str, Any]) -> dict[str, Any]:
+    """Project validated Plan state into one transcript-free delegation fact set."""
+
+    return {
+        field: node[field]
+        for field in _CHILD_WORK_ITEM_FIELDS
+        if field in node
+    }
+
+
 def run_node_mutation(
     root: str,
     node_id: str,
@@ -562,6 +594,13 @@ def bounded_acceptance_payload(
                     group_paths.update(str(value) for value in regression["paths"])
             payload["group_node_ids"] = group_ids
             payload["repository_paths"] = sorted(group_paths)
+        use_group = dispatch_action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None
+        candidates = group_nodes if use_group else [node]
+        payload["work_items"] = [
+            _child_work_item(candidate)
+            for candidate in candidates
+            if isinstance(candidate, dict)
+        ]
     return payload
 
 
@@ -654,7 +693,13 @@ def dispatch_command(args: argparse.Namespace) -> int:
             binding = preparation_fingerprints(location)
             if dispatch.get("design_digest") != binding["design_digest"]:
                 raise ToolError("the outstanding Designer dispatch is stale")
-        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
+        print_acceptance_payload(
+            node,
+            action=f"dispatch_{expected_role}" if dispatch.get("host_agent_id") is None else None,
+            group_nodes=location.checkpoints_data,
+            location=location,
+            **_native_host_options(args),
+        )
         return 0
 
     if args.role == "designer":
@@ -744,7 +789,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
     write_location_and_sync_plan(location)
     print_acceptance_payload(
         node,
-        action="main_thread_fallback" if selector_missing else None,
+        action="main_thread_fallback" if selector_missing else f"dispatch_{args.role}",
         group_nodes=location.checkpoints_data,
         location=location,
         **_native_host_options(args),
@@ -817,6 +862,11 @@ def delegation_failed_command(args: argparse.Namespace) -> int:
         dispatch.pop("host_agent_id", None)
     elif failed_agent_id is not None:
         raise ToolError("--agent-id is valid only for a conclusively failed bound child")
+    elif not bool(getattr(args, "spawn_refused", False)) and not bool(args.unavailable):
+        raise ToolError(
+            "an unbound delegation failure requires --spawn-refused or --unavailable; "
+            "silence and bounded wait expiry are not failures"
+        )
 
     failures = int(dispatch.get("delegation_failures", 0))
     if failures >= MAX_DELEGATION_FAILURES:
