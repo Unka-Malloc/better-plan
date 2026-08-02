@@ -69,20 +69,22 @@ class OrchestrationWorkflowTests(unittest.TestCase):
             self.assertRegex(normalized, r"(?:ordinary|native).+workflow")
         self.assertIn("do not create or maintain a repository-local better plan workspace", self.rules.lower())
 
-    def test_first_use_mentions_native_templates_but_hooks_do_not(self) -> None:
+    def test_first_use_reports_roles_and_keeps_valid_local_matrix_authoritative(self) -> None:
         skill = self.skill.lower()
         normalized = " ".join(skill.split())
         self.assertIn("first better plan activation", skill)
         for host in ("codex", "claude code", "opencode", "cursor"):
             self.assertIn(host, skill)
-        self.assertIn("first-use role confirmation gate", normalized)
+        self.assertIn("first-use role visibility gate", normalized)
         self.assertIn("inspect the current host's installed better plan role files and receipt read-only", normalized)
         self.assertIn("show the user one markdown table containing every role", normalized)
         self.assertIn("installed and recommended model provider when explicitly pinned", normalized)
         self.assertIn("never infer a provider or inspect credentials", normalized)
-        self.assertIn("ask whether to keep the installed matrix or use the recommended matrix", normalized)
-        self.assertIn("then stop and wait for an explicit choice", normalized)
-        self.assertIn("does not authorize replacing existing files", normalized)
+        self.assertIn("a complete valid installed matrix is authoritative", normalized)
+        self.assertIn("do not ask the user to choose between the installed and recommended matrices", normalized)
+        self.assertIn("do not pause the workflow for such a choice", normalized)
+        self.assertIn("the package recommendation is never allowed to override an installed role", normalized)
+        self.assertIn("do not solicit installation or configuration changes unless the user requested them", normalized)
         self.assertIn(
             "before discovering or mutating plan state or dispatching any role agent",
             normalized,
@@ -90,6 +92,13 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         hook = self.hook_context.lower()
         self.assertNotIn("template", hook)
         self.assertNotIn("manually imported", hook)
+
+        main = " ".join(self.main.lower().split())
+        readme = " ".join(self.readme.lower().split())
+        for payload in (main, readme):
+            self.assertIn("complete valid installed", payload)
+            self.assertIn("never ask the user to choose", payload)
+            self.assertIn("per-role fallback", payload)
 
     def test_host_integration_is_strictly_additive(self) -> None:
         normalized = " ".join(self.skill.lower().split())
@@ -229,6 +238,10 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("main-complete", normalized)
         self.assertIn("never bind a fabricated main-thread agent id", normalized)
         self.assertIn("delegation failure alone never interrupts the task", normalized)
+        self.assertIn("configured-model unavailability", normalized)
+        self.assertIn("expected compliant outcome", normalized)
+        self.assertIn("received no task body is a payload-delivery failure", normalized)
+        self.assertIn("not evidence of quota exhaustion", normalized)
         for role in ("designer", "worker", "verifier", "reviewer"):
             self.assertIn(role, normalized)
 
