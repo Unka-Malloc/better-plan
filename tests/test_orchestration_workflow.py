@@ -192,6 +192,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
                 "visual-node",
                 "implementation",
                 "awaiting_verifier",
+                difficulty="critical",
                 verification_profile="visual",
             )
         )
@@ -216,7 +217,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
 
     def test_code_profile_keeps_rigorous_code_verifier(self) -> None:
         payload = bounded_acceptance_payload(
-            node("code-node", "implementation", "awaiting_verifier")
+            node("code-node", "implementation", "awaiting_verifier", difficulty="critical")
         )
         self.assertEqual(payload["agent_type"], "verifier")
         self.assertEqual(payload["role_reference"], "references/verifier.md")
@@ -228,6 +229,9 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("whole ordered group", normalized)
         self.assertIn("reviewer runs once", normalized)
         self.assertIn("directly repairs", normalized)
+        self.assertIn("only a `critical` node dispatches the verifier", normalized)
+        self.assertIn("non-critical nodes never dispatch a verifier", normalized)
+        self.assertIn("must not override this mechanical gate", normalized)
         self.assertIn('fork_turns: "none"', normalized)
         self.assertIn("spawn return is not completion", normalized)
 
@@ -245,8 +249,12 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("bounded delegation recovery", normalized)
         self.assertIn("do not repeat it in delegated prompts or routine progress updates", normalized)
         self.assertIn("a short wait", normalized)
-        self.assertIn("observe the child's latest progress", normalized)
-        self.assertIn("concrete ongoing progress normally means the role is still working", normalized)
+        self.assertIn("missing artifacts", normalized)
+        self.assertIn("context compaction", normalized)
+        self.assertIn("never interrupt", normalized)
+        self.assertIn("main-initiated `interrupted` or `cancelled`", normalized)
+        self.assertIn("terminal-failed-agent-id", normalized)
+        self.assertIn("concrete ongoing progress means the role is still working", normalized)
         self.assertIn("at most three delegation attempts", normalized)
         self.assertIn("main-complete", normalized)
         self.assertIn("never bind a fabricated main-thread agent id", normalized)

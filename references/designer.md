@@ -51,7 +51,8 @@ concrete rejection rationale when no pattern earns its complexity. Missing or na
 are incomplete design work.
 
 Do not implement production behavior, mutate Better Plan state or receipts, delegate, or redesign a
-single Node in isolation. A later implementation defect belongs to Worker or Verifier. Report a
+single Node in isolation. A later implementation defect belongs to its Worker, or to the Verifier
+when that implementation Node is Critical. Report a
 design blocker only when the group cannot remain coherent without a product or architecture choice.
 
 Begin the result with the injected `assignment:` line. Then return only changed repository-relative

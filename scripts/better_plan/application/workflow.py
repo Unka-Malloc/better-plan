@@ -210,6 +210,12 @@ def automated_node_role(node: dict[str, Any]) -> str:
     return str(role)
 
 
+def implementation_requires_verifier(node: dict[str, Any]) -> bool:
+    """Return the frozen, deterministic Verifier gate for an implementation Node."""
+
+    return node.get("role") == "implementation" and node.get("difficulty") == "critical"
+
+
 def implicit_acceptance_snapshot(node: dict[str, Any]) -> dict[str, Any]:
     role = automated_node_role(node)
     phase = {
@@ -737,6 +743,8 @@ def dispatch_command(args: argparse.Namespace) -> int:
     elif args.role == "verifier":
         if node_role != "implementation" or phase != "awaiting_verifier" or node.get("status") != "in_progress":
             raise ToolError("Verifier dispatch is out of order for the current delivery phase")
+        if not implementation_requires_verifier(node):
+            raise ToolError("Verifier dispatch requires a critical implementation node")
         acceptance = {
             "phase": acceptance_transition(str(phase), "verifier-dispatched", "verifier"),
             "attempt": int(acceptance.get("attempt", 0)),
@@ -855,13 +863,17 @@ def delegation_failed_command(args: argparse.Namespace) -> int:
         raise ToolError("delegation-failed is out of order for the current delivery phase")
 
     bound_agent_id = dispatch.get("host_agent_id")
-    failed_agent_id = getattr(args, "agent_id", None)
+    failed_agent_id = getattr(args, "terminal_failed_agent_id", None)
     if bound_agent_id is not None:
         if failed_agent_id is None or ensure_host_agent_id(failed_agent_id) != bound_agent_id:
-            raise ToolError("a bound delegation failure requires its exact terminal host agent id")
+            raise ToolError(
+                "a bound delegation failure requires --terminal-failed-agent-id from an "
+                "unambiguous terminal-failed host notification; interruption, cancellation, "
+                "silence, elapsed time, missing artifacts, and context compaction are not failures"
+            )
         dispatch.pop("host_agent_id", None)
     elif failed_agent_id is not None:
-        raise ToolError("--agent-id is valid only for a conclusively failed bound child")
+        raise ToolError("--terminal-failed-agent-id is valid only for a conclusively failed bound child")
     elif not bool(getattr(args, "spawn_refused", False)) and not bool(args.unavailable):
         raise ToolError(
             "an unbound delegation failure requires --spawn-refused or --unavailable; "
@@ -1010,6 +1022,15 @@ def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, 
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
     clear_regression_proof(node)
+    if not implementation_requires_verifier(node):
+        return _complete_implementation_regression(
+            location,
+            node,
+            acceptance,
+            preparation=preparation,
+            source_phase="worker_running",
+            actor="worker",
+        )
     acceptance = {
         "phase": acceptance_transition("worker_running", "agent-complete", "worker"),
         "attempt": int(acceptance["attempt"]),
@@ -1027,6 +1048,8 @@ def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     node = location.checkpoints_data[location.node_index]
     if automated_node_role(node) != "implementation":
         raise ToolError("Verifier exit events require an implementation node")
+    if not implementation_requires_verifier(node):
+        raise ToolError("Verifier exit events require a critical implementation node")
     acceptance = acceptance_snapshot(node, required=True)
     ensure_matching_dispatch(
         acceptance,
@@ -1039,13 +1062,34 @@ def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
         write_location_and_sync_plan(location)
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
+    return _complete_implementation_regression(
+        location,
+        node,
+        acceptance,
+        preparation=preparation,
+        source_phase="verifier_running",
+        actor="verifier",
+    )
+
+
+def _complete_implementation_regression(
+    location: _NodeLocation,
+    node: dict[str, Any],
+    acceptance: dict[str, Any],
+    *,
+    preparation: dict[str, str],
+    source_phase: str,
+    actor: str,
+) -> dict[str, Any]:
+    """Run the one focused regression at the Node's deterministic delivery boundary."""
+
     clear_regression_proof(node)
     try:
         _run_regression_at_location(location, persist=False)
     except ToolError as exc:
         clear_regression_proof(node)
         node["acceptance"] = {
-            "phase": acceptance_transition("verifier_running", "regression-failed", "verifier"),
+            "phase": acceptance_transition(source_phase, "regression-failed", actor),
             "attempt": int(acceptance["attempt"]),
             "outcome": regression_failure_outcome(exc),
             **preparation,
@@ -1053,7 +1097,7 @@ def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
     else:
         _complete_mapped_criteria(location, node)
         node["acceptance"] = {
-            "phase": acceptance_transition("verifier_running", "regression-passed", "verifier"),
+            "phase": acceptance_transition(source_phase, "regression-passed", actor),
             "attempt": int(acceptance["attempt"]),
             "outcome": "accepted",
             **preparation,

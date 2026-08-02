@@ -78,17 +78,20 @@ application, costs, and acceptance proof are missing. It must predict cross-node
 successive handoffs coherent. Do not reinvoke it for ordinary implementation defects. Escalate
 redesign only when evidence shows a real cross-node design or product-semantics error.
 
-### Node loop: Worker then Verifier
+### Node loop: Worker, with Critical verification
 
 After group design completes, collect every eligible implementation Node whose prerequisites are
 complete. Serialize the short Better Plan `dispatch` mutations against the latest state and retain
 their bounded payloads. Start all corresponding native spawn calls concurrently with fresh contexts;
 do not wait for one spawn or Worker before starting another eligible Worker. As host IDs return,
 serialize the short `bind-agent` mutations while the children continue running. Independent Workers
-therefore execute concurrently. As each exact callback arrives, dispatch that Node's Verifier
-immediately; do not run the frozen focused regression between the two leaves. Independent Verifiers
-may overlap with Workers or Verifiers on other Nodes. The Verifier's exact callback runs the Node's
-one focused regression. Correlate every result by its bound Node, dispatch ID, and host-agent ID.
+therefore execute concurrently. As each exact callback arrives, let the state tool inspect the
+Node's frozen `difficulty`. A Routine, Standard, or Complex Node runs its one focused regression
+immediately and never dispatches a Verifier. A Critical Node dispatches the code or Visual Verifier
+selected by `verification_profile` without running regression between the two leaves; that
+Verifier's exact callback runs the one focused regression. Independent Critical Verifiers may
+overlap with Workers or Verifiers on other Nodes. The native main must not override this mechanical
+gate. Correlate every result by its bound Node, dispatch ID, and host-agent ID.
 
 Keep compiler, type, lint, import, test, and ordinary integration defects inside this Node and its
 frozen design. Do not create a new Node merely to repair the current Node.
@@ -176,12 +179,16 @@ notifications are no-ops. Multiple independent implementation Nodes in the same 
 Nodes in different groups, may have active children concurrently; never require the group or the
 whole workspace to have only one active Node in order to correlate a callback.
 
-Do not treat one short wait, silence, or a wait result with no new output as failure by itself.
-Observe the child's latest progress before deciding whether to keep waiting or intervene; concrete
-ongoing progress normally means the role is still working. Record `delegation-failed` only for a
-refused spawn with no ID or an exact bound child that the host conclusively reports as terminally
-failed. Record the former with `--spawn-refused` and the latter with its exact bound `--agent-id`;
-the CLI rejects an unqualified failure record. Limit each dispatch to three delegation attempts:
+Do not treat a short wait, silence, a wait result with no new output, elapsed wall-clock time,
+missing artifacts, or context compaction as failure. Concrete ongoing progress means the role is
+still working. Never interrupt, cancel, or otherwise terminate a bound child merely to accelerate
+delivery or create recovery evidence. A main-initiated `interrupted` or `cancelled` status is not a
+delegation failure and must not consume an attempt. Keep waiting for the exact bound child unless a
+new user request supersedes its work. Record `delegation-failed` only for a refused spawn with no ID
+or an exact bound child that the host independently and conclusively reports as terminally failed.
+Record the former with `--spawn-refused` and the latter with its exact bound
+`--terminal-failed-agent-id`; the CLI rejects an unqualified failure record. Limit each dispatch to
+three delegation attempts:
 pinned role, one same-role retry, then one capability-equivalent temporary model fallback. If
 delegation is conclusively unavailable, record `--unavailable` instead of retrying. At the failure
 ceiling, stop spawning and perform the exact

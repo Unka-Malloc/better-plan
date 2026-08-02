@@ -1166,7 +1166,10 @@ def build_parser() -> argparse.ArgumentParser:
     delegation_failed.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     delegation_failed.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
     failure_kind = delegation_failed.add_mutually_exclusive_group()
-    failure_kind.add_argument("--agent-id", help="exact host id of a conclusively failed bound child")
+    failure_kind.add_argument(
+        "--terminal-failed-agent-id",
+        help="exact host id from an unambiguous terminal-failed host notification",
+    )
     failure_kind.add_argument("--spawn-refused", action="store_true", help="host refused the spawn before returning a child id")
     failure_kind.add_argument("--unavailable", action="store_true", help="host conclusively reports that delegation is unavailable")
     delegation_failed.set_defaults(func=delegation_failed_command)

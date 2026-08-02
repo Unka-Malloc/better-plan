@@ -195,12 +195,16 @@ implementation. Ordinary later defects do not trigger redesign.
 Run one Worker for one implementation Node. Classify the Node by task difficulty—not reasoning
 effort—as `routine`, `standard`, `complex`, or `critical`. The Worker implements the frozen design,
 resolves ordinary build and local-integration problems, and does not edit acceptance or Plan state.
-After it returns, dispatch the Verifier without running the frozen regression yet. The Worker may
-run only the smallest implementation-local diagnostic needed to avoid an obviously broken handoff.
+After it returns, the state tool runs the frozen focused regression for `routine`, `standard`, and
+`complex` Nodes. Only a `critical` Node dispatches the Verifier before that regression. The Worker
+may run only the smallest implementation-local diagnostic needed to avoid an obviously broken
+handoff.
 
 ### Verifier
 
-After a Worker returns, run a fresh Verifier for that Node. Use a high-Intelligence
+After a Critical Worker returns, run a fresh Verifier for that Node. Non-Critical Nodes never
+dispatch a Verifier. This gate is derived mechanically from the Node's frozen `difficulty`; the
+native main must not add or skip a Verifier by judgment at runtime. Use a high-Intelligence
 model tier below the strongest available distinct tier when possible. The Verifier is write-capable:
 it finds and directly repairs implementation-local defects, omissions, unsafe assumptions, and
 broken paths. The state tool runs the Node's frozen focused regression once after it returns. A
@@ -208,13 +212,15 @@ remaining ordinary defect
 returns to the same Worker lifecycle; only a real cross-node design or product-semantics error may
 require native-main redesign judgment.
 
-Every Node declares `verification_profile: code|visual|hybrid`. `code` uses the code Verifier.
-`visual` and `hybrid` use the Visual Verifier and require vision, browser control, and rendered
-evidence for every declared viewport and interaction state. Source inspection, DOM text, snapshots,
-or a successful build never substitute for exercising the real UI. If the required browser or
-rendered state is unavailable, fail closed with a blocker. `hybrid` also performs the complete code
-and data-flow review. The final-validation profile must cover every non-skipped implementation
-profile; a mixed group uses `hybrid`.
+Every Node declares `verification_profile: code|visual|hybrid`. For Critical implementation Nodes,
+`code` uses the code Verifier while `visual` and `hybrid` use the Visual Verifier. Non-Critical
+implementation Nodes use the profile to shape focused regression and group-level review but do not
+dispatch a node-level Verifier. Critical visual verification and every visual/hybrid final review
+require vision, browser control, and rendered evidence for every declared viewport and interaction
+state. Source inspection, DOM text, snapshots, or a successful build never substitute for
+exercising the real UI. If the required browser or rendered state is unavailable, fail closed with
+a blocker. `hybrid` also performs the complete code and data-flow review. The final-validation
+profile must cover every non-skipped implementation profile; a mixed group uses `hybrid`.
 
 ### Reviewer
 
@@ -309,13 +315,15 @@ configuration exists, do not spawn: enter the native-main fallback for that exac
 
 Apply this rule to Designer, every Worker, Verifier, Visual Verifier, Reviewer, and Visual Reviewer;
 do not repeat it in delegated prompts or routine progress updates. A short wait timeout, a quiet
-child, or a wait call returning no new output is not by itself a delegation failure. Observe the
-child's latest progress before deciding whether to keep waiting or intervene; concrete ongoing
-progress normally means the role is still working. Record `delegation-failed` only when spawn is
-refused before an ID or the host
-unambiguously reports that the exact bound child has terminated unsuccessfully. Use
-`--spawn-refused` for the former and the exact bound `--agent-id` for the latter; a bare failure
-record is invalid.
+child, a wait call returning no new output, elapsed wall-clock time, missing artifacts, or context
+compaction is not a delegation failure. Concrete ongoing progress means the role is still working.
+Never interrupt, cancel, or otherwise terminate a bound child to manufacture recovery evidence or
+accelerate delivery; a main-initiated `interrupted` or `cancelled` status is not a failure and must
+not consume an attempt. Keep waiting for the exact bound child unless the latest user request
+supersedes the work. Record `delegation-failed` only when spawn is refused before an ID or the host
+independently and unambiguously reports that the exact bound child has terminated with failure. Use
+`--spawn-refused` for the former and the exact bound `--terminal-failed-agent-id` for the latter; a
+bare failure record is invalid.
 
 Allow at most three delegation attempts for one outstanding dispatch: the pinned role once, the
 same role once more, then one locally callable equivalent model that preserves the required
@@ -423,7 +431,7 @@ prompt, poll work, or select another Node. The native host owns child lifetime a
 - `scripts/manifest_tool.py next-action <node-id> [workspace] [--native-host codex]`
 - `scripts/manifest_tool.py dispatch <node-id> [workspace] --role designer|worker|verifier|reviewer [--native-host codex]`
 - `scripts/manifest_tool.py bind-agent <node-id> [workspace] --dispatch-id ... --agent-id ...`
-- `scripts/manifest_tool.py delegation-failed <node-id> [workspace] --dispatch-id ... (--spawn-refused|--agent-id ...|--unavailable)`
+- `scripts/manifest_tool.py delegation-failed <node-id> [workspace] --dispatch-id ... (--spawn-refused|--terminal-failed-agent-id ...|--unavailable)`
 - `scripts/manifest_tool.py main-complete <node-id> [workspace] --dispatch-id ... --role designer|worker|verifier|reviewer`
 - `scripts/manifest_tool.py agent-complete <node-id> [workspace] --agent-id ... --final`
 - `scripts/manifest_tool.py advance <node-id> [workspace] --event ...`
