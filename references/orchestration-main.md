@@ -150,15 +150,15 @@ conversation memory, an earlier role table, or cached host metadata. If the payl
 `main_thread_fallback` because neither layer resolved, perform the role in the native main and do
 not attempt a child spawn.
 
-## Fresh child context and exact completion
+## Compact leaf turns, Worker continuation, and exact completion
 
-Every role is a fresh child. Use the host's child-agent facility with `fork_turns: "none"`; never
-inherit the parent's conversation. Use the dispatch facts below as a reliable floor, then exercise
-native-main judgment to write the clearest task brief for the specific child:
+Start every role in a child with `fork_turns: "none"`; never inherit the parent's conversation.
+Use the dispatch facts below as a reliable floor, then exercise native-main judgment to write the
+clearest compact task brief for the specific leaf turn:
 
 - the selected `work_items`, or the entire task group for Designer and Reviewer;
 - the bounded capability scope returned by the state tool, which omits known untouched descendants;
-- exactly one role reference returned by `next-action`;
+- the matching primary role reference returned by `next-action`;
 - the declared verification profile and every required capability/evidence item returned by dispatch;
 - every action-specific local knowledge reference returned by `knowledge_references`; and
 - the necessary repository-relative files.
@@ -166,18 +166,32 @@ native-main judgment to write the clearest task brief for the specific child:
 Tell the child what concrete outcome it owns, why the work matters, what is in and out of scope, what
 artifacts or evidence it must return, and which discovered constraints or risks deserve attention.
 Choose the organization, level of detail, examples, and source-grounded supplemental context that
-best fit the task. Do not merely forward JSON, opaque IDs, or selector metadata. Knowledge references
-supplement the one role contract; they are not additional roles. Read and apply them without copying
-the parent conversation or substituting a network request.
+best fit the task. Do not merely forward JSON, opaque IDs, or selector metadata. Progressive
+disclosure is based on relevance, not prompt size: honestly provide every material fact, constraint,
+uncertainty, dependency, risk, and acceptance condition the leaf should know, while omitting only
+irrelevant or redundant context. The installed contract and brief are the starting point, not an
+information boundary. A leaf may inspect `SKILL.md`, role references, repository files, or other
+accessible local guidance whenever it believes that will improve the work; never prevent such
+self-directed reading or conceal useful context merely to keep the brief short.
 
-After `dispatch`, spawn the named native `agent_type` with its returned explicit model and reasoning
-effort, then immediately call `bind-agent` with the opaque host child-agent ID and Better Plan
-dispatch ID. An asynchronous spawn return means only
-that the child exists. Wait for an unambiguous final completion notification. Only a final callback
+For a new lane, after `dispatch` spawn the named native `agent_type` with its returned explicit model
+and reasoning effort, then immediately call `bind-agent` with the opaque host child-agent ID and
+Better Plan dispatch ID. An asynchronous spawn return means only that the child exists. Wait for an
+unambiguous final turn completion notification. Only a final callback
 whose host ID matches the bound dispatch may reduce state; early, mismatched, unrelated, or replayed
 notifications are no-ops. Multiple independent implementation Nodes in the same group, as well as
 Nodes in different groups, may have active children concurrently; never require the group or the
 whole workspace to have only one active Node in order to correlate a callback.
+
+After a Worker turn returns, close that Node's Critical Verifier when required, focused regression,
+and acceptance before assigning more work to that Worker. Then dispatch the next authorized
+eligible implementation Node. If its `worker_continuation_key` equals the idle Worker's prior key,
+continue the same child with the new compact brief and bind its same opaque ID to the new dispatch;
+on Codex use `followup_task`. Each turn still owns exactly one Node and one callback. Prefer the same
+Worker for correction of its own Node. Spawn a new Worker only when the key differs, continuation is
+refused, the prior Worker reports it cannot perform the task, or a real blocker makes reuse unsafe.
+Do not delay or serialize independent ready Nodes for reuse: start the full ready frontier first,
+then let compatible idle lanes continue into later Nodes.
 
 Do not treat a short wait, silence, a wait result with no new output, elapsed wall-clock time,
 missing artifacts, or context compaction as failure. Concrete ongoing progress means the role is
@@ -205,8 +219,10 @@ must use the same bounded fallback path.
 For read-only discovery, try Finder and Fallback Finder once each; if both fail conclusively, do the
 bounded read-only lookup in the native main rather than looping.
 
-Do not paste one role contract into another, ask a child to mutate Better Plan state, or continue a
-stopped child. Completion of one Node never selects or starts another Node automatically.
+Do not paste one role contract into another or ask a child to mutate Better Plan state. Do not
+continue a failed, interrupted, cancelled, or incompatible child; a successfully completed Worker
+turn is idle and intentionally reusable. Completion of one Node never selects or starts another Node
+automatically: the native main closes acceptance and explicitly dispatches each continuation.
 
 ## Main decisions and communication
 

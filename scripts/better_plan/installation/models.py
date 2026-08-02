@@ -38,6 +38,7 @@ CURRENT_SKILL_FILES = (
     "README.md",
     "SKILL.md",
     "agents/openai.yaml",
+    "references/host-configuration.md",
     "references/state-files.md",
     "references/orchestration-main.md",
     "references/designer.md",

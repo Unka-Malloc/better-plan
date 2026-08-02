@@ -772,6 +772,58 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(self.state(WORK_ID)["status"], "completed")
         self.assertEqual(self.state(WORK_TWO_ID)["status"], "completed")
 
+    def test_idle_worker_identity_continues_across_separately_accepted_nodes(self) -> None:
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        second_worker = self._base_node(
+            WORK_TWO_ID,
+            "implementation",
+            "implementation_two",
+            [DESIGN_ID, WORK_ID],
+            difficulty="standard",
+        )
+        nodes.insert(-1, second_worker)
+        nodes[-1]["prerequisites"] = [WORK_ID, WORK_TWO_ID]
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
+
+        self.complete_role(DESIGN_ID, "designer")
+        lane_agent_id = "host.worker.reusable-lane"
+
+        first = json.loads(
+            self.cli("dispatch", WORK_ID, str(self.root), "--role", "worker").stdout
+        )
+        self.cli(
+            "bind-agent",
+            WORK_ID,
+            str(self.root),
+            "--dispatch-id",
+            str(first["dispatch_id"]),
+            "--agent-id",
+            lane_agent_id,
+        )
+        self.assertEqual(
+            self.complete(WORK_ID, str(first["dispatch_id"]), lane_agent_id)["action"],
+            "complete_node",
+        )
+
+        second = json.loads(
+            self.cli("dispatch", WORK_TWO_ID, str(self.root), "--role", "worker").stdout
+        )
+        self.assertEqual(first["worker_continuation_key"], second["worker_continuation_key"])
+        self.cli(
+            "bind-agent",
+            WORK_TWO_ID,
+            str(self.root),
+            "--dispatch-id",
+            str(second["dispatch_id"]),
+            "--agent-id",
+            lane_agent_id,
+        )
+        self.assertEqual(
+            self.complete(WORK_TWO_ID, str(second["dispatch_id"]), lane_agent_id)["action"],
+            "complete_node",
+        )
+        self.assertEqual(self.state(WORK_TWO_ID)["status"], "completed")
+
     def test_reviewer_runs_once_and_post_review_full_regression_closes_group(self) -> None:
         self.complete_opening_and_implementation()
         first = self.next_action(FINAL_ID)

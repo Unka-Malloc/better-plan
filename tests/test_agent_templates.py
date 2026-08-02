@@ -119,6 +119,7 @@ class AgentTemplateTests(unittest.TestCase):
                 )
         self.assertFalse(any("Interpreter" in heading for heading in numbered_headings))
         self.assertIn("references/design-patterns.md", CURRENT_SKILL_FILES)
+        self.assertIn("references/host-configuration.md", CURRENT_SKILL_FILES)
         self.assertIn("candidate: <模式英文名或 none>", catalog)
         self.assertIn("simpler_alternative", catalog)
         self.assertIn("costs_and_rejections", catalog)
@@ -148,6 +149,23 @@ class AgentTemplateTests(unittest.TestCase):
                 with self.subTest(target=target, filename=filename):
                     self.assertIn("independent reads", template)
                     self.assertIn("concurrently", template)
+                    self.assertIn("freely inspect better plan guidance", template)
+                    self.assertIn("no local guidance is forbidden", template)
+                    self.assertIn("remain available", template)
+                    self.assertIn("another compatible node", template)
+
+    def test_every_native_leaf_template_uses_relevance_based_context(self) -> None:
+        source_target = {"claude": "claude-code"}
+        for target, filenames in NATIVE_ROLE_FILES.items():
+            directory = ROOT / "agents" / source_target.get(target, target)
+            for filename in filenames:
+                template = (directory / filename).read_text(encoding="utf-8").lower()
+                with self.subTest(target=target, filename=filename):
+                    self.assertIn("disclosed every material task fact", template)
+                    self.assertIn("installed contract and supplied brief as the starting point", template)
+                    self.assertIn("omit irrelevant scope", template)
+                    self.assertIn("freely inspect better plan guidance", template)
+                    self.assertIn("no local guidance is forbidden", template)
 
     def test_installer_renders_and_pins_codex_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
