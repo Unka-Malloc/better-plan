@@ -292,17 +292,26 @@ Operational transition gates:
   remain active concurrently. State mutations are serialized even though bound child executions
   overlap. Direct `start`, `regress`, `check`, and `complete` are rejected for automated delivery
   Nodes.
-- Every child dispatch uses `fork_turns: "none"`, receives only its Node or group, its one role
-  reference, action-specific local knowledge references, and necessary repository-relative files,
-  then binds the real opaque host-agent ID. Designer always receives the complete local
-  `references/design-patterns.md` content and never needs to fetch its source website.
+- Every new child starts with `fork_turns: "none"`. The native main uses the matching primary role
+  reference and authors a focused complete brief containing every material fact, constraint,
+  uncertainty, dependency, risk, acceptance condition, action-specific knowledge reference, and
+  repository-relative file it knows the role needs. It omits only irrelevant or redundant context.
+  The leaf may inspect the complete skill, orchestration or role references, repository files, and
+  other accessible local guidance when useful. Designer receives `references/design-patterns.md`
+  directly because it is normally material to design decisions and never needs to fetch its source website.
   Spawn return is not completion; only an exact final callback from the bound child may advance
   state.
+- A Worker dispatch carries `worker_continuation_key`. After its current Node reaches `accepted`,
+  the native main prefers an idle Worker with the same key for the next authorized eligible Node,
+  sends a new compact one-Node brief, and binds the same agent ID. Every continuation retains an
+  independent dispatch, callback, regression, and acceptance boundary. Failed, interrupted,
+  cancelled, blocked, or incompatible Workers are never continued, and reuse never serializes an
+  independent ready frontier.
 - Code verification requires `code_reasoning`. Visual and hybrid verification additionally require
   `vision`, `browser`, and rendered browser evidence. A visual leaf reports a blocker when it cannot
   obtain the real rendered state; source inspection, DOM text, snapshots, and successful builds are
   not visual acceptance.
-- While `worker_running`, the fresh code-only worker implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
+- While `worker_running`, the current code-only Worker turn implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. The Worker may be a new child or a compatible idle continuation. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The Worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
 - A Routine, Standard, or Complex Worker's correlated final callback runs focused regression once
   and never enters `awaiting_verifier`. A Critical Worker's callback enters `awaiting_verifier`
   without running regression; the write-capable Verifier repairs the Node, and its final callback

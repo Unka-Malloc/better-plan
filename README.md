@@ -238,18 +238,31 @@ prints the complete details audit projection. Before handoff, compare the readab
 the details audit projection against that same source-grounded intent spine. State cannot authorize
 unrequested work.
 
-## Isolated dispatch
+## Compact leaf dispatch and Worker continuation
 
-For each action returned by `next-action`, the native main spawns exactly the named installed agent
-with `fork_turns: "none"`. The state tool returns transcript-free structured facts: the selected
+For the first turn of each role, the native main spawns exactly the named installed agent with
+`fork_turns: "none"`. The state tool returns transcript-free structured facts: the selected
 `work_items`—the whole group for Designer and Reviewer—the matching role reference, bounded
 capability scope, action-specific knowledge references, and necessary repository-relative paths.
-The native main remains the orchestrator: it writes the child brief in the form best suited to the
+The native main remains the orchestrator: it applies the primary role reference and writes a focused complete
+child brief in the form best suited to the
 task, emphasizing the concrete outcome, context, artifacts, constraints, risks, and acceptance
 evidence that matter. It may summarize and add source-grounded observations; it must not send only
-opaque IDs or selector metadata. Known untouched descendants remain omitted. Designer's dispatch
+opaque IDs or selector metadata. Progressive disclosure is based on relevance rather than prompt
+size: every material fact, constraint, uncertainty, dependency, risk, and acceptance condition is
+disclosed honestly; only irrelevant or redundant context is omitted. A leaf may inspect the complete
+Better Plan skill, orchestration or role references, repository files, and other accessible local
+guidance whenever useful. Known untouched descendants remain omitted. Designer's dispatch
 names `references/design-patterns.md` and requires a `design_pattern_assessment` without requiring
 network access.
+
+Each Worker turn still owns exactly one Node. After that Node's Verifier when Critical, focused
+regression, and acceptance close, the native main dispatches the next authorized eligible Node. If
+its `worker_continuation_key` matches an idle Worker's prior key, continue the same child with the
+new compact brief and bind the same agent ID; on Codex use `followup_task`. Reuse the same Worker for
+ordinary correction too. Spawn only when no compatible idle Worker exists or continuation is
+refused or unsafe. Independent ready Nodes remain concurrent; reuse must never serialize the ready
+frontier.
 
 Every Node declares `verification_profile: code|visual|hybrid`. `code` routes to the rigorous code
 Verifier/Reviewer. `visual` and `hybrid` route to the visual roles and add explicit `vision`,
@@ -382,6 +395,7 @@ lifetime and cancellation remain outside Better Plan.
 ## References
 
 - [State files](references/state-files.md)
+- [Host configuration](references/host-configuration.md)
 - [Native main](references/orchestration-main.md)
 - [Designer](references/designer.md)
 - [Design-pattern decision catalog](references/design-patterns.md)
