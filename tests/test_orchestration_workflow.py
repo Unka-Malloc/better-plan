@@ -35,7 +35,7 @@ def node(
         "role": role,
         "difficulty": difficulty,
         "verification_profile": verification_profile,
-        "goal": "TRANSCRIPT_SENTINEL remains outside dispatch payloads.",
+        "goal": f"Complete the bounded {node_id} role contract.",
         "conversation_history": "TRANSCRIPT_SENTINEL",
         "design": design(owned, f"tests/test_{node_id}.py"),
         "regression": {
@@ -144,6 +144,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertNotIn("required_outputs", payload)
         self.assertNotIn("model", payload)
         self.assertNotIn("recommendation", payload)
+        self.assertEqual(payload["work_items"][0]["goal"], "Complete the bounded worker-node role contract.")
         self.assertNotIn("TRANSCRIPT_SENTINEL", str(payload))
 
     def test_group_endcaps_receive_group_ids_and_union_of_needed_paths(self) -> None:
@@ -166,6 +167,10 @@ class OrchestrationWorkflowTests(unittest.TestCase):
             self.assertEqual(payload["fork_turns"], "none")
             self.assertEqual(payload["role_reference"], reference)
             self.assertEqual(payload["group_node_ids"], ["design", "one", "two", "final"])
+            self.assertEqual(
+                [item["id"] for item in payload["work_items"]],
+                ["design", "one", "two", "final"],
+            )
             if action == "dispatch_designer":
                 self.assertEqual(
                     payload["knowledge_references"],
@@ -240,6 +245,8 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("bounded delegation recovery", normalized)
         self.assertIn("do not repeat it in delegated prompts or routine progress updates", normalized)
         self.assertIn("a short wait", normalized)
+        self.assertIn("observe the child's latest progress", normalized)
+        self.assertIn("concrete ongoing progress normally means the role is still working", normalized)
         self.assertIn("at most three delegation attempts", normalized)
         self.assertIn("main-complete", normalized)
         self.assertIn("never bind a fabricated main-thread agent id", normalized)
@@ -248,6 +255,11 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("expected compliant outcome", normalized)
         self.assertIn("received no task body is a payload-delivery failure", normalized)
         self.assertIn("not evidence of quota exhaustion", normalized)
+        self.assertIn("full native-main judgment", normalized)
+        self.assertIn("task-specific brief authored by the native main", normalized)
+        self.assertIn("do not merely forward json", normalized)
+        self.assertIn("--spawn-refused", normalized)
+        self.assertIn("bare failure record", normalized)
         for role in ("designer", "worker", "verifier", "reviewer"):
             self.assertIn(role, normalized)
 

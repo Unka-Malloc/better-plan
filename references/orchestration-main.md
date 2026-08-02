@@ -150,18 +150,22 @@ not attempt a child spawn.
 ## Fresh child context and exact completion
 
 Every role is a fresh child. Use the host's child-agent facility with `fork_turns: "none"`; never
-inherit the parent's conversation. Construct the child task from only:
+inherit the parent's conversation. Use the dispatch facts below as a reliable floor, then exercise
+native-main judgment to write the clearest task brief for the specific child:
 
-- the selected Node, or the entire task group for Designer and Reviewer;
+- the selected `work_items`, or the entire task group for Designer and Reviewer;
 - the bounded capability scope returned by the state tool, which omits known untouched descendants;
 - exactly one role reference returned by `next-action`;
 - the declared verification profile and every required capability/evidence item returned by dispatch;
 - every action-specific local knowledge reference returned by `knowledge_references`; and
 - the necessary repository-relative files.
 
-Knowledge references supplement the one role contract; they are not additional roles. Attach their
-complete local contents to the fresh child context. Do not substitute a network request or inherited
-conversation memory.
+Tell the child what concrete outcome it owns, why the work matters, what is in and out of scope, what
+artifacts or evidence it must return, and which discovered constraints or risks deserve attention.
+Choose the organization, level of detail, examples, and source-grounded supplemental context that
+best fit the task. Do not merely forward JSON, opaque IDs, or selector metadata. Knowledge references
+supplement the one role contract; they are not additional roles. Read and apply them without copying
+the parent conversation or substituting a network request.
 
 After `dispatch`, spawn the named native `agent_type` with its returned explicit model and reasoning
 effort, then immediately call `bind-agent` with the opaque host child-agent ID and Better Plan
@@ -172,12 +176,15 @@ notifications are no-ops. Multiple independent implementation Nodes in the same 
 Nodes in different groups, may have active children concurrently; never require the group or the
 whole workspace to have only one active Node in order to correlate a callback.
 
-Do not mistake one short wait, silence, or a wait result with no new output for child failure. Keep
-waiting through bounded host waits after a child ID exists. Record `delegation-failed` only for a
+Do not treat one short wait, silence, or a wait result with no new output as failure by itself.
+Observe the child's latest progress before deciding whether to keep waiting or intervene; concrete
+ongoing progress normally means the role is still working. Record `delegation-failed` only for a
 refused spawn with no ID or an exact bound child that the host conclusively reports as terminally
-failed. Limit each dispatch to three delegation attempts: pinned role, one same-role retry, then one
-capability-equivalent temporary model fallback. If delegation is conclusively unavailable, record
-`--unavailable` instead of retrying. At the failure ceiling, stop spawning and perform the exact
+failed. Record the former with `--spawn-refused` and the latter with its exact bound `--agent-id`;
+the CLI rejects an unqualified failure record. Limit each dispatch to three delegation attempts:
+pinned role, one same-role retry, then one capability-equivalent temporary model fallback. If
+delegation is conclusively unavailable, record `--unavailable` instead of retrying. At the failure
+ceiling, stop spawning and perform the exact
 Designer, Worker, Verifier, or Reviewer contract yourself from the existing bounded payload, then
 record `main-complete`. Never bind a fabricated main-thread agent ID. Preserve visual/browser
 evidence, frozen acceptance, regression timing, and the one-Reviewer rule. Delegation failure is not

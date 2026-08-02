@@ -240,12 +240,15 @@ unrequested work.
 ## Isolated dispatch
 
 For each action returned by `next-action`, the native main spawns exactly the named installed agent
-with `fork_turns: "none"`. The child receives only the selected Node—or the whole group for Designer
-and Reviewer—its matching role reference, bounded capability scope, action-specific local knowledge
-references, and necessary repository-relative files. Known untouched descendants are omitted.
-Designer's dispatch always names `references/design-patterns.md` and
-requires a `design_pattern_assessment`; the native main attaches the local content instead of
-requesting the source website.
+with `fork_turns: "none"`. The state tool returns transcript-free structured facts: the selected
+`work_items`—the whole group for Designer and Reviewer—the matching role reference, bounded
+capability scope, action-specific knowledge references, and necessary repository-relative paths.
+The native main remains the orchestrator: it writes the child brief in the form best suited to the
+task, emphasizing the concrete outcome, context, artifacts, constraints, risks, and acceptance
+evidence that matter. It may summarize and add source-grounded observations; it must not send only
+opaque IDs or selector metadata. Known untouched descendants remain omitted. Designer's dispatch
+names `references/design-patterns.md` and requires a `design_pattern_assessment` without requiring
+network access.
 
 Every Node declares `verification_profile: code|visual|hybrid`. `code` routes to the rigorous code
 Verifier/Reviewer. `visual` and `hybrid` route to the visual roles and add explicit `vision`,
@@ -279,13 +282,21 @@ python3 scripts/manifest_tool.py bind-agent <node-id> <workspace> \
   --dispatch-id <better-plan-dispatch-id> --agent-id <native-child-id>
 ```
 
-A short wait or temporary lack of output is not failure and never authorizes redispatch. When the
-host conclusively refuses a spawn or terminates the exact child unsuccessfully, record the failure:
+A short wait or temporary lack of output is not by itself a failure. Check the child's latest
+progress before deciding whether to keep waiting or intervene; concrete ongoing progress normally
+means the role is still working. When the host conclusively refuses a spawn or terminates the exact
+child unsuccessfully, record the failure:
 
 ```sh
 python3 scripts/manifest_tool.py delegation-failed <node-id> <workspace> \
-  --dispatch-id <better-plan-dispatch-id> [--agent-id <failed-child-id>] [--unavailable]
+  --dispatch-id <better-plan-dispatch-id> --spawn-refused
+python3 scripts/manifest_tool.py delegation-failed <node-id> <workspace> \
+  --dispatch-id <better-plan-dispatch-id> --agent-id <failed-child-id>
 ```
+
+Use `--unavailable` instead only when the host or provider conclusively reports that delegation is
+unavailable. A bare failure record is rejected, so silence or a bounded wait expiry cannot consume
+an attempt.
 
 One dispatch permits at most three delegation attempts: pinned role, one same-role retry, and one
 capability-equivalent temporary fallback. At the ceiling, the native main performs the same role
