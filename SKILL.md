@@ -21,7 +21,7 @@ releases. Use temporary fixtures only when explicitly testing Better Plan behavi
 For other repositories:
 
 1. Consider Better Plan only for planning, coding, or explicit implementation work.
-2. Complete the first-use role confirmation gate below unless it was already completed in this
+2. Complete the first-use role visibility gate below unless it was already completed in this
    conversation.
 3. Run `scripts/manifest_tool.py discover <project-root>`.
 4. If there is no unique valid workspace, continue with ordinary project handling.
@@ -29,7 +29,7 @@ For other repositories:
 6. Keep secrets, personal or machine identity, backend runtime data, and absolute local paths out
    of Plan state, delegated prompts, evidence, and responses.
 
-### First-use role confirmation gate
+### First-use role visibility gate
 
 On the first Better Plan activation in a conversation, inspect the current host's installed Better
 Plan role files and receipt read-only, and compare them with the role matrix recommended by this
@@ -39,13 +39,16 @@ installed and recommended model provider when explicitly pinned, recommended mod
 whether they differ. Mark missing roles and unpinned providers explicitly; never infer a provider
 or inspect credentials.
 
-Ask whether to keep the installed matrix or use the recommended matrix, then stop and wait for an
-explicit choice. Treat that choice as authorization only for the selected workflow; it does not
-authorize replacing existing files. If no native matrix is installed, show every installed value
-as `not installed` and ask whether to install or manually import the recommendation. Also tell the
-user that ready-made native role configurations are bundled for Codex, Claude Code, OpenCode, and
-Cursor under `agents/<host>/`. Do not repeat this gate in the same conversation and do not inject it
-from Hooks.
+A complete valid installed matrix is authoritative. Use it automatically, do not ask the user to
+choose between the installed and recommended matrices, and do not pause the workflow for such a
+choice. The comparison is visibility only: the package recommendation is never allowed to override
+an installed role. For an absent, unreadable, unsafe, or model-less individual role, use only that
+role's packaged fallback as described under Model and agent assignment; this does not change or
+reselect the installed matrix. If no native matrix is installed, show every installed value as
+`not installed`, explain that runtime will use packaged fallbacks where available, and mention that
+ready-made native role configurations are bundled for Codex, Claude Code, OpenCode, and Cursor under
+`agents/<host>/`. Do not solicit installation or configuration changes unless the user requested
+them. Do not repeat this gate in the same conversation and do not inject it from Hooks.
 
 ### Role-change reconfirmation gate
 
@@ -55,7 +58,8 @@ earlier role-change table was already shown in the same conversation. Include ev
 the requested roles, with purpose, installed provider/model/reasoning effort, packaged recommended
 provider/model/reasoning effort, and an explicit difference status. Label client-specific overrides
 and the package recommendation as separate configuration layers; never describe a local override as
-a recommendation change.
+a recommendation change. The table remains informational: it never asks the user to choose the
+installed matrix or the packaged matrix as a whole.
 
 After the table, restate the exact requested mutations, ask the user to confirm them, then stop and
 wait. Until that fresh confirmation arrives, do not edit role files, provider configuration,
@@ -308,6 +312,13 @@ fallback, not a role-matrix or receipt mutation. The main must preserve role bou
 acceptance, visual/browser evidence requirements, focused regression timing, and the one-Reviewer
 invariant. Delegation failure alone never interrupts the task; stop only for a genuine external or
 product decision blocker that the native main cannot satisfy.
+
+Confirmed provider quota exhaustion or configured-model unavailability followed by bounded native-
+main takeover is an expected compliant outcome, not a workflow violation. Keep the local selector
+pinned; fallback never authorizes silently changing the matrix. A child that starts successfully but
+reports that it received no task body is a payload-delivery failure, not evidence of quota
+exhaustion. Treat it through the same bounded fallback path and let the native main complete the
+exact role when no correctly loaded child is available.
 
 Finder utilities are lifecycle-independent: after the preferred Finder and its one Fallback Finder
 both fail conclusively, the native main performs the bounded read-only discovery itself. Never loop

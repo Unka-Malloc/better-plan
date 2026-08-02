@@ -267,6 +267,11 @@ Codex recommendation. The native main passes the returned explicit model and eff
 it never relies on stale host metadata. If neither configuration exists, the payload enters
 `main_thread_fallback` without attempting a child.
 
+A complete valid installed matrix always wins automatically. First-use reporting may compare it
+with the packaged defaults for visibility, but must never ask the user to choose between them or
+pause dispatch for such a choice. Packaged defaults are only per-role fallbacks for a missing or
+invalid installed selector and never replace the installed matrix.
+
 After a real native spawn, bind its opaque child-agent identity:
 
 ```sh

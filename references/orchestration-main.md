@@ -133,6 +133,11 @@ local-or-fallback source. For Finder utilities, include the fixed selector and r
 child also repeats its injected `assignment:` line. Normal skill updates preserve delivery-role
 assignments and may append newly bundled utilities; do not continuously retune assignments.
 
+A complete valid installed role matrix is the automatic runtime authority. Never ask the user to
+choose between it and the packaged matrix, and never pause dispatch for that choice. The packaged
+matrix is only a per-role fallback when the corresponding installed role is absent, unreadable,
+unsafe, or lacks a model; using that fallback does not mutate or reselect the installed matrix.
+
 Codex runtime lookup is separate from selection. Invoke `next-action` and `dispatch` with
 `--native-host codex`. The state tool reads the exact installed role TOML first and returns its
 public selector with `selector_source: installed-codex-role`; only a missing or invalid installed
@@ -177,6 +182,11 @@ Designer, Worker, Verifier, or Reviewer contract yourself from the existing boun
 record `main-complete`. Never bind a fabricated main-thread agent ID. Preserve visual/browser
 evidence, frozen acceptance, regression timing, and the one-Reviewer rule. Delegation failure is not
 a task blocker when the native main can perform the role.
+
+Confirmed quota exhaustion or configured-model unavailability followed by this bounded native-main
+takeover is expected and compliant; it never authorizes changing the pinned local matrix. A child
+that starts but reports no task body indicates payload-delivery failure, not quota exhaustion, and
+must use the same bounded fallback path.
 
 For read-only discovery, try Finder and Fallback Finder once each; if both fail conclusively, do the
 bounded read-only lookup in the native main rather than looping.
