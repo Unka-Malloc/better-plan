@@ -18,7 +18,7 @@ if os.name == "nt":
 else:
     import fcntl as _native_lock
 from ..domain.capabilities import capability_scope, is_capability_key, plan_capability_binding_issues, validate_capability_data
-from ..domain.models import CAPABILITIES_NAME, CHECKPOINTS_NAME, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DISCOVERY_SKIP_DIRS, ENTRY_GATE_OPTIONAL_FIELDS, ENTRY_GATE_REQUIRED_FIELDS, EXTERNAL_SOURCE_PATTERN, GATE_LEAF_TAG, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, REQUIREMENT_LABEL_CANDIDATE_PATTERN, STATE_FILE_NAMES, ToolError, UUID4_PATTERN, VALID_DECISION_STATUSES, VALID_DECISION_URGENCIES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_TREE_MODES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_checkpoints_path, is_gate_leaf_node, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.models import CAPABILITIES_NAME, CHECKPOINTS_NAME, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DECISION_SESSION_OPTIONAL_FIELDS, DECISION_SESSION_REQUIRED_FIELDS, DISCOVERY_SKIP_DIRS, ENTRY_GATE_OPTIONAL_FIELDS, ENTRY_GATE_REQUIRED_FIELDS, EXTERNAL_SOURCE_PATTERN, GATE_LEAF_TAG, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, PLAN_OPTIONAL_FIELDS, PLAN_READINESS_OPTIONAL_FIELDS, PLAN_READINESS_RECEIPT_FIELDS, PLAN_READINESS_REQUIRED_FIELDS, PLAN_REQUIRED_FIELDS, REQUIREMENT_LABEL_CANDIDATE_PATTERN, SHA256_PATTERN, STATE_FILE_NAMES, ToolError, UUID4_PATTERN, VALID_DECISION_STATUSES, VALID_DECISION_URGENCIES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_TREE_MODES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_checkpoints_path, is_gate_leaf_node, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
 from ..domain.validation import dependency_cycle_path, readable_summary_issue, validate_checkpoints_data as _validate_checkpoints_data, validate_readable_string_list
 
 
@@ -236,6 +236,45 @@ def validate_plan_manifest_data(path: Path, data: list[Any], snapshot_indexes: s
                 )
             )
 
+        readiness_check = plan.get("readiness_check")
+        if readiness_check is not None:
+            readiness_prefix = f"{prefix}.readiness_check"
+            if not isinstance(readiness_check, dict):
+                issues.append(Issue(path, f"{readiness_prefix}: must be an object"))
+            else:
+                for field in sorted(PLAN_READINESS_REQUIRED_FIELDS - set(readiness_check)):
+                    issues.append(Issue(path, f"{readiness_prefix}.{field}: missing required field"))
+                for field in sorted(set(readiness_check) - PLAN_READINESS_REQUIRED_FIELDS - PLAN_READINESS_OPTIONAL_FIELDS):
+                    issues.append(Issue(path, f"{readiness_prefix}.{field}: unknown field"))
+                if not is_string_list(readiness_check.get("commands")) or not readiness_check.get("commands"):
+                    issues.append(Issue(path, f"{readiness_prefix}.commands: must be a non-empty command array"))
+                else:
+                    for command_index, command in enumerate(readiness_check["commands"]):
+                        command_issue = safe_summary_issue(command)
+                        if command_issue is not None:
+                            issues.append(Issue(path, f"{readiness_prefix}.commands[{command_index}]: {command_issue}"))
+                paths = readiness_check.get("paths")
+                if not is_string_list(paths) or not paths:
+                    issues.append(Issue(path, f"{readiness_prefix}.paths: must be a non-empty repository-relative path array"))
+                else:
+                    for path_index, value in enumerate(paths):
+                        if not is_relative_workspace_path(value):
+                            issues.append(Issue(path, f"{readiness_prefix}.paths[{path_index}]: must be a safe repository-relative path"))
+                receipt = readiness_check.get("last_pass")
+                if receipt is not None:
+                    if not isinstance(receipt, dict) or set(receipt) != PLAN_READINESS_RECEIPT_FIELDS:
+                        issues.append(Issue(path, f"{readiness_prefix}.last_pass: invalid receipt shape"))
+                    else:
+                        for field in ("contract_digest", "state_fingerprint"):
+                            if not isinstance(receipt.get(field), str) or not SHA256_PATTERN.fullmatch(receipt[field]):
+                                issues.append(Issue(path, f"{readiness_prefix}.last_pass.{field}: must be a lowercase sha256 digest"))
+                        if not isinstance(receipt.get("recorded_at"), str) or not receipt["recorded_at"].strip():
+                            issues.append(Issue(path, f"{readiness_prefix}.last_pass.recorded_at: must be a non-empty timestamp"))
+                if "last_failure" in readiness_check:
+                    failure_issue = safe_summary_issue(readiness_check.get("last_failure"))
+                    if failure_issue is not None:
+                        issues.append(Issue(path, f"{readiness_prefix}.last_failure: {failure_issue}"))
+
         if "decision_issues" in plan:
             decision_issues = plan.get("decision_issues")
             if not isinstance(decision_issues, list):
@@ -282,6 +321,30 @@ def validate_plan_manifest_data(path: Path, data: list[Any], snapshot_indexes: s
                             issues.append(Issue(path, f"{decision_prefix}.resolution: {resolution_issue}"))
                     elif "resolution" in decision:
                         issues.append(Issue(path, f"{decision_prefix}.resolution: only resolved decisions may record a resolution"))
+
+        decision_session = plan.get("decision_session")
+        if decision_session is not None:
+            session_prefix = f"{prefix}.decision_session"
+            if not isinstance(decision_session, dict):
+                issues.append(Issue(path, f"{session_prefix}: must be an object"))
+            else:
+                for field in sorted(DECISION_SESSION_REQUIRED_FIELDS - set(decision_session)):
+                    issues.append(Issue(path, f"{session_prefix}.{field}: missing required field"))
+                for field in sorted(set(decision_session) - DECISION_SESSION_REQUIRED_FIELDS - DECISION_SESSION_OPTIONAL_FIELDS):
+                    issues.append(Issue(path, f"{session_prefix}.{field}: unknown field"))
+                if not is_manifest_id(decision_session.get("id")):
+                    issues.append(Issue(path, f"{session_prefix}.id: must be a UUID4 value"))
+                if decision_session.get("status") not in {"open", "closed"}:
+                    issues.append(Issue(path, f"{session_prefix}.status: must be open or closed"))
+                if type(decision_session.get("projection_dirty")) is not bool:
+                    issues.append(Issue(path, f"{session_prefix}.projection_dirty: must be boolean"))
+                title_issue = safe_summary_issue(decision_session.get("title"))
+                if title_issue is not None:
+                    issues.append(Issue(path, f"{session_prefix}.title: {title_issue}"))
+                if not isinstance(decision_session.get("decision_ids"), list) or any(
+                    not is_manifest_id(value) for value in decision_session.get("decision_ids", [])
+                ):
+                    issues.append(Issue(path, f"{session_prefix}.decision_ids: must be a UUID4 array"))
 
         if "entry_gate" in plan:
             entry_gate = plan.get("entry_gate")

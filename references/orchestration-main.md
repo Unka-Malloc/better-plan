@@ -6,6 +6,11 @@ Follow the latest user request. Use ordinary repository handling when maintainin
 source repository itself. In other repositories, enter this workflow only for planning, coding, or
 explicit implementation work that the user authorized. Existing Plan state never authorizes work.
 
+Before discovery, apply the SKILL activation gate. A small closure that the native main can directly
+understand, implement, and verify uses the ordinary repository fast path without Plan state or role
+dispatch. Better Plan is reserved for large refactors, complete migrations, real multi-Node
+handoffs, and consequential cross-module or high-risk delivery.
+
 Use repository-relative paths. Do not place secrets, personal or machine identity, server details,
 or backend runtime output in state, child prompts, evidence, or user-visible reports.
 
@@ -57,10 +62,20 @@ Before execution, align each Node's design, acceptance criteria, focus paths, an
 with its closure. Use task difficulty (`routine`, `standard`, `complex`, `critical`) to describe
 scope, ambiguity, and consequence—not model reasoning effort.
 
-Separately assign every Node `verification_profile: code|visual|hybrid`. Code work uses the rigorous
-code Verifier/Reviewer. Visual and hybrid work requires the Visual Verifier/Reviewer plus real
-browser execution, vision, and rendered evidence; never infer visual success from source, DOM text,
-snapshots, or build output. Mixed implementation profiles require a hybrid final-validation Node.
+When the host repository defines Plan readiness checks, run `check-plan-readiness` after authoring state and before
+Designer dispatch. Run `preflight-regression` for every implementation and final-validation
+contract before freezing execution; use a non-mutating `--probe` when package names, workspace
+filters, generated registries, or script entry points cannot be validated structurally.
+
+Separately assign every Node `verification_profile: code|visual|hybrid`. Code work proceeds from its
+Worker directly to focused regression and then the group Reviewer. Visual and hybrid Critical work
+requires one Visual Verifier plus the Visual Reviewer, real browser execution, vision, and rendered
+evidence; never infer visual success from source, DOM text, snapshots, or build output. Mixed
+implementation profiles require a hybrid final-validation Node.
+
+When an exceptional security boundary needs independent attention, model it as an explicit
+implementation Node with distinct ownership and acceptance, executed by a Worker. Do not attach a
+generic verifier stage to every Critical Node or introduce a renamed universal verification role.
 
 ## Role sequence
 
@@ -70,28 +85,28 @@ Dispatch the Designer once for the whole ordered group. Give it every group Node
 requirements and architecture constraints, planned interfaces, acceptance artifacts, and necessary
 repository files inside the selected examined capability scope. Omit known untouched siblings and
 do not ask for retrospective design of observed ancestors. Also attach the complete action-specific local knowledge reference returned in
-`knowledge_references`; for Designer this is `references/design-patterns.md`. It must read that
-catalog locally, compare any candidate with the simplest direct solution, and write a complete
+`knowledge_references`; for Designer this is `references/design-patterns.md`. It must read the local
+decision rules and quick index, then load only categories relevant to concrete pressure. It compares
+any candidate with the simplest direct solution and writes a complete
 `design_pattern_assessment` even when the result is `candidate: none`. Do not ask it to fetch the
 source website. Reject a name-only assessment or a pattern whose concrete benefit, smallest correct
 application, costs, and acceptance proof are missing. It must predict cross-node hazards and make
 successive handoffs coherent. Do not reinvoke it for ordinary implementation defects. Escalate
 redesign only when evidence shows a real cross-node design or product-semantics error.
 
-### Node loop: Worker, with Critical verification
+### Node loop: Worker, with bounded visual verification
 
 After group design completes, collect every eligible implementation Node whose prerequisites are
 complete. Serialize the short Better Plan `dispatch` mutations against the latest state and retain
 their bounded payloads. Start all corresponding native spawn calls concurrently with fresh contexts;
 do not wait for one spawn or Worker before starting another eligible Worker. As host IDs return,
 serialize the short `bind-agent` mutations while the children continue running. Independent Workers
-therefore execute concurrently. As each exact callback arrives, let the state tool inspect the
-Node's frozen `difficulty`. A Routine, Standard, or Complex Node runs its one focused regression
-immediately and never dispatches a Verifier. A Critical Node dispatches the code or Visual Verifier
-selected by `verification_profile` without running regression between the two leaves; that
-Verifier's exact callback runs the one focused regression. Independent Critical Verifiers may
-overlap with Workers or Verifiers on other Nodes. The native main must not override this mechanical
-gate. Correlate every result by its bound Node, dispatch ID, and host-agent ID.
+therefore execute concurrently. As each exact callback arrives, every code-profile Node runs its
+one focused regression immediately, including Critical code Nodes. Only a `visual` or `hybrid`
+Critical Node dispatches one Visual Verifier without running regression between the two leaves;
+that exact callback runs the one focused regression. Independent Visual Verifiers may overlap with
+Workers or Visual Verifiers on other Nodes. Correlate every result by its bound Node, dispatch ID,
+and host-agent ID.
 
 Keep compiler, type, lint, import, test, and ordinary integration defects inside this Node and its
 frozen design. Do not create a new Node merely to repair the current Node.
@@ -115,19 +130,25 @@ launch a second Reviewer for the same group. Do not add duplicate focused or ful
 reassurance; expand validation only for new failure evidence, an explicit release policy, or a
 direct user request.
 
+Aggregate all failures reported by one regression attempt before authoring repair work. Merge
+failures with one root cause or one cohesive ownership boundary into the smallest repair Node set.
+Use `repair-plan` for a single bounded repair instead of manually composing add-node, rewire, and
+registration mutations. When the user asks to converge quickly, stop expanding discovery, exclude
+unrelated pre-existing failures, and close only the accepted capability and evidence-backed repair.
+
 ## Model assignments
 
 Do not recommend or select a model at dispatch time. The installer pins native role files once.
 Codex uses this fixed default matrix for any role not replaced by a qualifying local configuration:
 Designer and Reviewer use `gpt-5.6-sol/max`; every Worker difficulty uses
-`gpt-5.6-luna/max`; Verifier uses `gpt-5.6-sol/high`. Visual Verifier and Visual Reviewer use
+`gpt-5.6-luna/max`. Visual Verifier and Visual Reviewer use
 `gpt-5.6-sol/xhigh` from the pinned Arena WebDev leaderboard. This is a Codex-specific user preference,
 not a cross-host recommendation. Other hosts retain local-first benchmark routing. Missing table
 entries are ignored rather than guessed.
 
 Codex additionally installs `finder` on `gpt-5.3-codex-spark/xhigh` and `fallback_finder` on
 `gpt-5.4-mini/xhigh`, both in read-only sandboxes. These utilities do not participate in Designer,
-Worker, Verifier, or Reviewer state transitions.
+Worker, Visual Verifier, or Reviewer state transitions.
 
 Before the first dispatch in a session, make the installed role-to-model assignments visible to the
 user if they have not already been reported. Include role, model, reasoning setting, and selection
@@ -183,7 +204,7 @@ notifications are no-ops. Multiple independent implementation Nodes in the same 
 Nodes in different groups, may have active children concurrently; never require the group or the
 whole workspace to have only one active Node in order to correlate a callback.
 
-After a Worker turn returns, close that Node's Critical Verifier when required, focused regression,
+After a Worker turn returns, close that Node's one Visual Verifier when required, focused regression,
 and acceptance before assigning more work to that Worker. Then dispatch the next authorized
 eligible implementation Node. If its `worker_continuation_key` equals the idle Worker's prior key,
 continue the same child with the new compact brief and bind its same opaque ID to the new dispatch;
@@ -201,12 +222,13 @@ delegation failure and must not consume an attempt. Keep waiting for the exact b
 new user request supersedes its work. Record `delegation-failed` only for a refused spawn with no ID
 or an exact bound child that the host independently and conclusively reports as terminally failed.
 Record the former with `--spawn-refused` and the latter with its exact bound
-`--terminal-failed-agent-id`; the CLI rejects an unqualified failure record. Limit each dispatch to
-three delegation attempts:
+`--terminal-failed-agent-id`; the CLI rejects an unqualified failure record. Visual Verifier permits
+one child attempt only and then uses the native-main fallback; it is never redispatched because a
+frozen regression contract was invalid. Limit every other dispatch to three delegation attempts:
 pinned role, one same-role retry, then one capability-equivalent temporary model fallback. If
 delegation is conclusively unavailable, record `--unavailable` instead of retrying. At the failure
 ceiling, stop spawning and perform the exact
-Designer, Worker, Verifier, or Reviewer contract yourself from the existing bounded payload, then
+Designer, Worker, Visual Verifier, or Reviewer contract yourself from the existing bounded payload, then
 record `main-complete`. Never bind a fabricated main-thread agent ID. Preserve visual/browser
 evidence, frozen acceptance, regression timing, and the one-Reviewer rule. Delegation failure is not
 a task blocker when the native main can perform the role.
@@ -215,6 +237,12 @@ Confirmed quota exhaustion or configured-model unavailability followed by this b
 takeover is expected and compliant; it never authorizes changing the pinned local matrix. A child
 that starts but reports no task body indicates payload-delivery failure, not quota exhaustion, and
 must use the same bounded fallback path.
+
+Remember an exact conclusively unavailable host/provider/model selector for the current
+conversation. If a later dispatch resolves to the same selector, skip the known-doomed spawn and
+record the dispatch's allowed unavailable path immediately. This circuit breaker is ephemeral: do
+not write it to Plan state, receipts, role files, or future conversations, and do not generalize one
+selector failure to another role or model.
 
 For read-only discovery, try Finder and Fallback Finder once each; if both fail conclusively, do the
 bounded read-only lookup in the native main rather than looping.
@@ -225,6 +253,12 @@ turn is idle and intentionally reusable. Completion of one Node never selects or
 automatically: the native main closes acceptance and explicitly dispatches each continuation.
 
 ## Main decisions and communication
+
+For a user-led sequence of related decisions, open one decision session. Record and resolve each
+choice immediately in canonical state, but defer generated projections, indexes, changelogs, and
+whole-group validation. Close the session with one projection command batch when the user ends the
+decision sequence. Do not use batching to hide an immediate safety decision or delay its canonical
+record.
 
 For `main_correction_decision`, inspect concrete evidence. Redispatch the same Worker for an
 ordinary implementation defect. Revise group design only for a genuine cross-node contract or

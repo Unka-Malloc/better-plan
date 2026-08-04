@@ -50,7 +50,7 @@ tree look complete. Every stored capability contains:
   `capability`. The parentless root is the only `repository` entry.
 - `basis`: `observed` for architecture already present in a mature repository or `designed` for a
   genuinely new capability. Observed facts are accepted as current reality without retrospective
-  Designer, Verifier, Reviewer, or acceptance work.
+  Designer, Reviewer, or acceptance work.
 - `disclosure`: `known` or `examined`. `known` is a lightweight fact encountered beside the selected
   path; it does not claim internal understanding.
 - `touch`: `untouched`, `in_scope`, or `modified`. A `known` entry must remain `untouched`; entering
@@ -154,9 +154,9 @@ Required fields:
   fixes the module and file decomposition, layer boundaries, dependency direction, interface
   contracts, and deliberate design-pattern choices in `Architecture.md` before implementation
   Nodes start. `group_design`, `implementation`, and `final_validation` are automated delivery
-  roles. Designer handles `group_design` once for the group; Worker handles each implementation,
-  with Verifier added only for Critical implementations; Reviewer handles final validation once
-  for the group.
+  roles. Designer handles `group_design` once for the group; Worker handles each implementation;
+  one Visual Verifier is added only for `visual` or `hybrid` Critical implementations; Reviewer
+  handles final validation once for the group.
   `milestone_gate` is a non-delivery aggregate evidence gate: it uses the manual `start`, `check`,
   and `complete` path and never enters implementation dispatch.
 - `prerequisites`: the sole execution-dependency authority: a list of globally unique Node IDs in
@@ -174,11 +174,11 @@ Required fields:
   `group_design`, `milestone_gate`, and `final_validation`; group final validation must be
   `critical`. Use `critical` for new-product or feature-foundation work unless Step 1 verified the
   corresponding artifact is already complete.
-- `verification_profile`: `code`, `visual`, or `hybrid`. This is independent of difficulty and
-  selects the Verifier only when an implementation is Critical. Non-Critical implementations never
-  dispatch a Verifier. For Critical implementations, `code` routes to the rigorous code Verifier,
-  while `visual` and `hybrid` require the Visual Verifier with vision, real-browser control, and
-  rendered evidence. The profile always selects the code or Visual Reviewer at final validation;
+- `verification_profile`: `code`, `visual`, or `hybrid`. This is independent of difficulty. Every
+  code-profile implementation proceeds from Worker directly to focused regression, including
+  Critical code Nodes. Only `visual` and `hybrid` Critical implementations require one Visual
+  Verifier with vision, real-browser control, and rendered evidence. The profile selects the code
+  or Visual Reviewer at final validation;
   `hybrid` also requires complete code and data-flow verification. The final-validation profile
   must equal the sole non-skipped implementation profile, or `hybrid` when implementation profiles
   are mixed or already hybrid.
@@ -221,7 +221,7 @@ Optional fields:
   explanatory only and never creates a Node dependency.
 - `acceptance` (tool-written for automated delivery Nodes): deterministic lifecycle state. Its
   phase is one of `awaiting_designer`, `designer_running`, `awaiting_worker`, `worker_running`,
-  `correction_required`, `awaiting_verifier`, `verifier_running`, `awaiting_reviewer`,
+  `correction_required`, `awaiting_visual_verifier`, `visual_verifier_running`, `awaiting_reviewer`,
   `reviewer_running`, `reviewer_complete`, `repair_plan_required`, `awaiting_repair`, or `accepted`.
   `attempt` is a non-negative
   counter and `outcome` is bounded state-machine data. A running dispatch stores an opaque ID,
@@ -238,8 +238,8 @@ Optional fields:
 Acceptance criterion object:
 
 - `checked`: boolean. Group-design criteria are checked when the bound Designer completes;
-  implementation criteria are checked after focused regression passes: directly after the Worker
-  for Routine, Standard, and Complex Nodes, or after the bound Verifier returns for Critical Nodes.
+  implementation criteria are checked after focused regression passes: directly after every
+  code-profile Worker, or after the bound Visual Verifier for a visual/hybrid Critical Node.
   Final-validation criteria are checked after the one Reviewer returns and post-review full
   regression passes. A foundation Node may record its own evidence before manual completion.
 - `text`: non-empty description of a concrete check that proves the task is complete. Reference requirement labels, evidence artifacts, tests, verifiers, or generated-artifact checks. Every implementation Node includes the smallest focused check for its declared closure. Add conditional criteria for redacted backend or sensitive evidence, open-source comparison and performance decisions for algorithm or data-structure work, and a purpose-built one-time removal check for refactors. Only final-validation Nodes may require the complete regression suite.
@@ -286,7 +286,7 @@ Operational transition gates:
   `GATE_LEAF`. Blocked and deferred gates may temporarily have no leaf; `activate` and `start`
   validate this contract before writing.
 - Better Plan never polls, times, interrupts, or replaces delegated Agents. The native host owns their lifetime and cancellation; unchanged delegated state should not produce repeated status reports, and this communication heuristic is not an execution, completion, or failure gate.
-- The native parent reads `next-action`; `dispatch --role designer|worker|verifier|reviewer`
+- The native parent reads `next-action`; `dispatch --role designer|worker|visual-verifier|reviewer`
   checks platform, prerequisites, ownership independence, group order, and current lifecycle phase,
   then records one opaque dispatch. Independent implementation Nodes in the same task group may
   remain active concurrently. State mutations are serialized even though bound child executions
@@ -312,11 +312,12 @@ Operational transition gates:
   obtain the real rendered state; source inspection, DOM text, snapshots, and successful builds are
   not visual acceptance.
 - While `worker_running`, the current code-only Worker turn implements the selected closure and resolves ordinary compiler, type, lint, import, and local integration errors before returning. The Worker may be a new child or a compatible idle continuation. Declared ownership is a planned focus rather than a filesystem boundary; necessary adjacent implementation changes are reported to the native main. The Worker cannot mutate Plan state, edit frozen tests, run acceptance or full regression, or mark its own result.
-- A Routine, Standard, or Complex Worker's correlated final callback runs focused regression once
-  and never enters `awaiting_verifier`. A Critical Worker's callback enters `awaiting_verifier`
-  without running regression; the write-capable Verifier repairs the Node, and its final callback
-  runs focused regression once. A passing run checks the mapped criteria and completes the Node;
-  failure enters `correction_required`. Command output is discarded.
+- Every code-profile Worker's correlated final callback runs focused regression once, including
+  Critical code Nodes. A `visual` or `hybrid` Critical Worker's callback enters
+  `awaiting_visual_verifier` without running regression; the one write-capable Visual Verifier
+  repairs the Node and its final callback runs focused regression once. A stale regression contract
+  is corrected and rerun directly, never by redispatching the Visual Verifier. A passing run checks
+  the mapped criteria and completes the Node; failure enters `correction_required`.
 - Node completion is terminal for that user-visible capability lifecycle. It does not select or enroll a different Node; adjacent findings and possible follow-up capabilities return to the native main.
 - A `final_validation` Node becomes eligible only after every non-skipped implementation Node is
   completed. It routes directly to the group's one Reviewer. The Reviewer repairs all autonomous
@@ -341,8 +342,9 @@ Checkpoint snapshot and workflow invariants:
   `status_reason`, Plan hierarchy, descriptions, and architecture prose do not affect eligibility.
 - A Node is `completed` only when every acceptance criterion is checked.
 - An implementation Node is one independently acceptable closure and completes after its Worker
-  plus one passing focused regression; a Critical implementation additionally requires Verifier
-  repair before that regression.
+  plus one passing focused regression; a `visual` or `hybrid` Critical implementation additionally
+  requires one Visual Verifier before that regression. Exceptional security review is represented
+  by an explicit implementation Node and Worker, never a universal verification stage.
 - A final-validation Node runs only after all non-skipped implementation Nodes complete; its one
   whole-group Reviewer and one normal post-review full regression produce the group's acceptance
   result. Additional runs are failure-driven repair retries only.
@@ -372,12 +374,15 @@ Plan consistency rules:
 | `platform [--json]` | print the normalized current runtime platform |
 | `transition <current> <target>` | check one single-step status transition |
 | `next-action <node-id> [root]` | return an automated delivery Node's bounded phase, sole next action, transcript-free `work_items`, role and knowledge references, capability scope with known untouched descendants omitted, native agent type, and necessary paths without choosing a model |
-| `dispatch <node-id> [root] --role designer\|worker\|verifier\|reviewer [--native-host codex]` | create or reuse one correlated native-agent dispatch with the same structured delegation facts; Codex freezes the installed role selector first and falls back to the packaged recommendation |
+| `dispatch <node-id> [root] --role designer\|worker\|visual-verifier\|reviewer [--native-host codex]` | create or reuse one correlated native-agent dispatch with the same structured delegation facts; Codex freezes the installed role selector first and falls back to the packaged recommendation |
+| `check-plan-readiness [root] --plan <selector> --command ... --path ...` | configure and run host-repository readiness checks; a configured stale or failed receipt blocks Designer dispatch |
+| `preflight-regression <node-id> [root] [--probe ...]` | validate declared paths, shell syntax, executable availability, and optional non-mutating package/script probes before dispatch |
 | `bind-agent <node-id> [root] --dispatch-id <id> --agent-id <id>` | bind the validated opaque native host identity returned by the real spawn call |
 | `delegation-failed <node-id> [root] --dispatch-id <id> (--spawn-refused\|--terminal-failed-agent-id <id>\|--unavailable)` | record one explicitly qualified delegation failure and enter native-main fallback at the retry ceiling; interruption, cancellation, silence, elapsed time, missing artifacts, and context compaction are not failure evidence |
-| `main-complete <node-id> [root] --dispatch-id <id> --role designer\|worker\|verifier\|reviewer` | record completion of the exact role by the native main after bounded delegation failure |
+| `main-complete <node-id> [root] --dispatch-id <id> --role designer\|worker\|visual-verifier\|reviewer` | record completion of the exact role by the native main after bounded delegation failure |
 | `agent-complete <node-id> [root] --agent-id <id> --final` | consume one exact final host callback; unbound, ambiguous, mismatched, and replayed callbacks are no-ops |
 | `advance <node-id> [root] --event <event> [--dispatch-id <id>] [--repair-node <id>]` | consume `reviewer-finished`, `repair-registered`, or `repair-completed`; guarded events run the post-review full regression, route repair, and auto complete |
+| `repair-plan <final-node-id> [root] ...` | atomically create one bounded implementation repair, wire it before final validation, and register it against the failed full regression |
 | `start <node-id> [root]` | start a non-delivery foundation Node; rejected for group-design, implementation, and final-validation lifecycles |
 | `pause <node-id> [root] [--reason "..."]` | return the `in_progress` Node to `pending` so another Node can start |
 | `regress <node-id> [root]` | manual foundation command entry; rejected for automated delivery Nodes |
@@ -387,13 +392,15 @@ Plan consistency rules:
 | `activate <node-id> [root]` | return an explicitly deferred Node to `pending` |
 | `skip <node-id> [root] --reason "..."` | irreversibly waive or mark a Node not applicable |
 | `check <node-id> [root] --criterion <n> [--evidence "..."] [--evidence-file <path>] [--evidence-cmd "..."]` | record evidence for a non-delivery foundation criterion; rejected for delivery acceptance |
-| `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--verification-profile code\|visual\|hybrid] [--requirements] [--design-json] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated wiring and an explicit verification capability profile; automated roles require design and implementation/final-validation roles also require their regression contract |
+| `add-node [root] --plan <selector> --goal ... --description ... --criterion ... --commit-message ... --commit-target ... [--role] [--difficulty] [--platform] [--verification-profile code\|visual\|hybrid] [--requirements] [--design-json] [--regression-scope] [--regression-command ...] [--regression-command-path ...] [--regression-path ...] [--regression-criterion ...] [--after/--before <id>] [--prerequisites] [--next] [--splice] [--id]` | insert a new pending Node with validated wiring and an explicit verification capability profile; command-specific path sets enable safe incremental reruns |
 | `rewire <node-id> [root] [--prerequisites ...] [--next ...] [--add-prerequisite <id>] [--remove-prerequisite <id>] [--add-next <id>] [--remove-next <id>]` | replace or incrementally edit a Node's edges with validation |
 | `edit-node <node-id> [root] [--goal] [--description] [--difficulty] [--platform] [--verification-profile] [--requirements] [--add-requirement] [--remove-requirement] [--criterion ...] [--commit-message] [--commit-target] [--commit-repository] [--regression-scope] [--regression-command ...] [--regression-path ...] [--regression-criterion ...]` | replace content including verification capability; edits invalidate stale preparation and proof while preserving the one-Reviewer-per-group invariant; terminal Nodes accept only requirements-label corrections |
 | `check-labels [root] [--plan <selector>] [--json]` | cross-check canonical `REQ-...` labels between plan markdown documents and Node `requirements`; noncanonical or undefined Node labels and noncanonical document labels are errors, uncovered canonical document labels are warnings |
 | `sync-plan [root]` | re-derive every Plan status from its Nodes |
 | `record-decision [root] --plan <selector> --urgency immediate\|deferred --question ... --context ... --option ... --option ...` | record one structured Reviewer-raised developer choice; immediate items must be reported now |
 | `resolve-decision <decision-id> [root] --plan <selector> --resolution ...` | preserve the choice history and record the user's resolution |
+| `open-decision-session [root] --plan <selector> --title ...` | open a sequential decision batch; each decision remains canonical immediately while projections stay dirty |
+| `close-decision-session [root] --plan <selector> [--projection-command ...]` | run the projection/validation batch once and close the decision session |
 | `tree [root] [--plan <selector>] [--details]` | render the capability facts followed by the concise source-grounded execution tree; `--details` adds full bounded capability detail and every raw Plan field |
 | `status [root] [--json]` | report per-plan progress, active/blocked/deferred Nodes, and open decisions with immediate/final-handoff timing |
 | `next [root] [--json]` | list all active Nodes and every safely eligible pending Node per plan for the current platform |

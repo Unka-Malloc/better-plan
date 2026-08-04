@@ -14,10 +14,10 @@ MAIN_ACTIONS: Final[frozenset[str]] = frozenset(
         "await_designer_exit",
         "await_worker_exit",
         "main_correction_decision",
-        "await_verifier_exit",
+        "await_visual_verifier_exit",
         "await_reviewer_exit",
         "main_reviewer_decision",
-        "create_repair_plan",
+        "repair_plan",
         "await_repair_completion",
         "complete_node",
     }
@@ -27,16 +27,13 @@ ROLE_REFERENCES: Final[Mapping[str, str]] = MappingProxyType(
     {
         "dispatch_designer": "references/designer.md",
         "dispatch_worker": "references/worker.md",
-        "dispatch_verifier": "references/verifier.md",
+        "dispatch_visual_verifier": "references/visual-verifier.md",
         "dispatch_reviewer": "references/reviewer.md",
     }
 )
 
 VISUAL_ROLE_REFERENCES: Final[Mapping[str, str]] = MappingProxyType(
-    {
-        "dispatch_verifier": "references/visual-verifier.md",
-        "dispatch_reviewer": "references/visual-reviewer.md",
-    }
+    {"dispatch_reviewer": "references/visual-reviewer.md"}
 )
 
 # Knowledge references supplement one role contract without becoming another role.

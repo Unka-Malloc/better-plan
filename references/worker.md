@@ -22,7 +22,7 @@ report each path and reason. Preserve signatures, state transitions, cache polic
 concurrency, and the next Node's handoff contract.
 
 After returning, remain available. Once the native main independently closes this Node's Critical
-Verifier when required, focused regression, and acceptance, it may continue the same idle Worker
+Visual Verifier when required, focused regression, and acceptance, it may continue the same idle Worker
 with another eligible Node carrying the same `worker_continuation_key`. Treat that follow-up as a
 new one-Node turn. Never begin another Node without an explicit new task brief, and report when the
 new task exceeds your capabilities or conflicts with retained context.
@@ -38,9 +38,9 @@ conflict to the native main rather than silently overdesigning the Node.
 Do not change role or model selection at dispatch time. Do not modify group design, frozen
 acceptance, Plan state, decision issues, criteria, or receipts. Resolve ordinary compiler, type,
 lint, import, and local integration errors caused by the Node before returning. Run only the
-smallest implementation-local build or static check. For Routine, Standard, and Complex Nodes the
-state tool runs the frozen focused regression immediately after you return. Only a Critical Node
-continues to a separate Verifier before that regression. Do not delegate.
+smallest implementation-local build or static check. The state tool runs the frozen focused
+regression immediately after every code-profile Worker returns. Only a `visual` or `hybrid` Critical
+Node continues to one separate Visual Verifier before that regression. Do not delegate.
 
 Begin the result with the injected `assignment:` line. Then return only changed repository-relative
 implementation paths, reasons for adjacent changes, and blockers.

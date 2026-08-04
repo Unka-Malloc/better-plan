@@ -17,7 +17,7 @@ from .workflow import (
     acceptance_snapshot,
     advance_designer_exit,
     advance_reviewer_exit,
-    advance_verifier_exit,
+    advance_visual_verifier_exit,
     advance_worker_exit,
     automated_node_role,
 )
@@ -169,8 +169,8 @@ def reduce_agent_completion(
                 if acceptance.get("phase") == "correction_required":
                     return _directive(updated, action="main_correction_decision")
                 return _directive(updated)
-            if (phase, role) == ("verifier_running", "verifier"):
-                updated = advance_verifier_exit(location, outstanding_id)
+            if (phase, role) == ("visual_verifier_running", "visual-verifier"):
+                updated = advance_visual_verifier_exit(location, outstanding_id)
                 if acceptance_snapshot(updated, required=True).get("phase") == "correction_required":
                     return _directive(updated, action="main_correction_decision")
                 return _directive(updated)

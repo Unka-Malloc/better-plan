@@ -9,8 +9,11 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
+import shlex
+import shutil
 from ..domain.design import canonical_design_bytes, normalize_design_path, validate_design_contract as _validate_design_contract
-from ..domain.models import REGRESSION_COMMAND_TIMEOUT_SECONDS, REGRESSION_REQUIRED_FIELDS, ToolError, expected_regression_scope, is_string_list, normalize_workspace_path
+from ..domain.models import REGRESSION_COMMAND_TIMEOUT_SECONDS, REGRESSION_REQUIRED_FIELDS, ToolError, expected_regression_scope, is_string_list, normalize_workspace_path, public_summary
 from ..domain.validation import validate_regression_contract
 from .workspace import NodeLocation as _NodeLocation, locate_node, project_root_for, referenced_checkpoints_files, workspace_manifest_path, write_location_and_sync_plan
 
@@ -156,7 +159,10 @@ def validated_regression_contract(location: _NodeLocation) -> dict[str, Any]:
 
 
 def regression_contract_digest(regression: dict[str, Any]) -> str:
-    contract = {field: regression[field] for field in sorted(REGRESSION_REQUIRED_FIELDS)}
+    fields = set(REGRESSION_REQUIRED_FIELDS)
+    if "command_paths" in regression:
+        fields.add("command_paths")
+    contract = {field: regression[field] for field in sorted(fields)}
     encoded = json.dumps(contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -232,6 +238,26 @@ def regression_content_fingerprint(location: _NodeLocation, regression: dict[str
     return digest.hexdigest()
 
 
+def _command_input_fingerprint(
+    location: _NodeLocation,
+    regression: dict[str, Any],
+    command_index: int,
+) -> str:
+    command_paths = regression.get("command_paths")
+    paths = command_paths[command_index] if isinstance(command_paths, list) else regression["paths"]
+    return regression_content_fingerprint(location, {**regression, "paths": paths})
+
+
+def _safe_command_summary(handle: Any, fallback: str) -> str:
+    handle.seek(0, 2)
+    size = handle.tell()
+    handle.seek(max(0, size - 8192))
+    decoded = handle.read().decode("utf-8", errors="replace")
+    lines = [" ".join(line.split()) for line in decoded.splitlines() if line.strip()]
+    candidate = " | ".join(lines[-3:])[-400:]
+    return public_summary(candidate, fallback)
+
+
 def regression_receipt_status(location: _NodeLocation) -> tuple[bool, str]:
     try:
         regression = validated_regression_contract(location)
@@ -251,6 +277,33 @@ def regression_receipt_status(location: _NodeLocation) -> tuple[bool, str]:
     return True, "passing regression receipt is current"
 
 
+def preflight_regression_at_location(location: _NodeLocation, probes: list[str]) -> list[str]:
+    """Reject broken command/path contracts before a delivery role starts."""
+
+    regression = validated_regression_contract(location)
+    regression_content_fingerprint(location, regression)
+    shell_builtins = {".", ":", "alias", "cd", "command", "eval", "exec", "export", "set", "test", "unset"}
+    messages: list[str] = []
+    for index, command in enumerate(regression["commands"]):
+        try:
+            tokens = shlex.split(command, posix=True)
+        except ValueError as exc:
+            raise ToolError(f"regression command[{index}] has invalid shell syntax") from exc
+        executable = next((token for token in tokens if "=" not in token or token.startswith(("/", "./"))), "")
+        if not executable:
+            raise ToolError(f"regression command[{index}] has no executable")
+        if executable not in shell_builtins and "/" not in executable and shutil.which(executable) is None:
+            raise ToolError(f"regression command[{index}] executable is unavailable")
+        messages.append(f"OK: regression command[{index}] executable and declared paths are available")
+    root = project_root_for(location.manifest.parent)
+    for index, probe in enumerate(probes):
+        result = subprocess.run(probe, cwd=root, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if result.returncode != 0:
+            raise ToolError(f"regression preflight probe[{index}] exited with {result.returncode}")
+        messages.append(f"OK: regression preflight probe[{index}] passed")
+    return messages
+
+
 def run_regression_at_location(location: _NodeLocation, *, persist: bool = True) -> list[str]:
     node = location.checkpoints_data[location.node_index]
     node_id = str(node.get("id"))
@@ -266,35 +319,82 @@ def run_regression_at_location(location: _NodeLocation, *, persist: bool = True)
     project_root = project_root_for(location.manifest.parent)
     before = regression_content_fingerprint(location, regression)
     commands = list(regression["commands"])
+    prior_receipts = {
+        (receipt.get("command_sha256"), receipt.get("input_fingerprint")): receipt
+        for receipt in regression.get("command_receipts", [])
+        if isinstance(receipt, dict)
+    }
+    passing_receipts: list[dict[str, str]] = []
+    failures: list[dict[str, Any]] = []
     for index, command in enumerate(commands):
-        try:
-            result = subprocess.run(
-                command,
-                cwd=project_root,
-                shell=True,
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=REGRESSION_COMMAND_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ToolError(
-                f"node {node_id}: regression command[{index}] timed out; captured output was discarded"
-            ) from exc
-        except OSError as exc:
-            raise ToolError(
-                f"node {node_id}: regression command[{index}] could not be started; captured output was discarded"
-            ) from exc
-        if result.returncode != 0:
-            raise ToolError(
-                f"node {node_id}: regression command[{index}] exited with {result.returncode}; captured output was discarded"
-            )
+        command_sha = hashlib.sha256(command.strip().encode("utf-8")).hexdigest()
+        input_fingerprint = _command_input_fingerprint(location, regression, index)
+        prior = prior_receipts.get((command_sha, input_fingerprint))
+        if prior is not None:
+            passing_receipts.append(dict(prior))
+            continue
+        recorded_at = evidence_timestamp()
+        with tempfile.TemporaryFile() as output:
+            failure: dict[str, Any] | None = None
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    shell=True,
+                    check=False,
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    timeout=REGRESSION_COMMAND_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                failure = {
+                    "command_index": index,
+                    "kind": "timeout",
+                    "summary": _safe_command_summary(output, "command timed out; details withheld"),
+                }
+            except OSError:
+                failure = {
+                    "command_index": index,
+                    "kind": "unavailable",
+                    "summary": "command could not be started; details withheld",
+                }
+            else:
+                if result.returncode != 0:
+                    failure = {
+                        "command_index": index,
+                        "kind": "exit",
+                        "summary": _safe_command_summary(output, f"command exited with {result.returncode}; details withheld"),
+                    }
+            if failure is not None:
+                failures.append(failure)
+                continue
+        passing_receipts.append(
+            {
+                "command_sha256": command_sha,
+                "input_fingerprint": input_fingerprint,
+                "recorded_at": recorded_at,
+            }
+        )
 
     after = regression_content_fingerprint(location, regression)
     if before != after:
-        raise ToolError(
-            f"node {node_id}: declared regression paths changed while commands were running; no receipt was recorded"
+        passing_receipts = []
+        failures.append(
+            {
+                "command_index": len(commands),
+                "kind": "exit",
+                "summary": "declared regression paths changed while commands were running",
+            }
         )
+    regression["command_receipts"] = passing_receipts
+    if failures:
+        regression["last_failure"] = failures
+        details = "; ".join(
+            f"command[{failure['command_index']}] {failure['kind']}: {failure['summary']}"
+            for failure in failures
+        )
+        raise ToolError(f"node {node_id}: regression commands failed: {details}")
+    regression.pop("last_failure", None)
 
     recorded_at = evidence_timestamp()
     command_digests = {

@@ -1,4 +1,4 @@
-"""End-to-end contracts for grouped Designer/Worker/Verifier/Reviewer state."""
+"""End-to-end contracts for grouped Designer/Worker/Visual Verifier/Reviewer state."""
 
 from __future__ import annotations
 
@@ -26,6 +26,11 @@ PLAN_DIR = Path("docs/plan/group-fixture")
 
 def shell_command(program: str) -> str:
     values = [sys.executable, "-c", program]
+    return subprocess.list2cmdline(values) if sys.platform == "win32" else shlex.join(values)
+
+
+def portable_python_command(program: str) -> str:
+    values = [Path(sys.executable).name, "-c", program]
     return subprocess.list2cmdline(values) if sys.platform == "win32" else shlex.join(values)
 
 
@@ -270,14 +275,14 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(
             transitions.transition("worker_running", "agent-complete", "worker"),
-            "awaiting_verifier",
+            "awaiting_visual_verifier",
         )
         self.assertEqual(
             transitions.transition("worker_running", "regression-passed", "worker"),
             "accepted",
         )
         self.assertEqual(
-            transitions.transition("verifier_running", "regression-passed", "verifier"),
+            transitions.transition("visual_verifier_running", "regression-passed", "visual-verifier"),
             "accepted",
         )
         self.assertEqual(
@@ -293,7 +298,7 @@ class GroupLifecycleTests(unittest.TestCase):
             "accepted",
         )
         with self.assertRaises(ValueError):
-            transitions.transition("awaiting_verifier", "agent-complete", "worker")
+            transitions.transition("awaiting_visual_verifier", "agent-complete", "worker")
 
     def test_designer_plans_group_without_a_regression_contract(self) -> None:
         payload = self.next_action(DESIGN_ID)
@@ -502,15 +507,17 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.assertIn("cannot replace a live bound child", refused.stderr)
 
-    def test_native_main_fallback_preserves_worker_verifier_and_reviewer_lifecycle(self) -> None:
+    def test_native_main_fallback_preserves_worker_visual_verifier_and_reviewer_lifecycle(self) -> None:
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         nodes[1]["difficulty"] = "critical"
+        nodes[1]["verification_profile"] = "visual"
+        nodes[-1]["verification_profile"] = "visual"
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
 
         for node_id, role, expected_action in (
-            (WORK_ID, "worker", "dispatch_verifier"),
-            (WORK_ID, "verifier", "complete_node"),
+            (WORK_ID, "worker", "dispatch_visual_verifier"),
+            (WORK_ID, "visual-verifier", "complete_node"),
             (FINAL_ID, "reviewer", "main_reviewer_decision"),
         ):
             dispatched = json.loads(
@@ -591,26 +598,31 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertIn("repository/group", serialized)
         self.assertNotIn("repository/sibling", serialized)
 
-    def test_worker_then_repairing_verifier_closes_one_node(self) -> None:
+    def test_worker_then_visual_verifier_closes_one_node(self) -> None:
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         nodes[1]["difficulty"] = "critical"
+        nodes[1]["verification_profile"] = "visual"
+        nodes[-1]["verification_profile"] = "visual"
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
         payload = self.next_action(WORK_ID)
         self.assertEqual(payload["action"], "dispatch_worker")
         self.assertEqual(payload["agent_type"], "worker-critical")
         worker = self.complete_role(WORK_ID, "worker")
-        self.assertEqual(worker["action"], "dispatch_verifier")
+        self.assertEqual(worker["action"], "dispatch_visual_verifier")
         worker_state = self.state(WORK_ID)
-        self.assertEqual(worker_state["acceptance"]["phase"], "awaiting_verifier")
+        self.assertEqual(worker_state["acceptance"]["phase"], "awaiting_visual_verifier")
         self.assertNotIn("last_pass", worker_state["regression"])
-        verifier = self.complete_role(WORK_ID, "verifier")
+        verifier = self.complete_role(WORK_ID, "visual-verifier")
         self.assertEqual(verifier["action"], "complete_node")
         state = self.state(WORK_ID)
         self.assertEqual(state["status"], "completed")
         self.assertTrue(state["acceptance_criteria"][0]["checked"])
 
-    def test_noncritical_worker_runs_focused_regression_without_verifier(self) -> None:
+    def test_code_worker_runs_focused_regression_without_verifier(self) -> None:
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        nodes[1]["difficulty"] = "critical"
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
         worker = self.complete_role(WORK_ID, "worker")
         self.assertEqual(worker["action"], "complete_node")
@@ -619,19 +631,21 @@ class GroupLifecycleTests(unittest.TestCase):
         self.assertEqual(state["acceptance"]["phase"], "accepted")
         self.assertTrue(state["acceptance_criteria"][0]["checked"])
 
-    def test_validation_rejects_noncritical_verifier_phase(self) -> None:
+    def test_validation_rejects_nonvisual_visual_verifier_phase(self) -> None:
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         nodes[1]["difficulty"] = "critical"
+        nodes[1]["verification_profile"] = "visual"
+        nodes[-1]["verification_profile"] = "visual"
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         self.complete_role(DESIGN_ID, "designer")
         worker = self.complete_role(WORK_ID, "worker")
-        self.assertEqual(worker["action"], "dispatch_verifier")
+        self.assertEqual(worker["action"], "dispatch_visual_verifier")
 
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         nodes[1]["difficulty"] = "standard"
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
         rejected = self.cli("validate", str(self.root), "--no-git", ok=False)
-        self.assertIn("only critical implementation nodes may enter Verifier phases", rejected.stderr)
+        self.assertIn("only visual or hybrid critical implementation nodes may enter Visual Verifier phases", rejected.stderr)
 
     def test_codex_dispatch_freezes_installed_critical_worker_selector(self) -> None:
         self.complete_role(DESIGN_ID, "designer")
@@ -725,7 +739,7 @@ class GroupLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(self.complete(WORK_ID, dispatch_id, agent_id), {})
 
-    def test_independent_workers_and_verifiers_run_concurrently_in_one_group(self) -> None:
+    def test_independent_workers_and_visual_verifiers_run_concurrently_in_one_group(self) -> None:
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         second_worker = self._base_node(
             WORK_TWO_ID,
@@ -734,8 +748,11 @@ class GroupLifecycleTests(unittest.TestCase):
             [DESIGN_ID],
             difficulty="critical",
         )
+        second_worker["verification_profile"] = "visual"
         nodes.insert(-1, second_worker)
         nodes[1]["difficulty"] = "critical"
+        nodes[1]["verification_profile"] = "visual"
+        nodes[-1]["verification_profile"] = "visual"
         nodes[-1]["prerequisites"] = [WORK_ID, WORK_TWO_ID]
         self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
 
@@ -752,14 +769,14 @@ class GroupLifecycleTests(unittest.TestCase):
 
         self.assertEqual(
             self.complete(WORK_TWO_ID, second_dispatch, second_agent)["action"],
-            "dispatch_verifier",
+            "dispatch_visual_verifier",
         )
         self.assertEqual(
             self.complete(WORK_ID, first_dispatch, first_agent)["action"],
-            "dispatch_verifier",
+            "dispatch_visual_verifier",
         )
-        first_verifier, first_verifier_agent = self.dispatch(WORK_ID, "verifier")
-        second_verifier, second_verifier_agent = self.dispatch(WORK_TWO_ID, "verifier")
+        first_verifier, first_verifier_agent = self.dispatch(WORK_ID, "visual-verifier")
+        second_verifier, second_verifier_agent = self.dispatch(WORK_TWO_ID, "visual-verifier")
 
         self.assertEqual(
             self.complete(WORK_ID, first_verifier, first_verifier_agent)["action"],
@@ -962,7 +979,7 @@ class GroupLifecycleTests(unittest.TestCase):
                 reviewer_id,
             ).stdout
         )
-        self.assertEqual(post["action"], "create_repair_plan")
+        self.assertEqual(post["action"], "repair_plan")
         nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
         repair = self._base_node(
             REPAIR_ID,
@@ -1003,6 +1020,101 @@ class GroupLifecycleTests(unittest.TestCase):
         state = self.state(FINAL_ID)
         self.assertEqual(state["status"], "completed")
         self.assertEqual(state["acceptance"]["review"]["dispatch_id"], reviewer_id)
+
+    def test_full_regression_aggregates_every_command_failure(self) -> None:
+        first = self.root / "src" / "full_regression.py"
+        second = self.root / "src" / "full_regression_second.py"
+        first.write_text("broken", encoding="utf-8")
+        second.write_text("broken", encoding="utf-8")
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        final = next(item for item in nodes if item["id"] == FINAL_ID)
+        final["regression"] = {
+            "scope": "full",
+            "commands": [
+                shell_command("from pathlib import Path; import sys; sys.exit(0 if Path('src/full_regression.py').read_text() == 'fixed' else 2)"),
+                shell_command("from pathlib import Path; import sys; sys.exit(0 if Path('src/full_regression_second.py').read_text() == 'fixed' else 3)"),
+            ],
+            "command_paths": [["src/full_regression.py"], ["src/full_regression_second.py"]],
+            "criteria": [0],
+            "paths": ["src"],
+        }
+        self.checkpoints.write_text(json.dumps(nodes), encoding="utf-8")
+        self.complete_opening_and_implementation()
+        reviewer_id, agent_id = self.dispatch(FINAL_ID, "reviewer")
+        self.complete(FINAL_ID, reviewer_id, agent_id)
+        self.cli("advance", FINAL_ID, str(self.root), "--event", "reviewer-finished", "--dispatch-id", reviewer_id)
+        state = self.state(FINAL_ID)
+        self.assertEqual(len(state["regression"]["last_failure"]), 2)
+        self.assertEqual([item["command_index"] for item in state["regression"]["last_failure"]], [0, 1])
+
+    def test_repair_plan_atomically_materializes_and_registers_node(self) -> None:
+        final_file = self.root / "src" / "full_regression.py"
+        self._write_workspace(final_program="import sys; sys.exit(9)")
+        self.complete_opening_and_implementation()
+        reviewer_id, agent_id = self.dispatch(FINAL_ID, "reviewer")
+        self.complete(FINAL_ID, reviewer_id, agent_id)
+        self.cli("advance", FINAL_ID, str(self.root), "--event", "reviewer-finished", "--dispatch-id", reviewer_id)
+        design = self._design("atomic_repair")
+        self.cli(
+            "repair-plan", FINAL_ID, str(self.root),
+            "--id", REPAIR_ID,
+            "--goal", "Repair the bounded final regression failure.",
+            "--description", "Closure: scenario - final repair. Context: one failed gate. Target: repair it. Design Considerations: bounded. Design Value: closure. Constraints & Risks: no expansion.",
+            "--design-json", json.dumps(design),
+            "--criterion", "The failed gate is repaired.",
+            "--regression-command", shell_command("pass"),
+            "--regression-path", "src/atomic_repair.py",
+            "--regression-criterion", "0",
+            "--requirements", "REQ-001",
+            "--commit-message", "fix: repair final gate",
+            "--commit-target", "final gate",
+        )
+        nodes = json.loads(self.checkpoints.read_text(encoding="utf-8"))
+        repair = next(item for item in nodes if item["id"] == REPAIR_ID)
+        final = next(item for item in nodes if item["id"] == FINAL_ID)
+        self.assertEqual(repair["next"], [FINAL_ID])
+        self.assertIn(REPAIR_ID, final["prerequisites"])
+        self.assertEqual(final["acceptance"]["phase"], "awaiting_repair")
+        self.assertEqual(final["acceptance"]["repair_node_id"], REPAIR_ID)
+
+    def test_plan_readiness_blocks_stale_state_before_designer_dispatch(self) -> None:
+        self.cli(
+            "check-plan-readiness", str(self.root), "--plan", PLAN_ID,
+            "--command", portable_python_command("pass"),
+            "--path", "src/group_design.py",
+        )
+        (self.root / "src" / "group_design.py").write_text("changed", encoding="utf-8")
+        blocked = self.cli("dispatch", DESIGN_ID, str(self.root), "--role", "designer", ok=False)
+        self.assertIn("changed after the last readiness check", blocked.stderr)
+
+    def test_regression_preflight_runs_optional_package_probe(self) -> None:
+        result = self.cli(
+            "preflight-regression", WORK_ID, str(self.root),
+            "--probe", shell_command("pass"),
+        )
+        self.assertIn("executable and declared paths are available", result.stdout)
+        self.assertIn("preflight probe[0] passed", result.stdout)
+
+    def test_decision_session_batches_projection_flush(self) -> None:
+        self.cli("open-decision-session", str(self.root), "--plan", PLAN_ID, "--title", "Field decisions")
+        decision = self.cli(
+            "record-decision", str(self.root), "--plan", PLAN_ID,
+            "--urgency", "deferred", "--question", "Keep the field?",
+            "--context", "The protocol requires an explicit owner choice.",
+            "--option", "Keep it", "--option", "Remove it",
+        )
+        self.assertIn("recorded deferred decision", decision.stdout)
+        manifest = json.loads((self.root / "Manifest.json").read_text(encoding="utf-8"))
+        self.assertTrue(manifest[0]["decision_session"]["projection_dirty"])
+        missing = self.cli("close-decision-session", str(self.root), "--plan", PLAN_ID, ok=False)
+        self.assertIn("requires at least one --projection-command", missing.stderr)
+        self.cli(
+            "close-decision-session", str(self.root), "--plan", PLAN_ID,
+            "--projection-command", shell_command("pass"),
+        )
+        manifest = json.loads((self.root / "Manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest[0]["decision_session"]["status"], "closed")
+        self.assertFalse(manifest[0]["decision_session"]["projection_dirty"])
 
 
 if __name__ == "__main__":

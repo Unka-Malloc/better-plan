@@ -35,7 +35,7 @@ HOST_HARNESSES = {
 }
 DIFFICULTIES = ("routine", "standard", "complex", "critical")
 INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
-    {"designer": "designer", "verifier": "verifier", "reviewer": "reviewer"}
+    {"designer": "designer", "reviewer": "reviewer"}
 )
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
 VISUAL_ROLES = ("visual-verifier", "visual-reviewer")
@@ -46,7 +46,6 @@ CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingPr
         "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-complex": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-critical": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "verifier": ("verifier", "gpt-5.6-sol", "high", "gpt-5-6-sol-high"),
         "visual-verifier": ("visual-verifier", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
         "visual-reviewer": ("visual-reviewer", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),

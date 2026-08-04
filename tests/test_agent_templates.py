@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +24,6 @@ DELIVERY_ROLE_NAMES = {
     "worker-standard",
     "worker-complex",
     "worker-critical",
-    "verifier",
     "visual-verifier",
     "reviewer",
     "visual-reviewer",
@@ -84,17 +84,15 @@ class AgentTemplateTests(unittest.TestCase):
                     self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
                     self.assertNotRegex(text, r"(?m)^model\s*[:=]")
 
-    def test_role_contracts_encode_group_endcaps_and_repairing_verification(self) -> None:
+    def test_role_contracts_encode_group_endcaps_and_visual_verification(self) -> None:
         designer = (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower()
         worker = (ROOT / "references" / "worker.md").read_text(encoding="utf-8").lower()
-        verifier = (ROOT / "references" / "verifier.md").read_text(encoding="utf-8").lower()
         reviewer = (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower()
         visual_verifier = (ROOT / "references" / "visual-verifier.md").read_text(encoding="utf-8").lower()
         visual_reviewer = (ROOT / "references" / "visual-reviewer.md").read_text(encoding="utf-8").lower()
         self.assertIn("whole group in one pass", designer)
         self.assertIn("progression between nodes", designer)
         self.assertIn("task difficulty", worker)
-        self.assertIn("repair every", verifier)
         self.assertIn("exactly once per task group", reviewer)
         self.assertIn("decision_issues", reviewer)
         self.assertIn("immediate", reviewer)
@@ -219,7 +217,6 @@ class AgentTemplateTests(unittest.TestCase):
                 "worker-standard": ("gpt-5.6-luna", "max"),
                 "worker-complex": ("gpt-5.6-luna", "max"),
                 "worker-critical": ("gpt-5.6-luna", "max"),
-                "verifier": ("gpt-5.6-sol", "high"),
                 "visual-verifier": ("gpt-5.6-sol", "xhigh"),
                 "reviewer": ("gpt-5.6-sol", "max"),
                 "visual-reviewer": ("gpt-5.6-sol", "xhigh"),
@@ -328,7 +325,7 @@ class AgentTemplateTests(unittest.TestCase):
                 excluded_names=NATIVE_ROLE_FILES["codex"],
             )
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "verifier", "visual-verifier", "reviewer", "visual-reviewer"):
+            for role in ("designer", "visual-verifier", "reviewer", "visual-reviewer"):
                 self.assertEqual(assignments[role].model, "gemini-3-6-flash")
                 self.assertIsNone(assignments[role].reasoning_effort)
                 self.assertEqual(assignments[role].source, "local-config")
@@ -360,7 +357,7 @@ class AgentTemplateTests(unittest.TestCase):
             )
 
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "verifier", "reviewer"):
+            for role in ("designer", "reviewer"):
                 self.assertEqual(assignments[role].source, "codex-default-matrix")
             for role in ("visual-verifier", "visual-reviewer"):
                 self.assertEqual(assignments[role].source, "codex-default-webdev")
@@ -395,7 +392,7 @@ class AgentTemplateTests(unittest.TestCase):
                 excluded_names=NATIVE_ROLE_FILES["claude"],
             )
 
-            for role in ("designer", "verifier", "reviewer"):
+            for role in ("designer", "reviewer"):
                 self.assertEqual(assignments[role].model, "deepseek-v4-flash")
             for role in ("visual-verifier", "visual-reviewer"):
                 self.assertEqual(assignments[role].model, "k3-256k")
@@ -415,6 +412,29 @@ class AgentTemplateTests(unittest.TestCase):
 
             with self.assertRaises(InstallError):
                 install_role_templates(install_paths, "codex", dry_run=False)
+
+    def test_update_removes_only_receipt_owned_obsolete_verifier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_paths = paths(Path(tmpdir))
+            install_role_templates(install_paths, "codex", dry_run=False)
+            directory = install_paths.codex_home / "agents"
+            obsolete = directory / "verifier.toml"
+            obsolete_bytes = b'name = "verifier"\nmodel = "retired"\n'
+            obsolete.write_bytes(obsolete_bytes)
+            receipt_path = install_paths.codex_home / "agents.better-plan.json"
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            assignment = dict(receipt["assignments"]["reviewer.toml"])
+            assignment.update({"role": "verifier", "agent_name": "verifier"})
+            receipt["files"]["verifier.toml"] = hashlib.sha256(obsolete_bytes).hexdigest()
+            receipt["assignments"]["verifier.toml"] = assignment
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            install_role_templates(install_paths, "codex", dry_run=False)
+
+            updated = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertFalse(obsolete.exists())
+            self.assertNotIn("verifier.toml", updated["files"])
+            self.assertNotIn("verifier.toml", updated["assignments"])
 
     def test_update_keeps_the_original_assignment_even_if_new_local_models_appear(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -438,9 +458,9 @@ class AgentTemplateTests(unittest.TestCase):
     def test_single_measured_opencode_model_can_fill_all_intelligence_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             assignments = select_role_assignments(paths(Path(tmpdir)), "opencode")
-            self.assertTrue({"designer", "verifier", "reviewer"}.issubset(assignments))
+            self.assertTrue({"designer", "reviewer"}.issubset(assignments))
             self.assertTrue(
-                all(assignments[role].benchmark_id == "muse-spark-1-1" for role in ("designer", "verifier", "reviewer"))
+                all(assignments[role].benchmark_id == "muse-spark-1-1" for role in ("designer", "reviewer"))
             )
 
 

@@ -81,19 +81,13 @@ class RoleRoutingTests(unittest.TestCase):
 
     def test_non_worker_roles_rank_intelligence_without_cost(self) -> None:
         designer = select_intelligence_model("designer")
-        verifier = select_intelligence_model("verifier")
         reviewer = select_intelligence_model("reviewer")
         self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5", 61))
         self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5", 61))
-        self.assertEqual(verifier.intelligence_index, 60)
-        self.assertGreater(verifier.cost_per_task_usd or 0, designer.cost_per_task_usd or 0)
 
-    def test_verifier_reuses_top_tier_only_when_one_score_is_locally_available(self) -> None:
-        selected = select_intelligence_model(
-            "verifier",
-            available_model_ids={"gemini-3-5-flash", "gemini-3-6-flash"},
-        )
-        self.assertEqual(selected.intelligence_index, 50)
+    def test_removed_verifier_is_not_an_intelligence_role(self) -> None:
+        with self.assertRaises(ToolError):
+            select_intelligence_model("verifier")
 
     def test_catalog_validation_fails_closed(self) -> None:
         payload = json.loads(AGENT_PATH.read_text(encoding="utf-8"))
