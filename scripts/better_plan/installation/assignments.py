@@ -57,6 +57,14 @@ CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
         "fallback_finder": ("gpt-5.4-mini", "xhigh"),
     }
 )
+CURSOR_DEFAULT_WORKER_MATRIX: Final[Mapping[str, tuple[str, str, str]]] = MappingProxyType(
+    {
+        "worker-routine": ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
+        "worker-standard": ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
+        "worker-complex": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+        "worker-critical": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+    }
+)
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/+-]{1,128}$")
 _TOML_MODEL = re.compile(r'(?m)^model\s*=\s*"([A-Za-z0-9._:/+-]{1,128})"\s*$')
 _TOML_EFFORT = re.compile(r'(?m)^model_reasoning_effort\s*=\s*"([A-Za-z0-9._+-]{1,64})"\s*$')
@@ -156,6 +164,35 @@ def _codex_finder_assignments() -> dict[str, RoleAssignment]:
         )
         for agent_name, (model, effort) in CODEX_FINDER_MATRIX.items()
     }
+
+
+def _cursor_default_worker_assignments(
+    agent_catalog: CodingAgentCatalog,
+) -> dict[str, RoleAssignment]:
+    """Resolve the curated Cursor Worker defaults against measured benchmark rows.
+
+    The Grok rows reference the grok-build measurement, the nearest measured
+    row for the same model and reasoning setting; no cursor-cli measurement
+    exists for that combination yet.
+    """
+
+    variants = {variant.variant_id: variant for variant in agent_catalog.variants}
+    assignments: dict[str, RoleAssignment] = {}
+    for agent_name, (model, effort, benchmark_id) in CURSOR_DEFAULT_WORKER_MATRIX.items():
+        benchmark = variants.get(benchmark_id)
+        if benchmark is None:
+            raise ToolError("the Cursor default Worker benchmark is unavailable")
+        assignments[agent_name] = RoleAssignment(
+            role="worker",
+            agent_name=agent_name,
+            model=model,
+            reasoning_effort=effort,
+            benchmark_id=benchmark_id,
+            index_score=benchmark.index_score,
+            cost_per_task_usd=benchmark.cost_per_task_usd,
+            source="cursor-default-matrix",
+        )
+    return assignments
 
 
 def native_role_directory(paths: _InstallPaths, target: str) -> Path:
@@ -333,6 +370,8 @@ def select_role_assignments(
         )
         assignments.update(_codex_finder_assignments())
         return assignments
+    if target == "cursor" and not local_models:
+        return _cursor_default_worker_assignments(agent_catalog)
     eligible_variants = _matching_variants(harness_variants, local_models)
     source = "local-config" if local_models and eligible_variants else "catalog-fallback"
     if local_models and not eligible_variants:
