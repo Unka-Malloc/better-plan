@@ -59,8 +59,8 @@ CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
 )
 CURSOR_DEFAULT_WORKER_MATRIX: Final[Mapping[str, tuple[str, str, str]]] = MappingProxyType(
     {
-        "worker-routine": ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
-        "worker-standard": ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
+        "worker-routine": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+        "worker-standard": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
         "worker-complex": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
         "worker-critical": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
     }
