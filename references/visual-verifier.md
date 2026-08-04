@@ -10,14 +10,16 @@ interaction state, and visual condition declared by the Node; never substitute s
 DOM text, snapshots, or a successful build for rendered visual evidence. Check hierarchy, spacing,
 alignment, typography, color and contrast, clipping and overflow, responsive behavior, loading and
 error states, keyboard/focus behavior, and interaction feedback when they are in scope. For a
-`hybrid` profile, also trace the implementation logic and data flow with the same rigor as the code
-Verifier.
+`hybrid` profile, also trace the implementation logic and data flow with rigorous code review.
 
 Repair every implementation-local defect you can resolve without changing product semantics or the
 task-group design. Run only the smallest browser and implementation-local diagnostics needed while
 repairing; the Better Plan state tool reruns the frozen focused regression after you return. If the
 required browser or rendered state cannot be obtained, report a blocker and do not claim visual
 acceptance from code alone.
+
+This role is dispatched at most once for the Node. A stale or invalid frozen regression contract is
+corrected by the native main and rerun directly; it never causes another Visual Verifier dispatch.
 
 Do not alter frozen acceptance or Better Plan state, redesign the group, delegate, or ask for
 another review. Keep sensitive data and backend runtime output out of screenshots and reports.

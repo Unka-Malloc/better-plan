@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 from pathlib import Path
 from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
-from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MAX_DELEGATION_FAILURES, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
+from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MAX_DELEGATION_FAILURES, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_COMMAND_RECEIPT_FIELDS, REGRESSION_FAILURE_FIELDS, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
 
 
 def readable_summary_issue(value: Any) -> str | None:
@@ -83,6 +83,19 @@ def validate_regression_contract(
                 issues.append(Issue(path, f"{prefix}.regression.commands[{index}]: duplicate command"))
             else:
                 seen_commands.add(normalized)
+
+    command_paths = regression.get("command_paths")
+    if command_paths is not None:
+        if not isinstance(command_paths, list) or not isinstance(commands, list) or len(command_paths) != len(commands):
+            issues.append(Issue(path, f"{prefix}.regression.command_paths: must align one path array with every command"))
+        else:
+            for command_index, path_set in enumerate(command_paths):
+                if not is_string_list(path_set) or not path_set:
+                    issues.append(Issue(path, f"{prefix}.regression.command_paths[{command_index}]: must be a non-empty path array"))
+                    continue
+                for path_index, value in enumerate(path_set):
+                    if not is_relative_workspace_path(value):
+                        issues.append(Issue(path, f"{prefix}.regression.command_paths[{command_index}][{path_index}]: must be a safe repository-relative path"))
 
     criteria = regression.get("criteria")
     if not isinstance(criteria, list) or not criteria:
@@ -162,6 +175,38 @@ def validate_regression_contract(
                 if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
                     issues.append(Issue(path, f"{prefix}.regression.last_pass.{field}: must be a lowercase sha256 digest"))
 
+    command_receipts = regression.get("command_receipts")
+    if command_receipts is not None:
+        if not isinstance(command_receipts, list):
+            issues.append(Issue(path, f"{prefix}.regression.command_receipts: must be an array"))
+        else:
+            for index, receipt in enumerate(command_receipts):
+                if not isinstance(receipt, dict) or set(receipt) != REGRESSION_COMMAND_RECEIPT_FIELDS:
+                    issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}]: invalid receipt shape"))
+                    continue
+                for field in ("command_sha256", "input_fingerprint"):
+                    if not isinstance(receipt.get(field), str) or not SHA256_PATTERN.fullmatch(receipt[field]):
+                        issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}].{field}: must be a lowercase sha256 digest"))
+                if not isinstance(receipt.get("recorded_at"), str) or not receipt["recorded_at"].strip():
+                    issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}].recorded_at: must be a non-empty timestamp"))
+
+    last_failure = regression.get("last_failure")
+    if last_failure is not None:
+        if not isinstance(last_failure, list) or not last_failure:
+            issues.append(Issue(path, f"{prefix}.regression.last_failure: must be a non-empty array"))
+        else:
+            for index, failure in enumerate(last_failure):
+                if not isinstance(failure, dict) or set(failure) != REGRESSION_FAILURE_FIELDS:
+                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}]: invalid failure shape"))
+                    continue
+                if type(failure.get("command_index")) is not int or failure["command_index"] < 0:
+                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].command_index: must be a non-negative integer"))
+                if failure.get("kind") not in {"exit", "timeout", "unavailable"}:
+                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].kind: invalid failure kind"))
+                summary_issue = safe_summary_issue(failure.get("summary"))
+                if summary_issue:
+                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].summary: {summary_issue}"))
+
     return issues
 
 
@@ -225,13 +270,14 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
 
     valid_phases = {
         "group_design": {"awaiting_designer", "designer_running", "accepted"},
-        "implementation": {"awaiting_worker", "worker_running", "correction_required", "awaiting_verifier", "verifier_running", "accepted"},
+        "implementation": {"awaiting_worker", "worker_running", "correction_required", "awaiting_visual_verifier", "visual_verifier_running", "accepted"},
         "final_validation": {"awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair", "accepted"},
     }
     if role in valid_phases and phase not in valid_phases[str(role)]:
         issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for {role!r}"))
-    if role == "implementation" and phase in {"awaiting_verifier", "verifier_running"} and node.get("difficulty") != "critical":
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: only critical implementation nodes may enter Verifier phases"))
+    if role == "implementation" and phase in {"awaiting_visual_verifier", "visual_verifier_running"}:
+        if node.get("difficulty") != "critical" or node.get("verification_profile") not in {"visual", "hybrid"}:
+            issues.append(Issue(path, f"{prefix}.acceptance.phase: only visual or hybrid critical implementation nodes may enter Visual Verifier phases"))
 
     pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "repair_plan_required", "awaiting_repair"}
     if phase == "accepted" and status != "completed":
@@ -249,8 +295,8 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
         "awaiting_worker": {"none"},
         "worker_running": {"none"},
         "correction_required": ACCEPTANCE_FAILURE_OUTCOMES,
-        "awaiting_verifier": {"none"},
-        "verifier_running": {"none"},
+        "awaiting_visual_verifier": {"none"},
+        "visual_verifier_running": {"none"},
         "awaiting_reviewer": {"none"},
         "reviewer_running": {"none"},
         "reviewer_complete": {"none"},
@@ -272,7 +318,7 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     dispatch_roles = {
         "designer_running": "designer",
         "worker_running": "worker",
-        "verifier_running": "verifier",
+        "visual_verifier_running": "visual-verifier",
         "reviewer_running": "reviewer",
     }
     expected_role = dispatch_roles.get(str(phase))
@@ -352,7 +398,7 @@ def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) 
     must_have_pass = phase == "accepted" and role in REGRESSION_NODE_ROLES
     if must_have_pass and not isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} requires a passing regression receipt"))
-    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_verifier", "verifier_running", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair"}
+    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_visual_verifier", "visual_verifier_running", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair"}
     if phase in obsolete_pass_phases and isinstance(last_pass, dict):
         issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} must not retain an obsolete receipt"))
     return issues

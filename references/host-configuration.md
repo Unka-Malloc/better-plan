@@ -1,13 +1,14 @@
 # Host Configuration and Role Visibility
 
-Read this reference only for the first Better Plan activation in a conversation, native role
+Read this reference only before the first Better Plan role dispatch in a conversation, native role
 configuration changes, installation/update/Doctor work, selector diagnosis, or host integration.
 Ordinary planning and delivery turns do not load it.
 
 ## First-use role visibility gate
 
-Before discovering or mutating Plan state or dispatching any role agent on the first Better Plan
-activation, inspect the current host's installed Better Plan role files and receipt read-only.
+Before dispatching the first Better Plan role agent in a conversation, inspect the current host's
+installed Better Plan role files and receipt read-only. Read-only analysis, history audits,
+workspace discovery, and state inspection skip this gate.
 Compare every installed role with the package recommendation in one localized Markdown table:
 
 | 角色 | 用途 | 已安装选择器 | 推荐选择器 | 差异 |

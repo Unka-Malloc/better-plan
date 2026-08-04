@@ -13,10 +13,11 @@ from .capability_cli import capability_projection, register_capability_commands
 from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, delegation_failed_command, dispatch_command, invalidate_preparation_after_plan_edit, main_complete_command, next_action_command, pause_command, regress_command, skip_command, start_command
 from ..domain.capabilities import capability_schema_payload
 from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
-from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
+from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DECISION_SESSION_OPTIONAL_FIELDS, DECISION_SESSION_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_READINESS_OPTIONAL_FIELDS, PLAN_READINESS_RECEIPT_FIELDS, PLAN_READINESS_REQUIRED_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_COMMAND_RECEIPT_FIELDS, REGRESSION_FAILURE_FIELDS, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
 from ..domain.tree import render_workspace_tree
 from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
-from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches
+from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches, preflight_regression_at_location
+from ..infrastructure.readiness import run_plan_readiness_check
 from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_capability_issues, workspace_dependency_issues, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan, write_state_entries
 def validate_command(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
@@ -329,9 +330,70 @@ def record_decision_command(args: argparse.Namespace) -> int:
             "status": "open",
         }
     )
+    session = plan.get("decision_session")
+    if isinstance(session, dict) and session.get("status") == "open":
+        session.setdefault("decision_ids", []).append(decision_id)
+        session["projection_dirty"] = True
     write_state_entries(manifest, manifest_data)
     action = "report to the user now" if args.urgency == "immediate" else "include in the final decision report"
     print(f"OK: plan[{plan_index}] recorded {args.urgency} decision {decision_id}; native main must {action}")
+    return 0
+
+
+def open_decision_session_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    data = load_state_entries(manifest)
+    _, plan = resolve_plan_entry(manifest, data, args.plan)
+    current = plan.get("decision_session")
+    if isinstance(current, dict) and current.get("status") == "open":
+        raise ToolError("the selected Plan already has an open decision session")
+    title_issue = safe_summary_issue(args.title)
+    if title_issue is not None:
+        raise ToolError(f"--title {title_issue}")
+    session_id = generate_id()
+    plan["decision_session"] = {
+        "id": session_id,
+        "title": args.title.strip(),
+        "status": "open",
+        "projection_dirty": False,
+        "decision_ids": [],
+        "opened_at": evidence_timestamp(),
+    }
+    write_state_entries(manifest, data)
+    print(f"OK: decision session {session_id} opened")
+    return 0
+
+
+def close_decision_session_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    data = load_state_entries(manifest)
+    _, plan = resolve_plan_entry(manifest, data, args.plan)
+    session = plan.get("decision_session")
+    if not isinstance(session, dict) or session.get("status") != "open":
+        raise ToolError("the selected Plan has no open decision session")
+    commands = list(args.projection_command or [])
+    if session.get("projection_dirty") and not commands:
+        raise ToolError("a dirty decision session requires at least one --projection-command")
+    root = project_root_for(manifest.parent)
+    failures: list[str] = []
+    for index, command in enumerate(commands):
+        result = subprocess.run(
+            command,
+            cwd=root,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            failures.append(f"projection command[{index}] exited with {result.returncode}")
+    if failures:
+        raise ToolError("; ".join(failures))
+    session["projection_dirty"] = False
+    session["status"] = "closed"
+    session["closed_at"] = evidence_timestamp()
+    write_state_entries(manifest, data)
+    print(f"OK: decision session {session['id']} closed after one projection batch")
     return 0
 
 def resolve_decision_command(args: argparse.Namespace) -> int:
@@ -364,6 +426,23 @@ def resolve_decision_command(args: argparse.Namespace) -> int:
         match["resolution"] = args.resolution.strip()
         write_state_entries(manifest, manifest_data)
     print(f"OK: decision {args.decision_id} resolved")
+    return 0
+
+def check_plan_readiness_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    manifest_data = load_state_entries(manifest)
+    plan_index, plan, checkpoints_path, checkpoints_data = plan_checkpoints_location(manifest, manifest_data, args.plan)
+    location = _NodeLocation(manifest, manifest_data, plan_index, checkpoints_path, checkpoints_data, 0)
+    run_plan_readiness_check(location, list(args.command), list(args.path))
+    print(f"OK: plan {plan_label(plan, plan_index)!r} passed host-repository readiness checks")
+    return 0
+
+
+def preflight_regression_command(args: argparse.Namespace) -> int:
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.node_id)
+    for message in preflight_regression_at_location(location, list(args.probe or [])):
+        print(message)
     return 0
 
 def add_node_command(args: argparse.Namespace) -> int:
@@ -402,6 +481,7 @@ def add_node_command(args: argparse.Namespace) -> int:
         for value in (
             args.regression_scope,
             args.regression_command,
+            args.regression_command_path,
             args.regression_path,
             args.regression_criterion,
         )
@@ -419,6 +499,8 @@ def add_node_command(args: argparse.Namespace) -> int:
             raise ToolError(
                 f"role {args.role!r} requires a complete regression contract; missing {', '.join(missing)}"
             )
+        if args.regression_command_path is not None and len(args.regression_command_path) != len(args.regression_command):
+            raise ToolError("--regression-command-path must be repeated exactly once per --regression-command")
 
     anchor_index: int | None = None
     if args.after or args.before:
@@ -474,6 +556,8 @@ def add_node_command(args: argparse.Namespace) -> int:
             "criteria": list(args.regression_criterion),
             "paths": list(args.regression_path),
         }
+        if args.regression_command_path is not None:
+            node["regression"]["command_paths"] = [parse_id_list(value) or [] for value in args.regression_command_path]
     node["next"] = next_refs
 
     if args.before is not None and anchor_index is not None:
@@ -491,6 +575,95 @@ def add_node_command(args: argparse.Namespace) -> int:
     messages.extend(write_location_and_sync_plan(location))
     for message in messages:
         print(message)
+    return 0
+
+
+def repair_plan_command(args: argparse.Namespace) -> int:
+    """Atomically materialize and register one bounded repair for a failed final gate."""
+
+    manifest = workspace_manifest_path(Path(args.root))
+    location = locate_node(manifest, args.final_node_id)
+    final = location.checkpoints_data[location.node_index]
+    acceptance = final.get("acceptance")
+    if final.get("role") != "final_validation" or not isinstance(acceptance, dict):
+        raise ToolError("repair-plan requires a final_validation node with acceptance state")
+    if acceptance.get("phase") != "repair_plan_required":
+        raise ToolError("repair-plan requires a failed final regression awaiting a repair plan")
+
+    try:
+        design = json.loads(args.design_json)
+    except json.JSONDecodeError as exc:
+        raise ToolError("--design-json must be a valid JSON object") from exc
+    if not isinstance(design, dict):
+        raise ToolError("--design-json must be a JSON object")
+    design_issues = _validate_design_contract(design)
+    if design_issues:
+        raise ToolError(f"--design-json is invalid: {'; '.join(design_issues)}")
+
+    repair_id = args.id or generate_id()
+    if not is_manifest_id(repair_id):
+        raise ToolError("--id must be a UUID4 value")
+    if any(isinstance(node, dict) and node.get("id") == repair_id for node in location.checkpoints_data):
+        raise ToolError("repair node id already exists")
+
+    previous_prerequisites = list(final.get("prerequisites", []))
+    repair: dict[str, Any] = {
+        "id": repair_id,
+        "status": "pending",
+        "role": "implementation",
+        "prerequisites": previous_prerequisites,
+        "platform": args.platform,
+        "difficulty": args.difficulty,
+        "verification_profile": args.verification_profile,
+        "goal": args.goal,
+        "description": args.description,
+        "acceptance_criteria": [{"checked": False, "text": text} for text in args.criterion],
+        "commit": {
+            "repository": args.commit_repository,
+            "message": args.commit_message,
+            "target": args.commit_target,
+        },
+        "design": design,
+        "regression": {
+            "scope": "focused",
+            "commands": list(args.regression_command),
+            "paths": list(args.regression_path),
+            "criteria": list(args.regression_criterion),
+        },
+        "next": [args.final_node_id],
+    }
+    requirements = parse_id_list(args.requirements)
+    if requirements is None and is_string_list(final.get("requirements")):
+        requirements = list(final["requirements"])
+    if requirements is not None:
+        repair["requirements"] = requirements
+
+    final["prerequisites"] = [*previous_prerequisites, repair_id]
+    final["status"] = "pending"
+    final["acceptance"] = {
+        "phase": "awaiting_repair",
+        "attempt": int(acceptance.get("attempt", 0)),
+        "outcome": acceptance.get("outcome"),
+        "repair_node_id": repair_id,
+        "review": acceptance.get("review"),
+        **{
+            field: acceptance[field]
+            for field in ("design_digest", "scaffold_fingerprint", "acceptance_fingerprint")
+            if field in acceptance
+        },
+    }
+    location.checkpoints_data.insert(location.node_index, repair)
+    repair_location = _NodeLocation(
+        location.manifest,
+        location.manifest_data,
+        location.plan_index,
+        location.checkpoints_path,
+        location.checkpoints_data,
+        location.node_index,
+    )
+    for message in write_location_and_sync_plan(repair_location):
+        print(message)
+    print(f"OK: repair node {repair_id} atomically created, wired, and registered")
     return 0
 
 
@@ -559,6 +732,7 @@ def edit_node_command(args: argparse.Namespace) -> int:
         for value in (
             args.regression_scope,
             args.regression_command,
+            args.regression_command_path,
             args.regression_path,
             args.regression_criterion,
         )
@@ -617,6 +791,7 @@ def edit_node_command(args: argparse.Namespace) -> int:
         replacements: dict[str, Any] = {
             "scope": args.regression_scope,
             "commands": list(args.regression_command) if args.regression_command is not None else None,
+            "command_paths": [parse_id_list(value) or [] for value in args.regression_command_path] if args.regression_command_path is not None else None,
             "paths": list(args.regression_path) if args.regression_path is not None else None,
             "criteria": list(args.regression_criterion) if args.regression_criterion is not None else None,
         }
@@ -1053,6 +1228,11 @@ def schema_command(args: argparse.Namespace) -> int:
             "decision_issue_required_fields": sorted(DECISION_ISSUE_REQUIRED_FIELDS),
             "decision_issue_optional_fields": sorted(DECISION_ISSUE_OPTIONAL_FIELDS),
             "decision_urgencies": sorted(VALID_DECISION_URGENCIES),
+            "decision_session_required_fields": sorted(DECISION_SESSION_REQUIRED_FIELDS),
+            "decision_session_optional_fields": sorted(DECISION_SESSION_OPTIONAL_FIELDS),
+            "readiness_required_fields": sorted(PLAN_READINESS_REQUIRED_FIELDS),
+            "readiness_optional_fields": sorted(PLAN_READINESS_OPTIONAL_FIELDS),
+            "readiness_receipt_fields": sorted(PLAN_READINESS_RECEIPT_FIELDS),
             "template": PLAN_TEMPLATE,
         }
     else:
@@ -1068,6 +1248,8 @@ def schema_command(args: argparse.Namespace) -> int:
             "regression_required_fields": sorted(REGRESSION_REQUIRED_FIELDS),
             "regression_optional_fields": sorted(REGRESSION_OPTIONAL_FIELDS),
             "regression_receipt_fields": sorted(REGRESSION_RECEIPT_FIELDS),
+            "regression_command_receipt_fields": sorted(REGRESSION_COMMAND_RECEIPT_FIELDS),
+            "regression_failure_fields": sorted(REGRESSION_FAILURE_FIELDS),
             "regression_scopes": sorted(VALID_REGRESSION_SCOPES),
             "acceptance_required_fields": sorted(ACCEPTANCE_REQUIRED_FIELDS),
             "acceptance_optional_fields": sorted(ACCEPTANCE_OPTIONAL_FIELDS),
@@ -1134,14 +1316,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     dispatch = subparsers.add_parser(
         "dispatch",
-        help="record one idempotent Designer, Worker, Verifier, or Reviewer dispatch",
+        help="record one idempotent Designer, Worker, Visual Verifier, or Reviewer dispatch",
     )
     dispatch.add_argument("node_id", help="node UUID")
     dispatch.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     dispatch.add_argument(
         "--role",
         required=True,
-        choices=("designer", "worker", "verifier", "reviewer"),
+        choices=("designer", "worker", "visual-verifier", "reviewer"),
         help="fresh leaf-agent role",
     )
     dispatch.add_argument("--native-host", choices=("codex",), help="freeze the current host's native role selector")
@@ -1181,7 +1363,7 @@ def build_parser() -> argparse.ArgumentParser:
     main_complete.add_argument("node_id", help="node UUID")
     main_complete.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
     main_complete.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
-    main_complete.add_argument("--role", required=True, choices=("designer", "worker", "verifier", "reviewer"), help="role completed by the native main")
+    main_complete.add_argument("--role", required=True, choices=("designer", "worker", "visual-verifier", "reviewer"), help="role completed by the native main")
     main_complete.set_defaults(func=main_complete_command)
 
     complete_agent = subparsers.add_parser(
@@ -1214,6 +1396,19 @@ def build_parser() -> argparse.ArgumentParser:
     advance.add_argument("--dispatch-id", help="completed Reviewer dispatch id for reviewer-finished")
     advance.add_argument("--repair-node", help="UUID4 repair Node id for repair handoff events")
     advance.set_defaults(func=_advance_command)
+
+    check_readiness = subparsers.add_parser("check-plan-readiness", help="configure and run host-repository readiness checks before delivery")
+    check_readiness.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    check_readiness.add_argument("--plan", required=True, help="target plan id, directory, or title")
+    check_readiness.add_argument("--command", action="append", required=True, help="host readiness command; repeatable")
+    check_readiness.add_argument("--path", action="append", required=True, help="repository-relative readiness input; repeatable")
+    check_readiness.set_defaults(func=check_plan_readiness_command)
+
+    preflight_regression = subparsers.add_parser("preflight-regression", help="validate a frozen regression contract before role dispatch")
+    preflight_regression.add_argument("node_id", help="delivery node UUID")
+    preflight_regression.add_argument("root", nargs="?", default=".")
+    preflight_regression.add_argument("--probe", action="append", help="non-mutating host-specific command/package probe; repeatable")
+    preflight_regression.set_defaults(func=preflight_regression_command)
 
     start = subparsers.add_parser("start", help="mark a node in_progress after enforcing transitions and snapshot rules")
     start.add_argument("node_id", help="node UUID")
@@ -1304,6 +1499,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_node.add_argument("--commit-repository", default=".git", help="target repository .git entry; defaults to .git")
     add_node.add_argument("--regression-scope", choices=sorted(VALID_REGRESSION_SCOPES), help="regression scope; implementation defaults to focused and final_validation to full")
     add_node.add_argument("--regression-command", action="append", help="regression command run from the project root; repeatable")
+    add_node.add_argument("--regression-command-path", action="append", help="comma-separated input paths for the matching regression command; repeat once per command")
     add_node.add_argument("--regression-path", action="append", help="repository-relative file or directory fingerprinted before and after regression; repeatable")
     add_node.add_argument("--regression-criterion", action="append", type=int, help="zero-based acceptance criterion checked by the complete command set; repeatable")
     add_node.add_argument("--after", help="insert the new node directly after this node id")
@@ -1313,6 +1509,26 @@ def build_parser() -> argparse.ArgumentParser:
     add_node.add_argument("--splice", action="store_true", help="with --after: inherit the anchor's next edges, make the anchor point to the new node, and rewire those downstream prerequisites")
     add_node.add_argument("--id", help="explicit UUID4 node id; generated when omitted")
     add_node.set_defaults(func=add_node_command)
+
+    repair_plan = subparsers.add_parser("repair-plan", help="atomically create, wire, and register a repair after failed final regression")
+    repair_plan.add_argument("final_node_id", help="failed final-validation node UUID")
+    repair_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
+    repair_plan.add_argument("--goal", required=True)
+    repair_plan.add_argument("--description", required=True)
+    repair_plan.add_argument("--design-json", required=True)
+    repair_plan.add_argument("--criterion", action="append", required=True)
+    repair_plan.add_argument("--regression-command", action="append", required=True)
+    repair_plan.add_argument("--regression-path", action="append", required=True)
+    repair_plan.add_argument("--regression-criterion", action="append", type=int, required=True)
+    repair_plan.add_argument("--difficulty", default="standard", choices=sorted(VALID_DIFFICULTIES))
+    repair_plan.add_argument("--verification-profile", default="code", choices=sorted(VALID_VERIFICATION_PROFILES))
+    repair_plan.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS))
+    repair_plan.add_argument("--requirements")
+    repair_plan.add_argument("--commit-message", required=True)
+    repair_plan.add_argument("--commit-target", required=True)
+    repair_plan.add_argument("--commit-repository", default=".git")
+    repair_plan.add_argument("--id")
+    repair_plan.set_defaults(func=repair_plan_command)
 
     rewire = subparsers.add_parser("rewire", help="replace or incrementally edit a node's prerequisites and next edges with validation")
     rewire.add_argument("node_id", help="node UUID")
@@ -1353,6 +1569,7 @@ def build_parser() -> argparse.ArgumentParser:
     edit_node.add_argument("--commit-repository", help="replace commit.repository")
     edit_node.add_argument("--regression-scope", choices=sorted(VALID_REGRESSION_SCOPES), help="replace regression.scope")
     edit_node.add_argument("--regression-command", action="append", help="replace regression.commands with the repeated values")
+    edit_node.add_argument("--regression-command-path", action="append", help="replace regression.command_paths; one comma-separated path set per command")
     edit_node.add_argument("--regression-path", action="append", help="replace regression.paths with the repeated values")
     edit_node.add_argument("--regression-criterion", action="append", type=int, help="replace regression.criteria with the repeated indexes")
     edit_node.set_defaults(func=edit_node_command)
@@ -1375,6 +1592,18 @@ def build_parser() -> argparse.ArgumentParser:
     record_decision.add_argument("--context", required=True, help="why autonomous choice is inappropriate")
     record_decision.add_argument("--option", required=True, action="append", help="one viable choice; repeat at least twice")
     record_decision.set_defaults(func=record_decision_command)
+
+    open_decisions = subparsers.add_parser("open-decision-session", help="open one batch of sequential user decisions")
+    open_decisions.add_argument("root", nargs="?", default=".")
+    open_decisions.add_argument("--plan", required=True)
+    open_decisions.add_argument("--title", required=True)
+    open_decisions.set_defaults(func=open_decision_session_command)
+
+    close_decisions = subparsers.add_parser("close-decision-session", help="flush projections once and close a decision batch")
+    close_decisions.add_argument("root", nargs="?", default=".")
+    close_decisions.add_argument("--plan", required=True)
+    close_decisions.add_argument("--projection-command", action="append")
+    close_decisions.set_defaults(func=close_decision_session_command)
 
     resolve_decision = subparsers.add_parser(
         "resolve-decision",

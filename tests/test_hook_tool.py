@@ -167,18 +167,12 @@ class HookToolTests(unittest.TestCase):
 
         self.assertLessEqual(len(context.split()), 50)
         self.assertIn("better plan", lowered)
-        self.assertRegex(lowered, r"\bplanning\b")
-        self.assertRegex(lowered, r"\b(?:code|coding)\b")
-        self.assertRegex(lowered, r"\bexplicit implementation\b")
-        self.assertRegex(
-            lowered,
-            r"\b(?:otherwise|other (?:requests?|work|tasks?)|all other)\b",
-        )
-        self.assertRegex(lowered, r"\buser(?:'s)? (?:request|instructions?|direction)\b")
-        self.assertRegex(lowered, r"\b(?:answer|respond|native workflow)\b")
-        self.assertRegex(lowered, r"\botherwise\b[^.]*\baccordingly\b")
-        self.assertIn("better plan source repository", lowered)
-        self.assertIn("native workflow", lowered)
+        self.assertIn("better plan workspace", lowered)
+        self.assertRegex(lowered, r"\buser(?:'s)? request\b")
+        self.assertRegex(lowered, r"\bsimple tasks?\b[^.]*\bdirectly\b")
+        self.assertIn("complex tasks", lowered)
+        self.assertIn("large migrations", lowered)
+        self.assertRegex(lowered, r"\blong-term planning\b")
         self.assertNotRegex(lowered, r"\bnormally\b")
         for policy_term in ENTRY_LIFECYCLE_POLICY_TERMS:
             self.assertNotIn(policy_term, lowered)

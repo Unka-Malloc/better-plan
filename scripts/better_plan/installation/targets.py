@@ -31,10 +31,10 @@ from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "verifier.toml", "visual-verifier.toml", "reviewer.toml", "visual-reviewer.toml", "finder.toml", "fallback_finder.toml"),
-    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
-    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
-    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "verifier.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "visual-verifier.toml", "reviewer.toml", "visual-reviewer.toml", "finder.toml", "fallback_finder.toml"),
+    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
 }
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
 
@@ -269,6 +269,39 @@ def install_role_templates(
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise _InstallError("native role template destination is not a managed directory")
     receipt = _load_native_receipt(receipt_path, target)
+    obsolete_files: dict[str, str] = {}
+    if receipt is not None:
+        receipt_files = receipt.get("files")
+        receipt_assignments = receipt.get("assignments")
+        if not isinstance(receipt_files, dict) or not isinstance(receipt_assignments, dict):
+            raise _InstallError("native role template receipt is invalid")
+        allowed = set(NATIVE_ROLE_FILES[target])
+        obsolete_files = {
+            filename: str(digest)
+            for filename, digest in receipt_files.items()
+            if filename not in allowed
+        }
+        for filename, digest in obsolete_files.items():
+            path = destination / filename
+            if not path.exists():
+                continue
+            if path.is_symlink() or not path.is_file():
+                raise _InstallError("obsolete managed native role collides with an unmanaged file")
+            try:
+                current_digest = _content_digest(path.read_bytes())
+            except OSError as exc:
+                raise _InstallError("obsolete managed native role is unreadable") from exc
+            if current_digest != digest:
+                raise _InstallError("obsolete managed native role was modified outside Better Plan")
+        extension = ".toml" if target == "codex" else ".md"
+        receipt = {
+            "files": {name: digest for name, digest in receipt_files.items() if name in allowed},
+            "assignments": {
+                name: assignment
+                for name, assignment in receipt_assignments.items()
+                if f"{name}{extension}" in allowed
+            },
+        }
     payload = _native_payload(paths, target, receipt)
     if not payload:
         return [f"native: skipped {target}; no locally callable benchmarked role configuration was found"]
@@ -301,15 +334,22 @@ def install_role_templates(
             raise _InstallError("native role template destination was modified outside Better Plan")
 
     if dry_run:
-        return [f"native: would pin {target} role assignments", _assignment_message(target, payload)]
+        action = f"native: would pin {target} role assignments"
+        if obsolete_files:
+            action += " and remove obsolete managed roles"
+        return [action, _assignment_message(target, payload)]
     destination.mkdir(parents=True, exist_ok=True)
-    changed = False
+    changed = bool(obsolete_files)
+    for filename in obsolete_files:
+        path = destination / filename
+        if path.exists():
+            path.unlink()
     for filename, content, _ in payload:
         path = destination / filename
         if not path.exists() or path.read_bytes() != content:
             path.write_bytes(content)
             changed = True
-    if receipt is None or receipt_files != expected:
+    if receipt is None or receipt_files != expected or obsolete_files:
         _write_native_receipt(receipt_path, target, payload)
     return [f"native: {'updated' if changed else 'already current'} {target} role templates", _assignment_message(target, payload)]
 
@@ -363,10 +403,7 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     if not isinstance(files, dict) or not files or not set(files).issubset(NATIVE_ROLE_FILES[target]):
         return False, "native role inventory is invalid"
     agent_names = {Path(filename).stem for filename in files}
-    for code_role, visual_role in (
-        ("verifier", "visual-verifier"),
-        ("reviewer", "visual-reviewer"),
-    ):
+    for code_role, visual_role in (("reviewer", "visual-reviewer"),):
         if visual_role in agent_names and code_role not in agent_names:
             return False, "a visual verification role is installed without its code-role base"
     try:
