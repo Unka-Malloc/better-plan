@@ -450,10 +450,33 @@ class AgentTemplateTests(unittest.TestCase):
             after = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
             self.assertEqual(before, after)
 
-    def test_unmeasured_host_difficulty_is_omitted_instead_of_guessed(self) -> None:
+    def test_cursor_defaults_recommend_measured_composer_and_grok_workers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             assignments = select_role_assignments(paths(Path(tmpdir)), "cursor")
-            self.assertEqual(set(assignments), {"worker-routine", "worker-standard"})
+            self.assertEqual(
+                set(assignments),
+                {"worker-routine", "worker-standard", "worker-complex", "worker-critical"},
+            )
+            for role in ("worker-routine", "worker-standard"):
+                assignment = assignments[role]
+                self.assertEqual(
+                    (assignment.model, assignment.reasoning_effort, assignment.benchmark_id),
+                    ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
+                )
+                self.assertEqual(assignment.source, "cursor-default-matrix")
+            for role in ("worker-complex", "worker-critical"):
+                assignment = assignments[role]
+                self.assertEqual(
+                    (assignment.model, assignment.reasoning_effort, assignment.benchmark_id),
+                    ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+                )
+                self.assertEqual(assignment.source, "cursor-default-matrix")
+
+    def test_unmeasured_host_difficulty_is_omitted_instead_of_guessed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assignments = select_role_assignments(paths(Path(tmpdir)), "opencode")
+            self.assertNotIn("worker-complex", assignments)
+            self.assertNotIn("worker-critical", assignments)
 
     def test_single_measured_opencode_model_can_fill_all_intelligence_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
