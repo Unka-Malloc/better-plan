@@ -136,12 +136,11 @@ qualifying local match:
 
 | Cursor agent | default selector | benchmark anchor |
 | --- | --- | --- |
-| Worker (`routine`, `standard`) | `composer-2.5-fast` | `cursor-cli-composer-2-5-fast` (Coding Agent Index 38, $0.55/task) |
-| Worker (`complex`, `critical`) | `cursor-grok-4.5-high-fast` | `grok-build-grok-4-5-high` (Coding Agent Index 64, $2.59/task) |
+| Worker (all tiers) | `cursor-grok-4.5-high-fast` | `grok-build-grok-4-5-high` (Coding Agent Index 64, $2.59/task) |
 
-The Grok rows anchor to the grok-build measurement of the same model and reasoning setting, the
-nearest measured row available; no cursor-cli measurement exists for that combination yet. Other
-Cursor delivery roles keep the ordinary rule: a role file is omitted instead of fabricated when no
+The row anchors to the grok-build measurement of the same model and reasoning setting, the nearest
+measured row available; no cursor-cli measurement exists for that combination yet. Other Cursor
+delivery roles keep the ordinary rule: a role file is omitted instead of fabricated when no
 qualifying measured configuration exists.
 
 ## One-time native role creation

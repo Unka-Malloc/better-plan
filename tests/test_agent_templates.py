@@ -450,21 +450,14 @@ class AgentTemplateTests(unittest.TestCase):
             after = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
             self.assertEqual(before, after)
 
-    def test_cursor_defaults_recommend_measured_composer_and_grok_workers(self) -> None:
+    def test_cursor_defaults_recommend_measured_grok_workers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             assignments = select_role_assignments(paths(Path(tmpdir)), "cursor")
             self.assertEqual(
                 set(assignments),
                 {"worker-routine", "worker-standard", "worker-complex", "worker-critical"},
             )
-            for role in ("worker-routine", "worker-standard"):
-                assignment = assignments[role]
-                self.assertEqual(
-                    (assignment.model, assignment.reasoning_effort, assignment.benchmark_id),
-                    ("composer-2.5-fast", "none", "cursor-cli-composer-2-5-fast"),
-                )
-                self.assertEqual(assignment.source, "cursor-default-matrix")
-            for role in ("worker-complex", "worker-critical"):
+            for role in assignments:
                 assignment = assignments[role]
                 self.assertEqual(
                     (assignment.model, assignment.reasoning_effort, assignment.benchmark_id),
