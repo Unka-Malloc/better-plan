@@ -168,13 +168,36 @@ PLAN_REQUIRED_FIELDS = {
 
 
 PLAN_OPTIONAL_FIELDS = {
+    "readiness_check",
     "kind",
     "tree_mode",
     "node_status",
     "entry_gate",
     "decision_issues",
+    "decision_session",
     "capability_key",
 }
+
+
+DECISION_SESSION_REQUIRED_FIELDS = {
+    "decision_ids",
+    "id",
+    "projection_dirty",
+    "status",
+    "title",
+}
+
+
+DECISION_SESSION_OPTIONAL_FIELDS = {"closed_at", "opened_at"}
+
+
+PLAN_READINESS_REQUIRED_FIELDS = {"commands", "paths"}
+
+
+PLAN_READINESS_OPTIONAL_FIELDS = {"last_failure", "last_pass"}
+
+
+PLAN_READINESS_RECEIPT_FIELDS = {"recorded_at", "contract_digest", "state_fingerprint"}
 
 
 DECISION_ISSUE_REQUIRED_FIELDS = {
@@ -240,10 +263,25 @@ CRITERION_OPTIONAL_FIELDS = {"evidence", "evidence_refs"}
 REGRESSION_REQUIRED_FIELDS = {"scope", "commands", "criteria", "paths"}
 
 
-REGRESSION_OPTIONAL_FIELDS = {"last_pass"}
+REGRESSION_OPTIONAL_FIELDS = {
+    "command_paths",
+    "command_receipts",
+    "last_failure",
+    "last_pass",
+}
 
 
 REGRESSION_RECEIPT_FIELDS = {"recorded_at", "contract_digest", "content_fingerprint"}
+
+
+REGRESSION_COMMAND_RECEIPT_FIELDS = {
+    "command_sha256",
+    "input_fingerprint",
+    "recorded_at",
+}
+
+
+REGRESSION_FAILURE_FIELDS = {"command_index", "kind", "summary"}
 
 
 ACCEPTANCE_REQUIRED_FIELDS = {"phase", "attempt", "outcome"}
@@ -294,8 +332,8 @@ ACCEPTANCE_PHASES = {
     "awaiting_worker",
     "worker_running",
     "correction_required",
-    "awaiting_verifier",
-    "verifier_running",
+    "awaiting_visual_verifier",
+    "visual_verifier_running",
     "awaiting_reviewer",
     "reviewer_running",
     "reviewer_complete",

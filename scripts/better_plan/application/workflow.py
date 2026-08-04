@@ -12,6 +12,7 @@ from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PRE
 from ..domain.roles import knowledge_references_for_action as _knowledge_references_for_action, reference_for_action as _reference_for_action
 from ..domain.transitions import next_action as acceptance_next_action, transition as acceptance_transition
 from ..infrastructure.regression import current_platform, ensure_node_regression, evidence_timestamp, platform_matches, preparation_fingerprints, regression_receipt_status, run_node_regression, run_regression_at_location as _run_regression_at_location, validated_design_contract, validated_regression_contract
+from ..infrastructure.readiness import ensure_plan_readiness_current
 from ..infrastructure.native_roles import NativeRoleSelector, resolve_codex_role
 from ..infrastructure.workspace import NodeLocation as _NodeLocation, capability_scope_for_plan, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_lock, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
 
@@ -211,10 +212,14 @@ def automated_node_role(node: dict[str, Any]) -> str:
     return str(role)
 
 
-def implementation_requires_verifier(node: dict[str, Any]) -> bool:
-    """Return the frozen, deterministic Verifier gate for an implementation Node."""
+def implementation_requires_visual_verifier(node: dict[str, Any]) -> bool:
+    """Return the narrow rendered-evidence gate for an implementation Node."""
 
-    return node.get("role") == "implementation" and node.get("difficulty") == "critical"
+    return (
+        node.get("role") == "implementation"
+        and node.get("difficulty") == "critical"
+        and node.get("verification_profile") in {"visual", "hybrid"}
+    )
 
 
 def implicit_acceptance_snapshot(node: dict[str, Any]) -> dict[str, Any]:
@@ -498,13 +503,19 @@ def _resolved_payload_action(node: dict[str, Any], action: str | None) -> str:
     )
 
 
+def _dispatch_action_for_role(role: object) -> str:
+    """Translate one public hyphenated role name to its state-machine action."""
+
+    return f"dispatch_{str(role).replace('-', '_')}"
+
+
 def _agent_type_for_action(node: dict[str, Any], action: str) -> str | None:
     verification_profile = str(node.get("verification_profile"))
     visual_verification = verification_profile in {"visual", "hybrid"}
     return {
         "dispatch_designer": "designer",
         "dispatch_worker": f"worker-{node.get('difficulty')}",
-        "dispatch_verifier": "visual-verifier" if visual_verification else "verifier",
+        "dispatch_visual_verifier": "visual-verifier",
         "dispatch_reviewer": "visual-reviewer" if visual_verification else "reviewer",
     }.get(action)
 
@@ -535,7 +546,7 @@ def bounded_acceptance_payload(
         payload["capability_scope"] = capability_context
     dispatch_action = action
     if action == "retry_delegation" and isinstance(dispatch, dict):
-        dispatch_action = f"dispatch_{dispatch.get('role')}"
+        dispatch_action = _dispatch_action_for_role(dispatch.get("role"))
     if dispatch_action.startswith("dispatch_"):
         verification_profile = str(node.get("verification_profile"))
         visual_verification = verification_profile in {"visual", "hybrid"}
@@ -584,7 +595,9 @@ def bounded_acceptance_payload(
             canonical = json.dumps(continuation_facts, sort_keys=True, separators=(",", ":"))
             payload["worker_continuation_key"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
             payload["continuation_policy"] = "prefer_idle_compatible_worker_after_acceptance"
-        if dispatch_action in {"dispatch_verifier", "dispatch_reviewer"}:
+        if dispatch_action == "dispatch_worker":
+            payload["required_capabilities"] = ["code_reasoning"]
+        if dispatch_action in {"dispatch_visual_verifier", "dispatch_reviewer"}:
             payload["required_capabilities"] = (
                 ["code_reasoning", "vision", "browser"]
                 if visual_verification
@@ -644,7 +657,7 @@ def print_acceptance_payload(
     dispatch = acceptance_snapshot(node).get("dispatch")
     dispatch_action = resolved_action
     if resolved_action == "retry_delegation" and isinstance(dispatch, dict):
-        dispatch_action = f"dispatch_{dispatch.get('role')}"
+        dispatch_action = _dispatch_action_for_role(dispatch.get("role"))
     selector = None
     if native_host == "codex" and dispatch_action.startswith("dispatch_") and not (
         isinstance(dispatch, dict) and isinstance(dispatch.get("model"), str)
@@ -703,7 +716,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
     running_roles = {
         "designer_running": "designer",
         "worker_running": "worker",
-        "verifier_running": "verifier",
+        "visual_verifier_running": "visual-verifier",
         "reviewer_running": "reviewer",
     }
     if phase in running_roles:
@@ -717,7 +730,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
                 raise ToolError("the outstanding Designer dispatch is stale")
         print_acceptance_payload(
             node,
-            action=f"dispatch_{expected_role}" if dispatch.get("host_agent_id") is None else None,
+            action=_dispatch_action_for_role(expected_role) if dispatch.get("host_agent_id") is None else None,
             group_nodes=location.checkpoints_data,
             location=location,
             **_native_host_options(args),
@@ -728,6 +741,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
         if node_role != "group_design" or phase != "awaiting_designer":
             raise ToolError("Designer dispatch is out of order for this task group")
         ensure_node_can_start(location, node)
+        ensure_plan_readiness_current(location)
         binding = preparation_fingerprints(location)
         node["status"] = "in_progress"
         node.pop("status_reason", None)
@@ -756,15 +770,15 @@ def dispatch_command(args: argparse.Namespace) -> int:
             "outcome": "none",
             **{field: current[field] for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS},
         }
-    elif args.role == "verifier":
-        if node_role != "implementation" or phase != "awaiting_verifier" or node.get("status") != "in_progress":
-            raise ToolError("Verifier dispatch is out of order for the current delivery phase")
-        if not implementation_requires_verifier(node):
-            raise ToolError("Verifier dispatch requires a critical implementation node")
+    elif args.role == "visual-verifier":
+        if node_role != "implementation" or phase != "awaiting_visual_verifier" or node.get("status") != "in_progress":
+            raise ToolError("Visual Verifier dispatch is out of order for the current delivery phase")
+        if not implementation_requires_visual_verifier(node):
+            raise ToolError("Visual Verifier dispatch requires a visual or hybrid critical implementation node")
         acceptance = {
-            "phase": acceptance_transition(str(phase), "verifier-dispatched", "verifier"),
+            "phase": acceptance_transition(str(phase), "visual-verifier-dispatched", "visual-verifier"),
             "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {"id": generate_id(), "role": "verifier"},
+            "dispatch": {"id": generate_id(), "role": "visual-verifier"},
             "outcome": "none",
         }
         for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS:
@@ -794,7 +808,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
     assert isinstance(dispatch, dict)
     selector_missing = False
     if getattr(args, "native_host", None) == "codex":
-        dispatch_action = f"dispatch_{args.role}"
+        dispatch_action = _dispatch_action_for_role(args.role)
         agent_type = _agent_type_for_action(node, dispatch_action)
         home_value = getattr(args, "codex_home", None)
         home = Path(home_value).expanduser() if home_value else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
@@ -813,7 +827,7 @@ def dispatch_command(args: argparse.Namespace) -> int:
     write_location_and_sync_plan(location)
     print_acceptance_payload(
         node,
-        action="main_thread_fallback" if selector_missing else f"dispatch_{args.role}",
+        action="main_thread_fallback" if selector_missing else _dispatch_action_for_role(args.role),
         group_nodes=location.checkpoints_data,
         location=location,
         **_native_host_options(args),
@@ -845,7 +859,7 @@ def bind_agent_command(args: argparse.Namespace) -> int:
     if acceptance.get("phase") not in {
         "designer_running",
         "worker_running",
-        "verifier_running",
+        "visual_verifier_running",
         "reviewer_running",
     }:
         raise ToolError("bind-agent is out of order for the current delivery phase")
@@ -875,7 +889,7 @@ def delegation_failed_command(args: argparse.Namespace) -> int:
     dispatch = acceptance.get("dispatch")
     if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id:
         raise ToolError("delegation-failed does not match the outstanding dispatch")
-    if acceptance.get("phase") not in {"designer_running", "worker_running", "verifier_running", "reviewer_running"}:
+    if acceptance.get("phase") not in {"designer_running", "worker_running", "visual_verifier_running", "reviewer_running"}:
         raise ToolError("delegation-failed is out of order for the current delivery phase")
 
     bound_agent_id = dispatch.get("host_agent_id")
@@ -900,7 +914,8 @@ def delegation_failed_command(args: argparse.Namespace) -> int:
     if failures >= MAX_DELEGATION_FAILURES:
         action = "main_thread_fallback"
     else:
-        failures = MAX_DELEGATION_FAILURES if bool(args.unavailable) else failures + 1
+        single_attempt_visual = dispatch.get("role") == "visual-verifier"
+        failures = MAX_DELEGATION_FAILURES if bool(args.unavailable) or single_attempt_visual else failures + 1
         dispatch["delegation_failures"] = failures
         write_location_and_sync_plan(location)
         action = "main_thread_fallback" if failures >= MAX_DELEGATION_FAILURES else "retry_delegation"
@@ -928,7 +943,7 @@ def main_complete_command(args: argparse.Namespace) -> int:
     completers = {
         "designer": advance_designer_exit,
         "worker": advance_worker_exit,
-        "verifier": advance_verifier_exit,
+        "visual-verifier": advance_visual_verifier_exit,
         "reviewer": advance_reviewer_exit,
     }
     updated = completers[str(args.role)](location, dispatch_id)
@@ -1038,7 +1053,7 @@ def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, 
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
     clear_regression_proof(node)
-    if not implementation_requires_verifier(node):
+    if not implementation_requires_visual_verifier(node):
         return _complete_implementation_regression(
             location,
             node,
@@ -1058,23 +1073,23 @@ def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, 
     return node
 
 
-def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    """Let a write-capable Verifier repair the Node, then prove its final state."""
+def advance_visual_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
+    """Let the rendered-evidence leaf repair the Node, then prove its final state."""
 
     node = location.checkpoints_data[location.node_index]
     if automated_node_role(node) != "implementation":
-        raise ToolError("Verifier exit events require an implementation node")
-    if not implementation_requires_verifier(node):
-        raise ToolError("Verifier exit events require a critical implementation node")
+        raise ToolError("Visual Verifier exit events require an implementation node")
+    if not implementation_requires_visual_verifier(node):
+        raise ToolError("Visual Verifier exit events require a visual or hybrid critical implementation node")
     acceptance = acceptance_snapshot(node, required=True)
     ensure_matching_dispatch(
         acceptance,
-        expected_phase="verifier_running",
-        expected_role="verifier",
+        expected_phase="visual_verifier_running",
+        expected_role="visual-verifier",
         dispatch_id=dispatch_id,
     )
     acceptance = refresh_preparation(location, node)
-    if acceptance.get("phase") != "verifier_running":
+    if acceptance.get("phase") != "visual_verifier_running":
         write_location_and_sync_plan(location)
         return node
     preparation = _delivery_preparation_binding(location, acceptance)
@@ -1083,8 +1098,8 @@ def advance_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str
         node,
         acceptance,
         preparation=preparation,
-        source_phase="verifier_running",
-        actor="verifier",
+        source_phase="visual_verifier_running",
+        actor="visual-verifier",
     )
 
 

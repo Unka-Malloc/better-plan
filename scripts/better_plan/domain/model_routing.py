@@ -24,7 +24,7 @@ from .models import ToolError
 _MODEL_CATALOG_PATH = Path(__file__).with_name("model_catalog.json")
 _CODING_AGENT_CATALOG_PATH = Path(__file__).with_name("coding_agent_catalog.json")
 _DIFFICULTIES = ("routine", "standard", "complex", "critical")
-_INTELLIGENCE_ROLES = frozenset({"designer", "verifier", "reviewer"})
+_INTELLIGENCE_ROLES = frozenset({"designer", "reviewer"})
 _MODEL_SELECTION_POLICY = "intelligence_rank_for_non_worker_roles"
 _WORKER_SELECTION_POLICY = "lowest_cost_above_task_difficulty_floor"
 _MONEY_FIELDS = (
@@ -434,9 +434,7 @@ def select_intelligence_model_from_catalog(
 ) -> ModelRecord:
     """Rank locally available non-Worker models without considering price.
 
-    Designer and Reviewer use the highest Intelligence Index.  Verifier uses
-    the next distinct score when one exists, reserving the strongest tier for
-    the two end-cap roles; a one-tier local installation necessarily reuses it.
+    Designer and Reviewer use the highest Intelligence Index.
     """
 
     if not isinstance(catalog, ModelCatalog) or role not in _INTELLIGENCE_ROLES:
@@ -450,11 +448,7 @@ def select_intelligence_model_from_catalog(
     ]
     if not candidates:
         raise _selection_error()
-    scores = sorted(
-        {int(model.intelligence_index) for model in candidates},
-        reverse=True,
-    )
-    target_score = scores[1] if role == "verifier" and len(scores) > 1 else scores[0]
+    target_score = max(int(model.intelligence_index) for model in candidates)
     # Cost is deliberately absent from the key.
     return min(
         (model for model in candidates if model.intelligence_index == target_score),

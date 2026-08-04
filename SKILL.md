@@ -1,6 +1,6 @@
 ---
 name: better-plan
-description: Design-first native-main orchestration for grouped implementation work. Do not activate it inside an already-dispatched native leaf whose installed role contract and task brief are complete, or merely to maintain the Better Plan source repository itself.
+description: Design-first native-main orchestration for large refactors, complete migrations, and high-risk multi-Node delivery. Small tasks use the native main's ordinary repository workflow. Do not activate it inside an already-dispatched native leaf whose installed role contract and task brief are complete, or merely to maintain the Better Plan source repository itself.
 ---
 
 # Better Plan
@@ -8,6 +8,30 @@ description: Design-first native-main orchestration for grouped implementation w
 Better Plan maps only the repository detail needed by the latest authorized request, then delivers
 one cohesive capability through deterministic task-group state and native role agents. The latest
 user request is always authoritative; stored state never authorizes work by itself.
+
+## Activation gate and fast path
+
+Better Plan is for large refactors, complete migrations, cross-module delivery, parallel
+implementation, and work with consequential state or security boundaries. The native main decides
+whether the latest request actually needs that machinery before reading Plan state.
+
+Use the ordinary repository workflow when the native main can directly understand, implement, and
+verify one small closure. Typical fast-path work includes copy or style changes, a local logic fix,
+one-file maintenance, an explicit test addition, and other bounded changes without a real
+cross-Node handoff. On the fast path the native main may reason and close the task in the simplest
+safe way: do not discover, create, or mutate Better Plan state and do not dispatch Better Plan
+roles. An existing Better Plan workspace, multiple touched files, or a prior Better Plan turn is
+never sufficient reason to activate the workflow.
+
+Activate Better Plan only when the request has at least one concrete large-delivery pressure:
+
+- multiple independently acceptable implementation Nodes with a real handoff or parallel frontier;
+- a complete migration or refactor that must remove an old generation without compatibility residue;
+- coordinated cross-module, schema, data, protocol, or behavioral sequencing; or
+- a high-risk security, state, concurrency, release, or visual boundary needing independent review.
+
+When activation is not obvious, prefer the fast path. When activating, state the concrete pressure
+briefly; never justify activation by file count alone.
 
 ## Non-negotiable rules
 
@@ -35,6 +59,9 @@ user request is always authoritative; stored state never authorizes work by itse
   runs require failure evidence, release policy, or an explicit user request.
 - Pre-existing host files are immutable unless the user explicitly names the exact file and
   mutation. Receipts own only artifacts Better Plan created.
+- A user request to converge quickly narrows exploration and repair to the accepted capability and
+  known failure evidence. Aggregate related failures into the smallest repair batch, isolate
+  unrelated pre-existing failures, and do not add reassurance checks or speculative Nodes.
 
 ## Progressive-disclosure router
 
@@ -44,18 +71,19 @@ proactively loading unrelated or redundant material, but never block useful self
 
 | Current action | Required reference |
 |---|---|
-| First activation, role visibility, native configuration, install/update/Doctor, selector diagnosis | `references/host-configuration.md` |
+| First role dispatch, role visibility, native configuration, install/update/Doctor, selector diagnosis | `references/host-configuration.md` |
 | Discover, create, validate, inspect, or repair capability/Plan/Node state | `references/state-files.md` |
 | Group planning, dispatch, correlation, recovery, Worker continuation, decisions, or regression closure | `references/orchestration-main.md` |
-| Author a leaf brief | The matching primary role contract: `references/designer.md`, `references/worker.md`, `references/verifier.md`, `references/visual-verifier.md`, `references/reviewer.md`, or `references/visual-reviewer.md` |
+| Author a leaf brief | The matching primary role contract: `references/designer.md`, `references/worker.md`, `references/visual-verifier.md`, `references/reviewer.md`, or `references/visual-reviewer.md` |
 | Designer pattern decision | `references/design-patterns.md`, supplied to Designer as explicit action-specific knowledge |
 
-On the first activation in a conversation, read `host-configuration.md` and show its complete role
-visibility table before discovery or dispatch. A valid installed matrix is runtime authority; never
+Before the first actual role dispatch in a conversation, read `host-configuration.md` and show its
+complete role visibility table. Read-only analysis, history audits, workspace discovery, and state
+inspection do not trigger this table. A valid installed matrix is runtime authority; never
 ask the user to choose it over package recommendations. Any requested native role change must pass
 the reference's fresh reconfirmation gate before edits.
 
-For repositories other than Better Plan itself, run
+After the activation gate selects Better Plan, for repositories other than Better Plan itself, run
 `scripts/manifest_tool.py discover <project-root>`. If no unique valid workspace exists, continue
 with ordinary handling.
 
@@ -80,9 +108,13 @@ concurrently.
 
 - Designer runs once for the whole ordered group and selected capability scope. It reads the local
   pattern catalog and freezes cross-Node handoffs and executable acceptance; it never implements.
-- Each Worker turn owns one Node. Routine, Standard, and Complex Worker completion runs focused
-  regression directly. Only Critical implementation Nodes mechanically dispatch the code or Visual
-  Verifier before focused regression; the native main cannot override this gate.
+- Each Worker turn owns one Node. Every code-profile Worker completion runs focused regression
+  directly, including Critical code Nodes. Only `visual` or `hybrid` Critical implementation Nodes
+  dispatch one Visual Verifier, which directly repairs visual defects before focused regression; it
+  is never redispatched for a regression contract error.
+- Express exceptional independent security review as an explicit implementation Node with its own
+  ownership and acceptance, executed by a Worker. Never restore a universal verification role or
+  mechanically attach security review to every Critical Node.
 - After a Node reaches `accepted`, prefer the same idle Worker for the next eligible dispatch with
   the same `worker_continuation_key`. Each continuation keeps an independent dispatch, callback,
   regression, and acceptance boundary. On Codex use `followup_task`. Spawn only when no compatible
@@ -110,12 +142,18 @@ capability-equivalent temporary selector. At the ceiling, the native main perfor
 from the bounded payload and records `main-complete`. Delegation failure alone never blocks an
 authorized task.
 
+Keep a conversation-scoped availability circuit breaker for exact host/provider/model failures.
+After the host conclusively reports a selector unavailable, do not attempt that same selector for
+later Nodes in the conversation; resolve each dispatch normally, then immediately take its allowed
+main-thread or capability-equivalent fallback. The breaker never persists to Plan state and never
+changes the installed role matrix.
+
 ## Command entry points
 
 - Discovery/state: `discover`, `validate`, `tree`, `capability-tree`, `status`
 - Selection: `next-action <node-id> [workspace] [--native-host codex]`
-- Delivery: `dispatch`, `bind-agent`, `agent-complete`, `delegation-failed`, `main-complete`
-- Closure/decisions: `advance`, `record-decision`, `resolve-decision`
+- Delivery: `check-plan-readiness`, `preflight-regression`, `dispatch`, `bind-agent`, `agent-complete`, `delegation-failed`, `main-complete`
+- Closure/decisions: `advance`, `repair-plan`, `open-decision-session`, `record-decision`, `resolve-decision`, `close-decision-session`
 
 All commands run through `scripts/manifest_tool.py`. Use the exact syntax and state invariants from
 the routed reference; never hand-edit lifecycle state.

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 MAX_CONTEXT_LENGTH = 2048
-VERIFIER_REFERENCE = "references/verifier.md"
+VISUAL_VERIFIER_REFERENCE = "references/visual-verifier.md"
 INTENT_GUIDANCE = (
-    "Prioritize the user's request. Maintain the Better Plan source repository with the native "
-    "workflow, without entering Better Plan. For planning, coding, or explicit implementation in "
-    "other projects, enter Better Plan. Otherwise, follow the user's instructions and act or "
-    "answer accordingly."
+    "Understand the user's request. Handle simple tasks directly; only enter the Better Plan "
+    "workspace for complex tasks, large migrations, or long-term planning."
 )
 
 
@@ -22,10 +20,10 @@ def prompt_context() -> str:
 
 def agent_completion_context(node_id: str, phase: str, action: str) -> str:
     """Return one bounded parent directive after an Agent tool completes."""
-    if action == "dispatch_verifier":
+    if action == "dispatch_visual_verifier":
         duty = (
-            "The Worker returned. Dispatch the write-capable Verifier using "
-            f"{VERIFIER_REFERENCE}; it checks and repairs this Node before the state tool runs "
+            "The Worker returned. Dispatch the one write-capable Visual Verifier using "
+            f"{VISUAL_VERIFIER_REFERENCE}; it obtains rendered evidence and repairs this Node before the state tool runs "
             "the Node's one focused regression."
         )
     elif action == "main_correction_decision":

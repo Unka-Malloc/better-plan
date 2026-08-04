@@ -1,22 +1,23 @@
 # Better Plan
 
-Better Plan is a design-first orchestration skill for grouped implementation work. It keeps the
+Better Plan is a design-first orchestration skill for large refactors, complete migrations, and
+high-risk grouped implementation work. Small tasks stay on the native main's ordinary repository
+fast path: no Plan state, no Better Plan roles, and no orchestration fixed cost. It keeps the
 latest user request authoritative, stores a deterministic Plan/Node state machine, and coordinates
-four isolated native roles:
+the necessary isolated native roles:
 
 ```text
 task group
   Designer once
-    routine/standard/complex Node -> Worker -> focused regression once
-    critical code Node -> Worker -> Verifier -> focused regression once
+    every code Node -> Worker -> focused regression once
     critical visual/hybrid Node -> Worker -> Visual Verifier -> focused regression once
   Reviewer or Visual Reviewer once -> developer decisions -> full regression once
 ```
 
 Designer and Reviewer close the two ends of a task group. Designer predicts cross-node problems and
-plans the progression once. Workers implement individual Nodes. Verifiers independently inspect and
-repair only Critical Nodes. Reviewer performs one full-chain review, repairs all autonomous findings, and
-returns choices that genuinely need the user.
+plans the progression once. Workers implement individual Nodes. One Visual Verifier obtains rendered
+evidence only for visual or hybrid Critical Nodes. Reviewer performs one full-chain review, repairs
+all autonomous findings, and returns choices that genuinely need the user.
 
 ## Repository self-maintenance
 
@@ -72,8 +73,7 @@ paths and stable interfaces and never gain an artificial prerequisite merely to 
 | --- | --- | --- | --- |
 | Designer | once at group opening | predicts risks and writes/refines group design and executable acceptance across multiple Nodes | strongest locally callable model-only Intelligence Index |
 | Worker | once or more per implementation Node | implements frozen design and resolves ordinary build/integration defects | cheapest measured LLM + Agent combination above the Node difficulty floor |
-| Verifier | after a Critical code Worker | inspects and directly repairs the Critical Node, then its one focused regression runs | next distinct locally callable Intelligence tier when possible |
-| Visual Verifier | after a Critical visual or hybrid Worker | exercises the real UI with browser and vision, repairs code and presentation defects, and returns rendered evidence | same Verifier intelligence tier, in a role that requires vision and browser capability |
+| Visual Verifier | once after a Critical visual or hybrid Worker | exercises the real UI with browser and vision, repairs code and presentation defects, and returns rendered evidence | highest locally callable Arena WebDev tier |
 | Reviewer | once after all implementation Nodes | reviews the bound capability end to end plus actually impacted shared paths, repairs autonomous issues, and returns developer choices; known untouched branches stay outside scope | strongest locally callable model-only Intelligence Index |
 | Visual Reviewer | once when final validation is visual or hybrid | performs the one full-chain code and rendered-UI review and repairs autonomous findings | same Reviewer intelligence tier, in a role that requires vision and browser capability |
 
@@ -83,9 +83,9 @@ below for any delivery role without a qualifying local override.
 Every role is write-capable within its stated artifact boundary except that no leaf may mutate Better
 Plan state, criteria, receipts, or decision history. The native main and state tool own those writes.
 
-Designer receives the complete local [design-pattern decision catalog](references/design-patterns.md)
-on every fresh dispatch. It covers all 22 patterns currently listed by the user-specified catalog
-page and is read offline; ordinary design work does not fetch the website. Every material design
+Designer receives the local [design-pattern decision catalog](references/design-patterns.md), reads
+its decision rules and quick index, then loads only categories relevant to concrete pressure. The
+catalog is read offline; ordinary design work does not fetch the website. Every material design
 records whether a pattern earns its complexity, the concrete benefit, the simpler alternative, the
 smallest correct application, and the costs. `none` is valid—patterns may not be used to manufacture
 layers, classes, services, Plans, or Nodes.
@@ -98,8 +98,8 @@ The repository packages three complete, versioned, network-free benchmark snapsh
   reference. It contains measured model plus coding-harness combinations. Task-difficulty floors
   are `routine: 25`, `standard: 42`, `complex: 55`, and `critical: 64`. Selection first meets the
   floor, then minimizes cost; missing Agent combinations are ignored.
-- [`model_catalog.json`](scripts/better_plan/domain/model_catalog.json) is the Designer, Verifier,
-  and Reviewer reference. It contains the model-only Intelligence Index, including current Gemini
+- [`model_catalog.json`](scripts/better_plan/domain/model_catalog.json) is the Designer and Reviewer
+  reference. It contains the model-only Intelligence Index, including current Gemini
   Flash rows. Price is not considered for these roles.
 - [`webdev_model_catalog.json`](scripts/better_plan/domain/webdev_model_catalog.json) is the Visual
   Verifier and Visual Reviewer reference. It is a complete pinned snapshot of the Arena WebDev
@@ -110,7 +110,7 @@ The repository packages three complete, versioned, network-free benchmark snapsh
 The tables are not a hard-coded recommendation list. Better Plan first looks for public model and
 reasoning selectors in the user's existing native agent configurations. Worker considers only local
 selectors whose model and reasoning setting exactly match a measured Coding Agent combination; an
-omitted Worker reasoning setting is not guessed. Designer, Verifier, and Reviewer independently
+omitted Worker reasoning setting is not guessed. Designer and Reviewer independently
 consider local selectors found in the model-only table; Visual Verifier and Visual Reviewer use the
 Arena WebDev table. If no local configuration exists, Better Plan considers only combinations
 measured for the selected native harness. It never assumes that a host can call every model and
@@ -124,7 +124,6 @@ Codex has one explicit user-preference default matrix for roles without a qualif
 | Reviewer | `gpt-5.6-sol/max` |
 | Visual Reviewer | `gpt-5.6-sol/xhigh` (Arena WebDev) |
 | Worker (`routine` through `critical`) | `gpt-5.6-luna/max` |
-| Verifier | `gpt-5.6-sol/high` |
 | Visual Verifier | `gpt-5.6-sol/xhigh` (Arena WebDev) |
 
 Codex installation also adds two read-only utility agents outside the delivery lifecycle:
@@ -256,7 +255,7 @@ guidance whenever useful. Known untouched descendants remain omitted. Designer's
 names `references/design-patterns.md` and requires a `design_pattern_assessment` without requiring
 network access.
 
-Each Worker turn still owns exactly one Node. After that Node's Verifier when Critical, focused
+Each Worker turn still owns exactly one Node. After its one Visual Verifier when required, focused
 regression, and acceptance close, the native main dispatches the next authorized eligible Node. If
 its `worker_continuation_key` matches an idle Worker's prior key, continue the same child with the
 new compact brief and bind the same agent ID; on Codex use `followup_task`. Reuse the same Worker for
@@ -264,8 +263,9 @@ ordinary correction too. Spawn only when no compatible idle Worker exists or con
 refused or unsafe. Independent ready Nodes remain concurrent; reuse must never serialize the ready
 frontier.
 
-Every Node declares `verification_profile: code|visual|hybrid`. `code` routes to the rigorous code
-Verifier/Reviewer. `visual` and `hybrid` route to the visual roles and add explicit `vision`,
+Every Node declares `verification_profile: code|visual|hybrid`. `code` routes from Worker directly
+to focused regression and the group Reviewer. `visual` and `hybrid` route Critical Nodes through
+one Visual Verifier and add explicit `vision`,
 `browser`, and rendered-evidence requirements. Source inspection, DOM text, snapshots, and build
 success never substitute for exercising the real rendered UI. A final-validation Node must cover
 all non-skipped implementation profiles: mixed code and visual work requires `hybrid`.
@@ -274,7 +274,7 @@ all non-skipped implementation profiles: mixed code and visual work requires `hy
 python3 scripts/manifest_tool.py next-action <node-id> <workspace> --native-host codex
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role designer --native-host codex
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role worker --native-host codex
-python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role verifier --native-host codex
+python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role visual-verifier --native-host codex
 python3 scripts/manifest_tool.py dispatch <node-id> <workspace> --role reviewer --native-host codex
 ```
 
@@ -314,13 +314,14 @@ Use `--unavailable` instead only when the host or provider conclusively reports 
 unavailable. A bare failure record is rejected, so silence or a bounded wait expiry cannot consume
 an attempt.
 
-One dispatch permits at most three delegation attempts: pinned role, one same-role retry, and one
-capability-equivalent temporary fallback. At the ceiling, the native main performs the same role
+Visual Verifier permits one child attempt before native-main fallback. Every other dispatch permits
+at most three delegation attempts: pinned role, one same-role retry, and one capability-equivalent
+temporary fallback. At the ceiling, the native main performs the same role
 contract from the bounded payload and records completion without inventing a child identity:
 
 ```sh
 python3 scripts/manifest_tool.py main-complete <node-id> <workspace> \
-  --dispatch-id <better-plan-dispatch-id> --role designer|worker|verifier|reviewer
+  --dispatch-id <better-plan-dispatch-id> --role designer|worker|visual-verifier|reviewer
 ```
 
 This preserves all acceptance, visual evidence, regression, and one-Reviewer boundaries while
@@ -343,12 +344,12 @@ correlation uses the bound child ID rather than a singleton.
 
 ## Implementation and group closure
 
-Routine, Standard, and Complex Worker completion runs the declared focused regression directly.
-Critical Worker completion first routes to the Verifier selected by `verification_profile`; code
-and visual Verifiers repair rather than merely report, and a Critical visual/hybrid Node must
-exercise the real UI with browser and vision. The focused regression runs exactly once at the
-selected boundary. A passing run completes the implementation Node; failure returns
-`main_correction_decision`.
+Every code-profile Worker completion runs the declared focused regression directly, including
+Critical code Nodes. Only a Critical visual or hybrid Node routes through one Visual Verifier, which
+repairs rather than merely reports and must exercise the real UI with browser and vision. A stale
+regression contract is corrected and rerun directly without another Visual Verifier. A passing run
+completes the implementation Node; failure returns `main_correction_decision`. Exceptional security
+review is an explicit implementation Node executed by a Worker, not a universal role stage.
 
 After all implementation Nodes complete, dispatch the code or visual Reviewer selected by final
 validation directly. That Reviewer runs once, repairs
@@ -360,8 +361,11 @@ python3 scripts/manifest_tool.py advance <final-node-id> <workspace> \
   --event reviewer-finished --dispatch-id <reviewer-dispatch-id>
 ```
 
-The state tool runs full regression once. If it fails, a bounded repair Node may be added; completing
-that repair triggers only the necessary failure-driven rerun. Reviewer is not invoked again.
+The state tool runs full regression once. It aggregates every command failure, retains privacy-safe
+diagnostic summaries, and can reuse successful command receipts when `command_paths` prove their
+inputs are unchanged. If it fails, `repair-plan` atomically adds and registers a bounded repair
+Node; completing that repair triggers only the necessary failure-driven rerun. Reviewer is not
+invoked again.
 
 The normal validation budget is therefore one focused regression per implementation Node and one
 full regression per task group. Leaf agents may run small diagnostics while repairing, but Better
@@ -400,7 +404,6 @@ lifetime and cancellation remain outside Better Plan.
 - [Designer](references/designer.md)
 - [Design-pattern decision catalog](references/design-patterns.md)
 - [Worker](references/worker.md)
-- [Verifier](references/verifier.md)
 - [Visual Verifier](references/visual-verifier.md)
 - [Reviewer](references/reviewer.md)
 - [Visual Reviewer](references/visual-reviewer.md)

@@ -60,7 +60,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
 
     def test_current_role_names_are_complete(self) -> None:
         combined = "\n".join((self.skill, self.readme, self.main)).lower()
-        for role in ("designer", "worker", "verifier", "reviewer"):
+        for role in ("designer", "worker", "visual-verifier", "reviewer", "visual-reviewer"):
             self.assertIn(f"references/{role}.md", combined)
 
     def test_repository_self_maintenance_exemption_is_active(self) -> None:
@@ -73,7 +73,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
     def test_first_use_reports_roles_and_keeps_valid_local_matrix_authoritative(self) -> None:
         host = self.host.lower()
         normalized = " ".join(host.split())
-        self.assertIn("first better plan activation", host)
+        self.assertIn("first better plan role dispatch", host)
         for host in ("codex", "claude code", "opencode", "cursor"):
             self.assertIn(host, self.host.lower())
         self.assertIn("first-use role visibility gate", normalized)
@@ -91,10 +91,8 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("or pause for that choice", normalized)
         self.assertIn("never overrides or mutates an installed role", normalized)
         self.assertIn("do not solicit configuration changes unless requested", normalized)
-        self.assertIn(
-            "before discovering or mutating plan state or dispatching any role agent",
-            normalized,
-        )
+        self.assertIn("before dispatching the first better plan role agent", normalized)
+        self.assertIn("read-only analysis, history audits, workspace discovery, and state inspection skip this gate", normalized)
         hook = self.hook_context.lower()
         self.assertNotIn("template", hook)
         self.assertNotIn("manually imported", hook)
@@ -145,7 +143,6 @@ class OrchestrationWorkflowTests(unittest.TestCase):
             "references/orchestration-main.md",
             "references/designer.md",
             "references/worker.md",
-            "references/verifier.md",
             "references/visual-verifier.md",
             "references/reviewer.md",
             "references/visual-reviewer.md",
@@ -244,7 +241,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
             node(
                 "visual-node",
                 "implementation",
-                "awaiting_verifier",
+                "awaiting_visual_verifier",
                 difficulty="critical",
                 verification_profile="visual",
             )
@@ -268,24 +265,24 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertEqual(reviewer["role_reference"], "references/visual-reviewer.md")
         self.assertIn("vision", reviewer["required_capabilities"])
 
-    def test_code_profile_keeps_rigorous_code_verifier(self) -> None:
+    def test_code_profile_has_no_code_verifier_dispatch(self) -> None:
         payload = bounded_acceptance_payload(
-            node("code-node", "implementation", "awaiting_verifier", difficulty="critical")
+            node("code-node", "implementation", "awaiting_worker", difficulty="critical")
         )
-        self.assertEqual(payload["agent_type"], "verifier")
-        self.assertEqual(payload["role_reference"], "references/verifier.md")
+        self.assertEqual(payload["agent_type"], "worker-critical")
+        self.assertEqual(payload["role_reference"], "references/worker.md")
         self.assertEqual(payload["required_capabilities"], ["code_reasoning"])
         self.assertNotIn("required_evidence", payload)
+        self.assertFalse((ROOT / "references" / "verifier.md").exists())
 
-    def test_docs_encode_one_designer_one_reviewer_and_repairing_verifier(self) -> None:
+    def test_docs_encode_direct_code_regression_and_one_visual_verifier(self) -> None:
         normalized = " ".join((self.skill + self.main + self.readme).lower().split())
         self.assertIn("whole ordered group", normalized)
         self.assertIn("reviewer runs once", normalized)
         self.assertIn("directly repairs", normalized)
-        self.assertIn("routine, standard, or complex node", normalized)
-        self.assertIn("never dispatches a verifier", normalized)
-        self.assertIn("a critical node dispatches the code or visual verifier", normalized)
-        self.assertIn("must not override this mechanical gate", normalized)
+        self.assertIn("including critical code nodes", normalized)
+        self.assertIn("one visual verifier", normalized)
+        self.assertIn("explicit implementation node", normalized)
         self.assertIn('fork_turns: "none"', normalized)
         self.assertIn("spawn or continuation return is not completion", normalized)
         self.assertIn("worker_continuation_key", normalized)
@@ -324,7 +321,7 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         self.assertIn("do not merely forward json", normalized)
         self.assertIn("--spawn-refused", normalized)
         self.assertIn("rejects an unqualified failure record", normalized)
-        for role in ("designer", "worker", "verifier", "reviewer"):
+        for role in ("designer", "worker", "visual verifier", "reviewer"):
             self.assertIn(role, normalized)
 
     def test_docs_require_offline_pattern_assessment_without_pattern_forcing(self) -> None:
@@ -332,6 +329,9 @@ class OrchestrationWorkflowTests(unittest.TestCase):
         normalized = " ".join((self.skill + self.main + self.readme + designer).lower().split())
         self.assertIn("references/design-patterns.md", normalized)
         self.assertIn("design_pattern_assessment", normalized)
+        self.assertIn("decision rules and quick index", normalized)
+        self.assertIn("only categories relevant to concrete pressure", normalized)
+        self.assertNotIn("read the complete injected local knowledge reference", normalized)
         self.assertIn("candidate: none", normalized)
         self.assertIn("simplest direct", normalized)
         self.assertIn("do not fetch", normalized)
