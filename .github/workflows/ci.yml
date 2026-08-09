@@ -29,8 +29,8 @@ jobs:
 
       - name: Smoke test Python CLI
         run: |
-          python scripts/manifest_tool.py uuid --count 1
-          python scripts/manifest_tool.py transition pending in_progress
-          python scripts/manifest_tool.py schema capability
+          python scripts/manifest_tool.py schema manifest
           python scripts/manifest_tool.py schema plan
-          python scripts/manifest_tool.py schema node
+          python scripts/manifest_tool.py schema task
+          python scripts/manifest_tool.py schema question
+          python scripts/manifest_tool.py schema checkpoints

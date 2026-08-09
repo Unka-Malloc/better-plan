@@ -6,10 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.models import MANIFEST_NAME
-from ..infrastructure.workspace import (
-    discover_workspace_manifests,
-    is_structural_workspace_manifest,
-)
+from ..infrastructure.workspace import discover_workspaces
 
 
 def event_directories(payload: dict[str, Any]) -> list[Path] | None:
@@ -66,12 +63,13 @@ def event_repository(payload: dict[str, Any]) -> Path | None:
 def detect_workspace(context: Path) -> Path | None:
     resolved = context.expanduser().resolve()
     if resolved.is_file() and resolved.name == MANIFEST_NAME:
-        return resolved if is_structural_workspace_manifest(resolved) else None
+        roots = discover_workspaces(resolved.parent)
+        return resolved if resolved.parent in roots else None
 
     root = repository_root(resolved)
     if root is None:
         return None
-    manifests = discover_workspace_manifests(root)
+    manifests = [workspace / MANIFEST_NAME for workspace in discover_workspaces(root)]
     unique = {manifest.resolve(): manifest for manifest in manifests}
     if len(unique) != 1:
         return None
@@ -82,6 +80,6 @@ def detect_event_workspace(payload: dict[str, Any]) -> Path | None:
     root = event_repository(payload)
     if root is None:
         return None
-    manifests = discover_workspace_manifests(root)
+    manifests = [workspace / MANIFEST_NAME for workspace in discover_workspaces(root)]
     unique = {manifest.resolve(): manifest for manifest in manifests}
     return next(iter(unique.values())) if len(unique) == 1 else None

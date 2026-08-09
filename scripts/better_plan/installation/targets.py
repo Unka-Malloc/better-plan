@@ -31,10 +31,10 @@ from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker-routine.toml", "worker-standard.toml", "worker-complex.toml", "worker-critical.toml", "visual-verifier.toml", "reviewer.toml", "visual-reviewer.toml", "finder.toml", "fallback_finder.toml"),
-    "claude": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
-    "opencode": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
-    "cursor": ("designer.md", "worker-routine.md", "worker-standard.md", "worker-complex.md", "worker-critical.md", "visual-verifier.md", "reviewer.md", "visual-reviewer.md"),
+    "codex": ("designer.toml", "worker-standard.toml", "worker-complex.toml", "reviewer.toml", "finder.toml", "fallback_finder.toml"),
+    "claude": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
+    "opencode": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
 }
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
 
@@ -192,9 +192,6 @@ def _render_native_source(target: str, source: str, assignment: _RoleAssignment)
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
         measurement = "mode=read-only"
-    elif assignment.role.startswith("visual-"):
-        basis = "Arena WebDev"
-        measurement = f"score={assignment.index_score}"
     else:
         basis = "Intelligence Index"
         measurement = f"score={assignment.index_score}"
@@ -367,9 +364,6 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
         metric = "fixed selector"
-    elif assignment.role.startswith("visual-"):
-        basis = "Arena WebDev"
-        metric = f"score {assignment.index_score}, price ignored"
     else:
         basis = "Intelligence Index"
         metric = f"score {assignment.index_score}, price ignored"
@@ -402,10 +396,6 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     files = receipt.get("files")
     if not isinstance(files, dict) or not files or not set(files).issubset(NATIVE_ROLE_FILES[target]):
         return False, "native role inventory is invalid"
-    agent_names = {Path(filename).stem for filename in files}
-    for code_role, visual_role in (("reviewer", "visual-reviewer"),):
-        if visual_role in agent_names and code_role not in agent_names:
-            return False, "a visual verification role is installed without its code-role base"
     try:
         for filename, digest in files.items():
             path = destination / filename
