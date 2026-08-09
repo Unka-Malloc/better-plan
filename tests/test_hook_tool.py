@@ -16,6 +16,13 @@ from tests.v3_fixtures import complete_plan, write_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOK_TOOL = REPO_ROOT / "scripts" / "hook_tool.py"
+# Intentionally independent from production code. This exact Hook entry prompt
+# is a developer-gated compatibility contract: changing it requires an explicit
+# developer request and a deliberate update to this fixture.
+PROTECTED_ENTRY_GUIDANCE = (
+    "Understand the user's request. Handle simple tasks directly; only enter the Better Plan "
+    "workspace for complex tasks, large migrations, or long-term planning."
+)
 
 
 def run_hook(agent: str, payload: dict[str, object], event: str) -> subprocess.CompletedProcess[str]:
@@ -59,7 +66,16 @@ class HookToolTests(unittest.TestCase):
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn(result.stdout.strip(), {"", "{}"})
 
-    def test_workspace_injects_privacy_safe_uninterrupted_policy(self) -> None:
+    def test_hook_entry_guidance_is_developer_gated(self) -> None:
+        self.assertEqual(
+            hook_context.INTENT_GUIDANCE,
+            PROTECTED_ENTRY_GUIDANCE,
+            "Hook entry guidance is protected; change it only on an explicit developer request",
+        )
+        self.assertEqual(hook_context.session_context(), PROTECTED_ENTRY_GUIDANCE)
+        self.assertEqual(hook_context.prompt_context(), PROTECTED_ENTRY_GUIDANCE)
+
+    def test_workspace_injects_protected_guidance_without_private_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             project = self.make_project(Path(tmpdir))
             sentinel = "PRIVATE-PROMPT-SENTINEL"
@@ -72,11 +88,7 @@ class HookToolTests(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-                    self.assertEqual(context, hook_context.INTENT_GUIDANCE)
-                    lowered = context.lower()
-                    self.assertIn("one decision dossier", lowered)
-                    self.assertIn("resolve it once", lowered)
-                    self.assertIn("never ask the user", lowered)
+                    self.assertEqual(context, PROTECTED_ENTRY_GUIDANCE)
                     self.assertNotIn(sentinel, context)
                     self.assertNotIn(str(project), context)
 
@@ -87,9 +99,9 @@ class HookToolTests(unittest.TestCase):
             kimi = run_hook("kimi", {"cwd": str(project)}, "session-start")
             self.assertEqual(
                 json.loads(cursor.stdout),
-                {"additional_context": hook_context.INTENT_GUIDANCE},
+                {"additional_context": PROTECTED_ENTRY_GUIDANCE},
             )
-            self.assertEqual(kimi.stdout.strip(), hook_context.INTENT_GUIDANCE)
+            self.assertEqual(kimi.stdout.strip(), PROTECTED_ENTRY_GUIDANCE)
 
     def test_ambiguous_workspaces_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
