@@ -9,6 +9,14 @@ Better Plan is a complete-delivery protocol. It freezes the whole authorized out
 Worker starts, then advances independent Tasks through explicit handoffs and executable evidence.
 The latest user request is always authoritative; stored state never grants work by itself.
 
+## Internal operating guidance
+
+Understand the user's request and inspect repository facts first. Use Better Plan only for large
+delivery. Before authorization, consolidate every non-discoverable choice into one Decision Dossier
+and resolve it once. After authorization, never ask the user another question: continue safe
+in-scope work and report hard authority or environment blockers only at final handoff. Run
+`next-action` when the delivery state is unclear; it always names one next step.
+
 ## Activation and source-repository exemption
 
 Use the native main's ordinary workflow for one small closure that can be understood, implemented,

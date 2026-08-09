@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 MAX_CONTEXT_LENGTH = 2048
+# Protected compatibility contract: keep lifecycle policy in SKILL.md. Change
+# this entry guidance only in a developer-authorized change that also updates
+# the independent contract fixture in tests/test_hook_tool.py.
 INTENT_GUIDANCE = (
-    "Understand the user's request and inspect repository facts first. Use Better Plan only for "
-    "large delivery. Before authorization, consolidate every non-discoverable choice into one "
-    "Decision Dossier and resolve it once. After authorization, never ask the user another "
-    "question: continue safe in-scope work and report hard authority or environment blockers only "
-    "at final handoff. Run `next-action` when the delivery state is unclear; it always names one "
-    "next step."
+    "Understand the user's request. Handle simple tasks directly; only enter the Better Plan "
+    "workspace for complex tasks, large migrations, or long-term planning."
 )
 
 
