@@ -1,10 +1,11 @@
 """Network-free role selection over versioned Artificial Analysis snapshots.
 
-The model table ranks non-coding roles by Intelligence Index.  The Coding
-Agent table independently routes Worker configurations by task difficulty and
-cost.  Runtime dispatch never calls this module: assignments are selected once
-while native Better Plan agents are created and are then persisted by the
-installer.
+The model table ranks Designer and Reviewer by Intelligence Index.  The Coding
+Agent table independently routes the two Worker tiers by task difficulty and
+cost: `standard` carries ordinary bounded work at the lowest qualifying price,
+and `complex` carries elevated-risk or structurally coupled work.  Runtime
+dispatch never calls this module: assignments are selected once while native
+Better Plan agents are created and are then persisted by the installer.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from .models import ToolError
 
 _MODEL_CATALOG_PATH = Path(__file__).with_name("model_catalog.json")
 _CODING_AGENT_CATALOG_PATH = Path(__file__).with_name("coding_agent_catalog.json")
-_DIFFICULTIES = ("routine", "standard", "complex", "critical")
+_DIFFICULTIES = ("standard", "complex")
 _INTELLIGENCE_ROLES = frozenset({"designer", "reviewer"})
 _MODEL_SELECTION_POLICY = "intelligence_rank_for_non_worker_roles"
 _WORKER_SELECTION_POLICY = "lowest_cost_above_task_difficulty_floor"

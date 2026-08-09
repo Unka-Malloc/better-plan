@@ -1,1436 +1,1133 @@
-"""Workflow layer for Better Plan workflow state."""
+"""Application services for Better Plan v3 planning and delivery."""
 
 from __future__ import annotations
 
-from typing import Any
+from copy import deepcopy
 from pathlib import Path
-import argparse
+from typing import Any, Mapping
 import hashlib
 import json
 import os
-from ..domain.models import ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, GIT_SHA_PATTERN, MAX_DELEGATION_FAILURES, OPAQUE_EVENT_ID_PATTERN, REGRESSION_NODE_ROLES, SHA256_PATTERN, ToolError, UUID4_PATTERN, WORKFLOW_STATE_MACHINE, expected_regression_scope, generate_id, is_string_list, safe_summary_issue
-from ..domain.roles import knowledge_references_for_action as _knowledge_references_for_action, reference_for_action as _reference_for_action
-from ..domain.transitions import next_action as acceptance_next_action, transition as acceptance_transition
-from ..infrastructure.regression import current_platform, ensure_node_regression, evidence_timestamp, platform_matches, preparation_fingerprints, regression_receipt_status, run_node_regression, run_regression_at_location as _run_regression_at_location, validated_design_contract, validated_regression_contract
-from ..infrastructure.readiness import ensure_plan_readiness_current
-from ..infrastructure.native_roles import NativeRoleSelector, resolve_codex_role
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, capability_scope_for_plan, ensure_location_is_valid, locate_node, project_root_for, relative_path_label, workspace_manifest_lock, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan
+import subprocess
+import sys
+import time
 
-
-_CHILD_WORK_ITEM_FIELDS = (
-    "id",
-    "status",
-    "role",
-    "prerequisites",
-    "platform",
-    "difficulty",
-    "verification_profile",
-    "goal",
-    "description",
-    "requirements",
-    "acceptance_criteria",
-    "next",
-    "design",
-    "regression",
-    "code",
-    "title",
-    "tags",
-    "conditions",
+from ..domain.models import (
+    CHECKPOINTS_NAME,
+    DOSSIER_PHASES,
+    MANIFEST_NAME,
+    PLAN_DOCUMENT,
+    OPAQUE_EVENT_ID_PATTERN,
+    PLAN_NAME,
+    RENDERED_VERIFICATIONS,
+    TERMINAL_TASK_STATUSES,
+    ToolError,
+    checkpoints_template,
+    generate_id,
+    manifest_template,
+    plan_template,
+    public_summary,
+    semantic_digest,
+    sha256_value,
+    task_state,
+)
+from ..domain.validation import (
+    authority_expansion_issues,
+    plan_readiness_issues,
+    validate_checkpoints_document,
+    validate_plan_document,
+)
+from ..infrastructure.native_roles import resolve_codex_role
+from ..infrastructure.plan_render import render_document
+from ..infrastructure.workspace import (
+    fingerprint_paths,
+    load_manifest,
+    load_plan,
+    plan_paths,
+    read_json,
+    resolve_plan_entry,
+    workspace_lock,
+    workspace_root,
+    write_json,
+    write_text,
 )
 
 
-def _child_work_item(node: dict[str, Any]) -> dict[str, Any]:
-    """Project validated Plan state into one transcript-free delegation fact set."""
-
-    return {
-        field: node[field]
-        for field in _CHILD_WORK_ITEM_FIELDS
-        if field in node
-    }
+MAX_DELEGATION_ATTEMPTS = 3
+COMMAND_TIMEOUT_SECONDS = 1800
+OUTPUT_TAIL_CHARACTERS = 2000
 
 
-def run_node_mutation(
-    root: str,
-    node_id: str,
-    target: str,
-    *,
-    reason: str | None = None,
-    delivered: str | None = None,
-    require_current: str | None = None,
-) -> list[str]:
-    manifest = workspace_manifest_path(Path(root))
-    location = locate_node(manifest, node_id)
-    node = location.checkpoints_data[location.node_index]
-
-    current = node.get("status")
-    if not WORKFLOW_STATE_MACHINE.is_status(current):
-        raise ToolError(
-            f"{location.checkpoints_path.name}: node[{location.node_index}].status is invalid; "
-            "fix the state file before transitioning"
-        )
-    current_status = str(current)
-    if require_current is not None and current_status != require_current:
-        raise ToolError(f"node {node_id}: this command requires an {require_current!r} node; current status is {current_status!r}")
-    if not WORKFLOW_STATE_MACHINE.can_transition(current_status, target):
-        allowed = ", ".join(sorted(WORKFLOW_STATE_MACHINE.transitions[current_status]))
-        raise ToolError(f"node {node_id}: cannot transition from {current_status!r} to {target!r}; allowed targets: {allowed}")
-
-    normalized_reason: str | None = None
-    if target in {"blocked", "deferred", "skipped"}:
-        if reason is None or not reason.strip():
-            raise ToolError(f"a non-empty --reason is required to mark a node {target}")
-        reason_issue = safe_summary_issue(reason)
-        if reason_issue is not None:
-            raise ToolError(f"--reason {reason_issue}")
-        normalized_reason = reason.strip()
-    elif target == "pending" and reason is not None and reason.strip():
-        reason_issue = safe_summary_issue(reason)
-        if reason_issue is not None:
-            raise ToolError(f"--reason {reason_issue}")
-        normalized_reason = reason.strip()
-
-    if target in {"blocked", "deferred", "skipped"} and current_status == target:
-        if node.get("status_reason") == normalized_reason:
-            return [f"OK: node {node_id} remains {target}"]
-        raise ToolError(
-            f"node {node_id}: already {target}; an idempotent repeat must use the existing reason exactly"
-        )
-
-    if target == "in_progress":
-        declared_platform = node.get("platform")
-        actual_platform = current_platform()
-        if not platform_matches(declared_platform, actual_platform):
-            raise ToolError(
-                f"node {node_id}: platform {declared_platform!r} does not match current runtime {actual_platform!r}"
-            )
-        required_scope = expected_regression_scope(node.get("role"))
-        if required_scope is not None and not isinstance(node.get("regression"), dict):
-            raise ToolError(
-                f"node {node_id}: {node.get('role')} work requires a machine-readable {required_scope} regression contract before start"
-            )
-        if node.get("role") == "final_validation":
-            unfinished = [
-                str(entry.get("id"))
-                for entry in location.checkpoints_data
-                if isinstance(entry, dict)
-                and entry.get("role") == "implementation"
-                and entry.get("status") not in {"completed", "skipped"}
-            ]
-            if unfinished:
-                raise ToolError(
-                    f"node {node_id}: final_validation cannot start until every non-skipped implementation node is completed: "
-                    f"{', '.join(unfinished)}"
-                )
-        for entry in location.checkpoints_data:
-            if isinstance(entry, dict) and entry.get("status") == "in_progress" and entry.get("id") != node_id:
-                state_label = relative_path_label(
-                    location.checkpoints_path,
-                    project_root_for(location.manifest.parent),
-                )
-                raise ToolError(
-                    f"node {entry.get('id')} is already in_progress in {state_label}; "
-                    f"pause it with `pause {entry.get('id')}` to yield, or complete/block it, before starting {node_id}"
-                )
-        statuses = workspace_node_statuses(manifest)
-        prerequisites = node.get("prerequisites")
-        if not is_string_list(prerequisites):
-            raise ToolError(f"node {node_id}: prerequisites must be an array")
-        if any(statuses.get(ref) != "completed" for ref in prerequisites):
-            raise ToolError(
-                f"node {node_id}: prerequisites must be completed before the node starts"
-            )
-        if current_status != "in_progress" and isinstance(node.get("regression"), dict):
-            node["regression"].pop("last_pass", None)
-
-    if target == "completed" and expected_regression_scope(node.get("role")) is not None:
-        fresh, reason = regression_receipt_status(location)
-        if not fresh:
-            raise ToolError(f"node {node_id}: cannot complete without a current passing regression receipt: {reason}")
-
-    normalize_delivery_administrative_transition(node, target)
-
-    node["status"] = target
-    if target in {"blocked", "deferred", "skipped"}:
-        assert normalized_reason is not None
-        node["status_reason"] = normalized_reason
-    elif target == "pending" and normalized_reason is not None:
-        node["status_reason"] = normalized_reason
-    else:
-        node.pop("status_reason", None)
-    if delivered is not None:
-        commit = node.get("commit")
-        if not isinstance(commit, dict):
-            raise ToolError(f"node {node_id}: commit must be an object before recording --delivered")
-        commit["delivered"] = delivered
-
-    messages = [f"OK: node {node_id} {current_status} -> {target}"]
-    messages.extend(write_location_and_sync_plan(location))
-    return messages
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def refresh_preparation(location: _NodeLocation, node: dict[str, Any]) -> dict[str, Any]:
-    """Invalidate stale preparation without automatically re-running Designer or Reviewer."""
-
-    acceptance = acceptance_snapshot(node)
-    phase = str(acceptance.get("phase"))
-    role = node.get("role")
-    if phase in {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "accepted"}:
-        return acceptance
-
-    current = preparation_fingerprints(location)
-    if phase == "designer_running":
-        dispatch = acceptance.get("dispatch")
-        stale = not isinstance(dispatch, dict) or dispatch.get("design_digest") != current["design_digest"]
-    else:
-        fields = ACCEPTANCE_STABLE_PREPARATION_FIELDS if role == "implementation" else ACCEPTANCE_PREPARATION_FIELDS
-        stale = any(acceptance.get(field) != current[field] for field in fields)
-    if not stale:
-        return acceptance
-
-    clear_regression_proof(node)
-    if node.get("status") not in {"blocked", "deferred"}:
-        node["status"] = "pending"
-        node.pop("status_reason", None)
-    if role == "group_design":
-        reset_phase = "awaiting_designer"
-    elif role == "implementation":
-        reset_phase = "awaiting_worker"
-    else:
-        reset_phase = "reviewer_complete" if isinstance(acceptance.get("review"), dict) else "awaiting_reviewer"
-    reset = {"phase": reset_phase, "attempt": int(acceptance.get("attempt", 0)), "outcome": "none"}
-    if isinstance(acceptance.get("review"), dict) and role == "final_validation":
-        reset["review"] = acceptance["review"]
-        reset.update({field: current[field] for field in ACCEPTANCE_PREPARATION_FIELDS})
-    node["acceptance"] = reset
-    return reset
-
-
-def automated_node_role(node: dict[str, Any]) -> str:
-    role = node.get("role")
-    if role not in AUTOMATED_NODE_ROLES:
-        raise ToolError("delivery commands require a group_design, implementation, or final_validation node")
-    return str(role)
-
-
-def implementation_requires_visual_verifier(node: dict[str, Any]) -> bool:
-    """Return the narrow rendered-evidence gate for an implementation Node."""
-
-    return (
-        node.get("role") == "implementation"
-        and node.get("difficulty") == "critical"
-        and node.get("verification_profile") in {"visual", "hybrid"}
-    )
-
-
-def implicit_acceptance_snapshot(node: dict[str, Any]) -> dict[str, Any]:
-    role = automated_node_role(node)
-    phase = {
-        "group_design": "awaiting_designer",
-        "implementation": "awaiting_worker",
-        "final_validation": "awaiting_reviewer",
-    }[role]
-    return {"phase": phase, "attempt": 0, "outcome": "none"}
-
-
-def acceptance_snapshot(node: dict[str, Any], *, required: bool = False) -> dict[str, Any]:
-    acceptance = node.get("acceptance")
-    if isinstance(acceptance, dict):
-        return acceptance
-    if required:
-        raise ToolError("acceptance event is out of order for an unenrolled node")
-    return implicit_acceptance_snapshot(node)
-
-
-def ensure_event_id(value: Any) -> str:
-    if not isinstance(value, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(value):
-        raise ToolError("--dispatch-id must be a bounded opaque correlation id")
+def _opaque_event_id(value: Any, field: str) -> str:
+    if not isinstance(value, str) or OPAQUE_EVENT_ID_PATTERN.fullmatch(value) is None:
+        raise ToolError("%s must be an opaque host identifier" % field)
     return value
 
 
-def ensure_node_can_start(location: _NodeLocation, node: dict[str, Any]) -> None:
-    node_id = str(node.get("id"))
-    status = node.get("status")
-    if status not in {"pending", "in_progress", "blocked"}:
-        raise ToolError(f"node {node_id}: automated acceptance requires a pending, blocked, or in_progress node")
-
-    actual_platform = current_platform()
-    if not platform_matches(node.get("platform"), actual_platform):
-        raise ToolError(
-            f"node {node_id}: declared platform does not match the current runtime platform"
-        )
-    validated_design_contract(location)
-    if node.get("role") in REGRESSION_NODE_ROLES:
-        regression = validated_regression_contract(location)
-        criteria = node.get("acceptance_criteria")
-        criterion_count = len(criteria) if isinstance(criteria, list) else 0
-        mapped = regression.get("criteria")
-        if not isinstance(mapped, list) or len(mapped) != criterion_count or set(mapped) != set(range(criterion_count)):
-            raise ToolError("automated delivery requires regression criteria to map every acceptance criterion exactly once")
-
-    status_by_id = workspace_node_statuses(location.manifest)
-    prerequisites = node.get("prerequisites")
-    if not is_string_list(prerequisites):
-        raise ToolError(f"node {node_id}: prerequisites must be an array")
-    incomplete = [ref for ref in prerequisites if status_by_id.get(ref) != "completed"]
-    if incomplete:
-        raise ToolError(f"node {node_id}: prerequisites must be completed before automated acceptance starts")
-
-    if node.get("role") == "final_validation":
-        unfinished = [
-            entry
-            for entry in location.checkpoints_data
-            if isinstance(entry, dict)
-            and entry.get("role") == "implementation"
-            and entry.get("status") not in {"completed", "skipped"}
-        ]
-        if unfinished:
-            raise ToolError(
-                "final_validation cannot start until every non-skipped implementation node is completed"
-            )
-
-    other_active = [
-        entry
-        for entry in location.checkpoints_data
-        if isinstance(entry, dict)
-        and entry.get("status") == "in_progress"
-        and entry.get("id") != node.get("id")
-    ]
-    if other_active and (
-        node.get("role") != "implementation"
-        or any(entry.get("role") != "implementation" for entry in other_active)
-    ):
-        raise ToolError(
-            "only independent implementation nodes may run concurrently in one task group"
-        )
+def _project_root(workspace: Path) -> Path:
+    current = workspace.resolve()
+    while current != current.parent:
+        if (current / ".git").exists():
+            return current
+        current = current.parent
+    return workspace.resolve()
 
 
-def clear_regression_proof(node: dict[str, Any]) -> None:
-    regression = node.get("regression")
-    if not isinstance(regression, dict):
-        return
-    regression.pop("last_pass", None)
-    criteria = node.get("acceptance_criteria")
-    if not isinstance(criteria, list):
-        return
-    for criterion_index in regression.get("criteria", []):
-        if type(criterion_index) is not int or not 0 <= criterion_index < len(criteria):
-            continue
-        criterion = criteria[criterion_index]
-        if not isinstance(criterion, dict):
-            continue
-        criterion["checked"] = False
-        criterion.pop("evidence", None)
-        criterion.pop("evidence_refs", None)
+def _load_raw_plan(root: Path, selector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Path]]:
+    """Load one structurally valid Plan for mutation.
+
+    Structure is proven on load so a mutator reports every concrete defect at
+    once instead of failing later on a missing key. Semantic completeness stays
+    deferred to the single readiness gate.
+    """
+
+    manifest = load_manifest(root)
+    entry = resolve_plan_entry(manifest, selector)
+    paths = plan_paths(root, entry)
+    value = read_json(paths["plan"])
+    if not isinstance(value, dict):
+        raise ToolError("Plan.json must be an object")
+    if any(value.get(field) != entry.get(field) for field in ("code", "directory")):
+        raise ToolError("Manifest and Plan identity do not match")
+    issues = validate_plan_document(paths["plan"], value)
+    if issues:
+        raise ToolError("invalid Plan.json: %s" % "; ".join(issue.message for issue in issues))
+    return manifest, value, paths
 
 
-def invalidate_preparation_after_plan_edit(node: dict[str, Any]) -> None:
-    """Clear stale proof while preserving the one-Reviewer-per-group invariant."""
-
-    role = node.get("role")
-    if role not in AUTOMATED_NODE_ROLES:
-        return
-    status = node.get("status")
-    if status in WORKFLOW_STATE_MACHINE.terminal_statuses:
-        return
-    clear_regression_proof(node)
-    if status == "deferred":
-        node.pop("acceptance", None)
-        return
-    prior = node.get("acceptance")
-    attempt = prior.get("attempt", 0) if isinstance(prior, dict) else 0
-    safe_attempt = int(attempt) if type(attempt) is int and attempt >= 0 else 0
-    if role == "group_design":
-        phase = "awaiting_designer"
-    elif role == "implementation":
-        phase = "awaiting_worker"
-    else:
-        phase = "reviewer_complete" if isinstance(prior, dict) and isinstance(prior.get("review"), dict) else "awaiting_reviewer"
-    reset: dict[str, Any] = {"phase": phase, "attempt": safe_attempt, "outcome": "none"}
-    if isinstance(prior, dict) and isinstance(prior.get("review"), dict):
-        reset["review"] = prior["review"]
-    node["acceptance"] = reset
-    if status == "in_progress":
-        node["status"] = "pending"
-        node.pop("status_reason", None)
+def _save_plan(paths: Mapping[str, Path], plan: dict[str, Any]) -> None:
+    issues = validate_plan_document(paths["plan"], plan)
+    if issues:
+        raise ToolError("refusing invalid Plan: %s" % "; ".join(issue.message for issue in issues))
+    document = render_document(plan)
+    write_json(paths["plan"], plan)
+    write_text(paths["directory"] / PLAN_DOCUMENT, document)
 
 
-def normalize_delivery_administrative_transition(node: dict[str, Any], target: str) -> None:
-    """Cancel automated proof before a delivery node is paused, blocked, deferred, or skipped."""
-    role = node.get("role")
-    if role not in AUTOMATED_NODE_ROLES or target not in {
-        "pending",
-        "blocked",
-        "deferred",
-        "skipped",
-    }:
-        return
-
-    if role in REGRESSION_NODE_ROLES:
-        clear_regression_proof(node)
-    if target == "skipped":
-        node.pop("acceptance", None)
-        return
-
-    acceptance = node.get("acceptance")
-    if not isinstance(acceptance, dict):
-        return
-
-    attempt = acceptance.get("attempt")
-    if type(attempt) is not int or attempt < 0:
-        raise ToolError("cannot administratively suspend an invalid acceptance attempt")
-
-    phase = acceptance.get("phase")
-    if target == "deferred":
-        review = acceptance.get("review")
-        if role != "final_validation" or not isinstance(review, dict):
-            node.pop("acceptance", None)
-            return
-        if phase in {"repair_plan_required", "awaiting_repair"}:
-            preserved = dict(acceptance)
-            preserved.pop("dispatch", None)
-        else:
-            preserved = {
-                "phase": "reviewer_complete",
-                "attempt": attempt,
-                "outcome": "none",
-                "review": review,
-            }
-            for field in ACCEPTANCE_PREPARATION_FIELDS:
-                if field in acceptance:
-                    preserved[field] = acceptance[field]
-        node["acceptance"] = preserved
-        return
-    if role == "final_validation" and phase in {"repair_plan_required", "awaiting_repair"}:
-        preserved = {
-            "phase": phase,
-            "attempt": attempt,
-            "outcome": acceptance.get("outcome"),
-        }
-        for field in ACCEPTANCE_PREPARATION_FIELDS:
-            if field in acceptance:
-                preserved[field] = acceptance[field]
-        if phase == "awaiting_repair" and "repair_node_id" in acceptance:
-            preserved["repair_node_id"] = acceptance["repair_node_id"]
-        if isinstance(acceptance.get("review"), dict):
-            preserved["review"] = acceptance["review"]
-        node["acceptance"] = preserved
-        return
-
-    if role == "group_design":
-        resumed_phase = "awaiting_designer"
-    elif role == "implementation":
-        resumed_phase = "awaiting_worker"
-    else:
-        resumed_phase = "reviewer_complete" if isinstance(acceptance.get("review"), dict) else "awaiting_reviewer"
-    normalized = {
-        "phase": resumed_phase,
-        "attempt": attempt,
-        "outcome": "none",
-    }
-    if role != "group_design":
-        fields = ACCEPTANCE_PREPARATION_FIELDS if role == "final_validation" else ACCEPTANCE_STABLE_PREPARATION_FIELDS
-        for field in fields:
-            if field in acceptance:
-                normalized[field] = acceptance[field]
-    if isinstance(acceptance.get("review"), dict):
-        normalized["review"] = acceptance["review"]
-    node["acceptance"] = normalized
+IMMUTABLE_FIELDS = ("intent", "dossier")
 
 
-def regression_failure_outcome(error: ToolError) -> str:
-    message = str(error).lower()
-    if "timed out" in message:
-        return "regression_timeout"
-    if "could not be started" in message or "required" in message or "invalid regression" in message:
-        return "regression_unavailable"
-    return "regression_failed"
+def _immutable_snapshot(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Return exactly what no Designer session may change."""
+
+    snapshot = {field: deepcopy(plan.get(field)) for field in IMMUTABLE_FIELDS}
+    snapshot["user_decided"] = deepcopy(plan.get("ledger", {}).get("user_decided"))
+    snapshot["defaulted"] = deepcopy(plan.get("ledger", {}).get("defaulted"))
+    return snapshot
 
 
-def ensure_matching_dispatch(
-    acceptance: dict[str, Any],
-    *,
-    expected_phase: str,
-    expected_role: str,
-    dispatch_id: str,
-) -> dict[str, Any]:
-    if acceptance.get("phase") != expected_phase:
-        raise ToolError("acceptance event is out of order for the current phase")
-    dispatch = acceptance.get("dispatch")
-    if not isinstance(dispatch, dict):
-        raise ToolError("acceptance event has no outstanding correlated dispatch")
-    if dispatch.get("role") != expected_role or dispatch.get("id") != dispatch_id:
-        raise ToolError("acceptance event does not match the outstanding dispatch")
-    return dispatch
-
-
-def _relative_leaf_paths(node: dict[str, Any]) -> list[str]:
-    design = node.get("design")
-    if not isinstance(design, dict):
-        raise ToolError("leaf dispatch requires a validated design contract")
-    values: list[str] = []
-    for field in ("artifact", "owned_paths", "scaffold_paths", "acceptance_paths"):
-        raw = design.get(field)
-        raw_values = [raw] if field == "artifact" else raw if isinstance(raw, list) else []
-        for value in raw_values:
-            if not isinstance(value, str):
-                raise ToolError("leaf dispatch contains an invalid repository path")
-            normalized = value.strip().replace("\\", "/")
-            parts = [part for part in normalized.split("/") if part]
-            if (
-                not parts
-                or normalized.startswith("/")
-                or ":/" in normalized
-                or any(part in {".", ".."} for part in parts)
-            ):
-                raise ToolError("leaf dispatch contains an invalid repository path")
-            if normalized not in values:
-                values.append(normalized)
-    if not values:
-        raise ToolError("leaf dispatch requires repository-relative paths")
-    return sorted(values)
-
-
-def _resolved_payload_action(node: dict[str, Any], action: str | None) -> str:
-    if action is not None:
-        return action
-    acceptance = acceptance_snapshot(node)
-    phase = str(acceptance["phase"])
-    return (
-        "none"
-        if node.get("status") == "deferred"
-        or node.get("status") in WORKFLOW_STATE_MACHINE.terminal_statuses
-        else acceptance_next_action(phase, str(node.get("role")))
-    )
-
-
-def _dispatch_action_for_role(role: object) -> str:
-    """Translate one public hyphenated role name to its state-machine action."""
-
-    return f"dispatch_{str(role).replace('-', '_')}"
-
-
-def _agent_type_for_action(node: dict[str, Any], action: str) -> str | None:
-    verification_profile = str(node.get("verification_profile"))
-    visual_verification = verification_profile in {"visual", "hybrid"}
+def _selector_payload(role: str, native_host: str | None, codex_home: str | None) -> dict[str, Any]:
+    if native_host != "codex":
+        return {"agent_type": role}
+    home = Path(codex_home) if codex_home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    selector = resolve_codex_role(role, home)
+    if selector is None:
+        return {"agent_type": role, "main_thread_fallback": True}
     return {
-        "dispatch_designer": "designer",
-        "dispatch_worker": f"worker-{node.get('difficulty')}",
-        "dispatch_visual_verifier": "visual-verifier",
-        "dispatch_reviewer": "visual-reviewer" if visual_verification else "reviewer",
-    }.get(action)
-
-
-def bounded_acceptance_payload(
-    node: dict[str, Any],
-    *,
-    action: str | None = None,
-    group_nodes: list[Any] | None = None,
-    capability_context: dict[str, Any] | None = None,
-    native_role_selector: NativeRoleSelector | None = None,
-) -> dict[str, Any]:
-    acceptance = acceptance_snapshot(node)
-    phase = str(acceptance["phase"])
-    action = _resolved_payload_action(node, action)
-    payload: dict[str, Any] = {
-        "node_id": node.get("id"),
-        "phase": phase,
-        "action": action,
-        "attempt": acceptance.get("attempt", 0),
+        "agent_type": role,
+        "model": selector.model,
+        "reasoning_effort": selector.reasoning_effort,
+        "model_provider": selector.model_provider,
+        "selector_source": selector.source,
     }
-    dispatch = acceptance.get("dispatch")
-    if isinstance(dispatch, dict) and isinstance(dispatch.get("id"), str):
-        payload["dispatch_id"] = dispatch["id"]
-        if isinstance(dispatch.get("delegation_failures"), int):
-            payload["delegation_failures"] = dispatch["delegation_failures"]
-    if capability_context is not None:
-        payload["capability_scope"] = capability_context
-    dispatch_action = action
-    if action == "retry_delegation" and isinstance(dispatch, dict):
-        dispatch_action = _dispatch_action_for_role(dispatch.get("role"))
-    if dispatch_action.startswith("dispatch_"):
-        verification_profile = str(node.get("verification_profile"))
-        visual_verification = verification_profile in {"visual", "hybrid"}
-        agent_type = _agent_type_for_action(node, dispatch_action)
-        role_reference = _reference_for_action(dispatch_action, verification_profile)
-        if agent_type is None or role_reference is None:
-            raise ToolError("unsupported leaf dispatch action")
-        payload.update(
+
+
+def _run_commands(project_root: Path, commands: list[str]) -> tuple[bool, list[dict[str, Any]]]:
+    """Run commands, persisting only receipts while surfacing failures to the operator."""
+
+    receipts: list[dict[str, Any]] = []
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(project_root),
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
+            exit_code: int | None = completed.returncode
+            outcome = "passed" if exit_code == 0 else "failed"
+            output = completed.stdout.decode("utf-8", "replace") if completed.stdout else ""
+        except subprocess.TimeoutExpired:
+            exit_code = None
+            outcome = "timeout"
+            output = ""
+        receipts.append(
             {
-                "agent_type": agent_type,
-                "fork_turns": "none",
-                "role_reference": role_reference,
-                "repository_paths": _relative_leaf_paths(node),
-                "verification_profile": verification_profile,
+                "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
+                "outcome": outcome,
+                "exit_code": exit_code,
+                "recorded_at": _now(),
             }
         )
-        selector_values = dispatch if isinstance(dispatch, dict) and isinstance(dispatch.get("model"), str) else None
-        if selector_values is not None:
-            for source_field, payload_field in (
-                ("model", "model"),
-                ("reasoning_effort", "reasoning_effort"),
-                ("model_provider", "model_provider"),
-                ("selector_source", "selector_source"),
-            ):
-                if isinstance(selector_values.get(source_field), str):
-                    payload[payload_field] = selector_values[source_field]
-        elif native_role_selector is not None:
-            payload["model"] = native_role_selector.model
-            payload["selector_source"] = native_role_selector.source
-            if native_role_selector.reasoning_effort is not None:
-                payload["reasoning_effort"] = native_role_selector.reasoning_effort
-            if native_role_selector.model_provider is not None:
-                payload["model_provider"] = native_role_selector.model_provider
-        if dispatch_action == "dispatch_worker":
-            target_key = ""
-            if isinstance(capability_context, dict) and isinstance(capability_context.get("target_key"), str):
-                target_key = str(capability_context["target_key"])
-            continuation_facts = {
-                "agent_type": str(payload.get("agent_type", "")),
-                "model": str(payload.get("model", "")),
-                "reasoning_effort": str(payload.get("reasoning_effort", "")),
-                "model_provider": str(payload.get("model_provider", "")),
-                "capability_key": target_key,
-                "platform": str(node.get("platform", "")),
+        if outcome != "passed":
+            tail = output[-OUTPUT_TAIL_CHARACTERS:]
+            print("command %s (%s)" % (outcome, command), file=sys.stderr)
+            if tail.strip():
+                print(tail, file=sys.stderr)
+            return False, receipts
+    return True, receipts
+
+
+def init_plan(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        manifest_path = root / MANIFEST_NAME
+        manifest = load_manifest(root) if manifest_path.is_file() else manifest_template()
+        if any(
+            entry.get("directory") == args.directory or entry.get("code") == args.code
+            for entry in manifest.get("plans", [])
+        ):
+            raise ToolError("plan code or directory already exists")
+        plan = plan_template()
+        plan["code"] = args.code
+        plan["title"] = args.title
+        plan["directory"] = args.directory
+        plan["intent"]["goal"] = args.goal
+        plan["intent"]["scope"] = {"in": args.scope_in, "out": args.scope_out}
+        plan["intent"]["success"] = args.success
+        plan["intent"]["risk_boundary"] = args.risk_boundary
+        paths = {
+            "directory": root / args.directory,
+            "plan": root / args.directory / PLAN_NAME,
+            "checkpoints": root / args.directory / CHECKPOINTS_NAME,
+        }
+        _save_plan(paths, plan)
+        manifest["plans"].append(
+            {
+                "code": plan["code"],
+                "title": plan["title"],
+                "directory": plan["directory"],
+                "plan": "%s/%s" % (plan["directory"], PLAN_NAME),
             }
-            canonical = json.dumps(continuation_facts, sort_keys=True, separators=(",", ":"))
-            payload["worker_continuation_key"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-            payload["continuation_policy"] = "prefer_idle_compatible_worker_after_acceptance"
-        if dispatch_action == "dispatch_worker":
-            payload["required_capabilities"] = ["code_reasoning"]
-        if dispatch_action in {"dispatch_visual_verifier", "dispatch_reviewer"}:
-            payload["required_capabilities"] = (
-                ["code_reasoning", "vision", "browser"]
-                if visual_verification
-                else ["code_reasoning"]
+        )
+        write_json(manifest_path, manifest)
+    print(json.dumps({"plan": plan["code"], "phase": plan["phase"]}))
+    return 0
+
+
+def _read_input(value: str) -> Any:
+    if value == "-":
+        return json.load(sys.stdin)
+    return json.loads(Path(value).read_text(encoding="utf-8"))
+
+
+def build_dossier(args: Any) -> int:
+    """Load or replace the single Decision Dossier before it is resolved."""
+
+    root = workspace_root(Path(args.root))
+    questions = _read_input(args.input)
+    if not isinstance(questions, list):
+        raise ToolError("Decision Dossier input must be an array of questions")
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") not in DOSSIER_PHASES:
+            raise ToolError("the Decision Dossier belongs to a Plan that is not yet authorized")
+        if plan.get("dossier", {}).get("status") == "resolved":
+            raise ToolError("the Decision Dossier is already resolved and may not be rebuilt")
+        plan["dossier"] = {
+            "status": "draft" if questions else "not_required",
+            "questions": questions,
+        }
+        _save_plan(paths, plan)
+    print(json.dumps({"questions": len(questions), "status": plan["dossier"]["status"]}))
+    return 0
+
+
+def resolve_dossier(args: Any) -> int:
+    """Apply explicit selections and declared defaults exactly once."""
+
+    root = workspace_root(Path(args.root))
+    selections = _read_input(args.input)
+    if not isinstance(selections, dict):
+        raise ToolError("Decision Dossier selections must be an object")
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") not in DOSSIER_PHASES:
+            raise ToolError("the Decision Dossier belongs to a Plan that is not yet authorized")
+        dossier = plan.get("dossier", {})
+        if dossier.get("status") != "draft":
+            raise ToolError("no unresolved Decision Dossier")
+        unknown = set(selections) - {
+            str(question.get("code")) for question in dossier.get("questions", [])
+        }
+        if unknown:
+            raise ToolError("unknown question codes %s" % ", ".join(sorted(unknown)))
+        resolved: set[str] = set()
+        for question in dossier.get("questions", []):
+            code = str(question.get("code"))
+            explicit = code in selections
+            chosen = selections.get(code, question.get("default"))
+            options = {item.get("id"): item for item in question.get("options", [])}
+            if chosen not in options:
+                raise ToolError("invalid option for %s" % code)
+            question["selected"] = chosen
+            plan["ledger"]["user_decided" if explicit else "defaulted"].append(
+                {
+                    "source": code,
+                    "option": chosen,
+                    "resolves": list(question.get("resolves", [])),
+                    "effects": list(options[chosen].get("effects", [])),
+                }
             )
-            if visual_verification:
-                payload["required_evidence"] = [
-                    "rendered browser output",
-                    "declared viewport and interaction states",
-                    "visual acceptance findings",
-                ]
-        knowledge_references = _knowledge_references_for_action(dispatch_action)
-        if knowledge_references:
-            payload["knowledge_references"] = list(knowledge_references)
-            payload["required_outputs"] = ["design_pattern_assessment"]
-        if dispatch_action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None:
-            group_ids: list[str] = []
-            group_paths: set[str] = set(payload["repository_paths"])
-            for group_node in group_nodes:
-                if not isinstance(group_node, dict):
-                    continue
-                group_id = group_node.get("id")
-                if isinstance(group_id, str):
-                    group_ids.append(group_id)
-                if isinstance(group_node.get("design"), dict):
-                    group_paths.update(_relative_leaf_paths(group_node))
-                regression = group_node.get("regression")
-                if isinstance(regression, dict) and is_string_list(regression.get("paths")):
-                    group_paths.update(str(value) for value in regression["paths"])
-            payload["group_node_ids"] = group_ids
-            payload["repository_paths"] = sorted(group_paths)
-        use_group = dispatch_action in {"dispatch_designer", "dispatch_reviewer"} and group_nodes is not None
-        candidates = group_nodes if use_group else [node]
-        payload["work_items"] = [
-            _child_work_item(candidate)
-            for candidate in candidates
-            if isinstance(candidate, dict)
+            resolved.update(str(item) for item in question.get("resolves", []))
+        plan["ledger"]["unresolved"] = [
+            item for item in plan["ledger"]["unresolved"] if item.get("code") not in resolved
         ]
-    return payload
-
-
-def print_acceptance_payload(
-    node: dict[str, Any],
-    *,
-    action: str | None = None,
-    group_nodes: list[Any] | None = None,
-    location: _NodeLocation | None = None,
-    native_host: str | None = None,
-    codex_home: str | None = None,
-) -> None:
-    capability_context = None
-    if location is not None:
-        plan = location.manifest_data[location.plan_index]
-        if isinstance(plan, dict):
-            capability_context = capability_scope_for_plan(location.manifest, plan)
-    resolved_action = _resolved_payload_action(node, action)
-    dispatch = acceptance_snapshot(node).get("dispatch")
-    dispatch_action = resolved_action
-    if resolved_action == "retry_delegation" and isinstance(dispatch, dict):
-        dispatch_action = _dispatch_action_for_role(dispatch.get("role"))
-    selector = None
-    if native_host == "codex" and dispatch_action.startswith("dispatch_") and not (
-        isinstance(dispatch, dict) and isinstance(dispatch.get("model"), str)
-    ):
-        agent_type = _agent_type_for_action(node, dispatch_action)
-        if agent_type is not None:
-            home = Path(codex_home).expanduser() if codex_home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
-            selector = resolve_codex_role(agent_type, home)
-    payload = bounded_acceptance_payload(
-        node,
-        action=resolved_action,
-        group_nodes=group_nodes,
-        capability_context=capability_context,
-        native_role_selector=selector,
-    )
-    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
-
-
-def _native_host_options(args: argparse.Namespace) -> dict[str, str | None]:
-    return {
-        "native_host": getattr(args, "native_host", None),
-        "codex_home": getattr(args, "codex_home", None),
-    }
-
-
-def next_action_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-    node = location.checkpoints_data[location.node_index]
-    automated_node_role(node)
-    if node.get("status") == "deferred":
-        print_acceptance_payload(node, action="none", group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
-        return 0
-    if node.get("status") in {"pending", "blocked", "in_progress"} and "acceptance" not in node:
-        ensure_node_can_start(location, node)
-    before = json.dumps(node, sort_keys=True, separators=(",", ":"))
-    refresh_preparation(location, node)
-    after = json.dumps(node, sort_keys=True, separators=(",", ":"))
-    if after != before:
-        write_location_and_sync_plan(location)
-    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location, **_native_host_options(args))
+        dossier["status"] = "resolved"
+        _save_plan(paths, plan)
+    print(json.dumps({"resolved_questions": len(dossier.get("questions", []))}))
     return 0
 
 
-def dispatch_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-    node = location.checkpoints_data[location.node_index]
-    node_role = automated_node_role(node)
-    acceptance = refresh_preparation(location, node)
-    prior_acceptance = acceptance
-    phase = acceptance.get("phase")
-
-    running_roles = {
-        "designer_running": "designer",
-        "worker_running": "worker",
-        "visual_verifier_running": "visual-verifier",
-        "reviewer_running": "reviewer",
+def open_designer_session(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") != "draft":
+            raise ToolError("the Designer starts from a draft Plan")
+        if plan.get("dossier", {}).get("status") not in {"not_required", "resolved"}:
+            raise ToolError("resolve the Decision Dossier before the Designer session")
+        if plan.get("lifecycle", {}).get("designer_session") is not None:
+            raise ToolError("the Designer runs exactly once")
+        dispatch_id = generate_id()
+        selector = _selector_payload("designer", args.native_host, args.codex_home)
+        plan["lifecycle"]["designer_session"] = {
+            "count": 1,
+            "id": dispatch_id,
+            "status": "active",
+            "opened_at": _now(),
+            "immutable": _immutable_snapshot(plan),
+            "host_agent_id": None,
+            "attempts": 1,
+            "selector": selector,
+            "main_thread_fallback": selector.get("main_thread_fallback", False),
+        }
+        plan["phase"] = "designing"
+        _save_plan(paths, plan)
+    payload = {
+        "action": "dispatch_designer",
+        "dispatch_id": dispatch_id,
+        "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
+        "role_reference": "references/designer.md",
+        "knowledge_references": ["references/design-patterns.md"],
     }
-    if phase in running_roles:
-        dispatch = acceptance.get("dispatch")
-        expected_role = running_roles[str(phase)]
-        if not isinstance(dispatch, dict) or args.role != expected_role:
-            raise ToolError("a different acceptance dispatch is already outstanding")
-        if expected_role == "designer":
-            binding = preparation_fingerprints(location)
-            if dispatch.get("design_digest") != binding["design_digest"]:
-                raise ToolError("the outstanding Designer dispatch is stale")
-        print_acceptance_payload(
-            node,
-            action=_dispatch_action_for_role(expected_role) if dispatch.get("host_agent_id") is None else None,
-            group_nodes=location.checkpoints_data,
-            location=location,
-            **_native_host_options(args),
-        )
-        return 0
+    payload.update(selector)
+    print(json.dumps(payload))
+    return 0
 
-    if args.role == "designer":
-        if node_role != "group_design" or phase != "awaiting_designer":
-            raise ToolError("Designer dispatch is out of order for this task group")
-        ensure_node_can_start(location, node)
-        ensure_plan_readiness_current(location)
-        binding = preparation_fingerprints(location)
-        node["status"] = "in_progress"
-        node.pop("status_reason", None)
-        acceptance = {
-            "phase": acceptance_transition(str(phase), "designer-dispatched", "designer"),
-            "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {
-                "id": generate_id(),
-                "role": "designer",
-                "design_digest": binding["design_digest"],
+
+def close_designer_session(args: Any) -> int:
+    """Close the sole design session on correlation and immutability only.
+
+    Semantic completeness is proven once, at authorization. A Designer that
+    touched the authorized intent, Dossier, or resolved decisions has those exact
+    subtrees restored from the session receipt, so the delivery can always leave
+    the design phase instead of deadlocking on a rejected close.
+    """
+
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        session = plan.get("lifecycle", {}).get("designer_session")
+        if not isinstance(session, dict) or session.get("status") != "active":
+            raise ToolError("no active Designer session")
+        if session.get("id") != args.dispatch_id:
+            raise ToolError("Designer session correlation mismatch")
+        if session.get("agent_returned") is not True:
+            raise ToolError("Designer session has not reached a final role boundary")
+        immutable = session.get("immutable")
+        if not isinstance(immutable, Mapping):
+            raise ToolError("Designer session lost its immutable receipt")
+        restored: list[str] = []
+        for field in IMMUTABLE_FIELDS:
+            if plan.get(field) != immutable.get(field):
+                plan[field] = deepcopy(immutable.get(field))
+                restored.append(field)
+        for name in ("user_decided", "defaulted"):
+            if plan.get("ledger", {}).get(name) != immutable.get(name):
+                plan["ledger"][name] = deepcopy(immutable.get(name))
+                restored.append("ledger.%s" % name)
+        session["status"] = "completed"
+        session["closed_at"] = _now()
+        if restored:
+            session["restored"] = restored
+        plan["phase"] = "ready"
+        _save_plan(paths, plan)
+        issues = plan_readiness_issues(paths["plan"], plan)
+    print(
+        json.dumps(
+            {
+                "phase": "ready",
+                "ready": not issues,
+                "restored": restored,
+                "open_issues": [issue.message for issue in issues],
+            }
+        )
+    )
+    return 0
+
+
+def check_readiness(args: Any) -> int:
+    """List every remaining readiness issue in one pass."""
+
+    root = workspace_root(Path(args.root))
+    _, plan, paths = load_plan(root, args.plan)
+    issues = plan_readiness_issues(paths["plan"], plan)
+    print(
+        json.dumps(
+            {
+                "ready": not issues,
+                "issues": [issue.message for issue in issues],
+                "semantic_digest": semantic_digest(plan),
+            }
+        )
+    )
+    return 0 if not issues else 1
+
+
+def authorize_plan(args: Any) -> int:
+    """The single gate: prove readiness, optionally the host harness, then seal."""
+
+    root = workspace_root(Path(args.root))
+    project = _project_root(root)
+    with workspace_lock(root):
+        manifest, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") != "ready":
+            raise ToolError("authorization requires a design-ready Plan")
+        if plan.get("lifecycle", {}).get("sealed") is not None or paths["checkpoints"].is_file():
+            raise ToolError("this Plan is already authorized; revise it through a continuation")
+        issues = plan_readiness_issues(paths["plan"], plan)
+        if issues:
+            raise ToolError("plan is not ready: %s" % "; ".join(issue.message for issue in issues))
+        verification: dict[str, Any] | None = None
+        if args.verify_command:
+            paths_declared = args.verify_path or plan["spec"]["full_regression"]["paths"]
+            before = fingerprint_paths(project, paths_declared)
+            passed, receipts = _run_commands(project, args.verify_command)
+            if fingerprint_paths(project, paths_declared) != before:
+                raise ToolError("verification commands changed declared inputs")
+            verification = {
+                "passed": passed,
+                "input_fingerprint": before,
+                "commands": receipts,
+                "recorded_at": _now(),
+            }
+            if not passed:
+                plan["lifecycle"]["verification"] = verification
+                _save_plan(paths, plan)
+                raise ToolError("host verification failed; repair the harness before authorizing")
+        revision = 1
+        digest = semantic_digest(plan)
+        plan["phase"] = "authorized"
+        plan["lifecycle"]["sealed"] = {
+            "revision": revision,
+            "semantic_digest": digest,
+            "sealed_at": _now(),
+        }
+        plan["lifecycle"]["authorization"] = {
+            "source": args.source,
+            "reference_digest": hashlib.sha256(args.reference.encode("utf-8")).hexdigest(),
+            "semantic_digest": digest,
+            "risk_reasons": [public_summary(value, "risk reason") for value in (args.risk_reason or [])],
+            "autonomy": deepcopy(plan.get("intent", {}).get("autonomy", {})),
+            "authorized_at": _now(),
+        }
+        if verification is not None:
+            plan["lifecycle"]["verification"] = verification
+        _save_plan(paths, plan)
+        write_json(paths["checkpoints"], checkpoints_template(plan))
+        entry = resolve_plan_entry(manifest, args.plan)
+        for candidate in manifest["plans"]:
+            if candidate.get("code") == entry.get("code"):
+                candidate["checkpoints"] = "%s/%s" % (candidate["directory"], CHECKPOINTS_NAME)
+        write_json(root / MANIFEST_NAME, manifest)
+    print(json.dumps({"authorized": True, "revision": revision, "verified": verification is not None}))
+    return 0
+
+
+def begin_continuation(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") != "authorized":
+            raise ToolError("continuation requires an authorized Plan")
+        if plan.get("lifecycle", {}).get("reviewer_session") is not None:
+            raise ToolError("continuation cannot start after the sole Reviewer session opens")
+        checkpoints = read_json(paths["checkpoints"])
+        started = {
+            str(item.get("code"))
+            for item in checkpoints.get("tasks", [])
+            if item.get("status") != "pending"
+        }
+        plan["lifecycle"]["continuation_session"] = {
+            "id": generate_id(),
+            "reason": public_summary(args.reason, "continuation reason"),
+            "opened_at": _now(),
+            "prior": {
+                "intent": deepcopy(plan.get("intent")),
+                "dossier": deepcopy(plan.get("dossier")),
+                "ledger": {
+                    "user_decided": deepcopy(plan.get("ledger", {}).get("user_decided")),
+                    "defaulted": deepcopy(plan.get("ledger", {}).get("defaulted")),
+                },
+                "spec": {"tasks": deepcopy(plan.get("spec", {}).get("tasks"))},
             },
-            "outcome": "none",
+            "started_task_digests": {
+                str(task.get("code")): sha256_value(task)
+                for task in plan.get("spec", {}).get("tasks", [])
+                if str(task.get("code")) in started
+            },
         }
-    elif args.role == "worker":
-        if node_role != "implementation" or phase not in {"awaiting_worker", "correction_required"}:
-            raise ToolError("Worker dispatch is out of order for the current delivery phase")
-        ensure_node_can_start(location, node)
-        node["status"] = "in_progress"
-        node.pop("status_reason", None)
-        clear_regression_proof(node)
-        current = preparation_fingerprints(location)
-        acceptance = {
-            "phase": acceptance_transition(str(phase), "worker-dispatched", "worker"),
-            "attempt": int(acceptance.get("attempt", 0)) + 1,
-            "dispatch": {"id": generate_id(), "role": "worker"},
-            "outcome": "none",
-            **{field: current[field] for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS},
+        plan["phase"] = "revising"
+        _save_plan(paths, plan)
+    print(json.dumps({"continuation_id": plan["lifecycle"]["continuation_session"]["id"]}))
+    return 0
+
+
+def close_continuation(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        session = plan.get("lifecycle", {}).get("continuation_session")
+        if plan.get("phase") != "revising" or not isinstance(session, Mapping) or session.get("id") != args.continuation_id:
+            raise ToolError("continuation correlation mismatch")
+        expansion = authority_expansion_issues(paths["plan"], session.get("prior", {}), plan)
+        if expansion:
+            raise ToolError("continuation exceeds authorization: %s" % "; ".join(issue.message for issue in expansion))
+        by_code = {str(task.get("code")): task for task in plan.get("spec", {}).get("tasks", [])}
+        for code, digest in session.get("started_task_digests", {}).items():
+            if code not in by_code or sha256_value(by_code[code]) != digest:
+                raise ToolError("continuation changed a started Task")
+        revision = int(plan["lifecycle"]["sealed"]["revision"]) + 1
+        digest = semantic_digest(plan)
+        candidate = deepcopy(plan)
+        candidate["phase"] = "authorized"
+        candidate["lifecycle"]["sealed"] = {
+            "revision": revision,
+            "semantic_digest": digest,
+            "sealed_at": _now(),
         }
-    elif args.role == "visual-verifier":
-        if node_role != "implementation" or phase != "awaiting_visual_verifier" or node.get("status") != "in_progress":
-            raise ToolError("Visual Verifier dispatch is out of order for the current delivery phase")
-        if not implementation_requires_visual_verifier(node):
-            raise ToolError("Visual Verifier dispatch requires a visual or hybrid critical implementation node")
-        acceptance = {
-            "phase": acceptance_transition(str(phase), "visual-verifier-dispatched", "visual-verifier"),
-            "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {"id": generate_id(), "role": "visual-verifier"},
-            "outcome": "none",
-        }
-        for field in ACCEPTANCE_STABLE_PREPARATION_FIELDS:
-            if field in prior_acceptance:
-                acceptance[field] = prior_acceptance[field]
-    elif args.role == "reviewer":
-        if node_role != "final_validation" or phase != "awaiting_reviewer":
-            raise ToolError("Reviewer dispatch is out of order for the current task group")
-        if isinstance(prior_acceptance.get("review"), dict):
-            raise ToolError("the task group's one Reviewer has already completed")
-        ensure_node_can_start(location, node)
-        node["status"] = "in_progress"
-        node.pop("status_reason", None)
-        clear_regression_proof(node)
-        current = preparation_fingerprints(location)
-        acceptance = {
-            "phase": acceptance_transition(str(phase), "reviewer-dispatched", "reviewer"),
-            "attempt": int(acceptance.get("attempt", 0)),
-            "dispatch": {"id": generate_id(), "role": "reviewer"},
-            "outcome": "none",
-            **{field: current[field] for field in ACCEPTANCE_PREPARATION_FIELDS},
-        }
+        candidate["lifecycle"]["authorization"]["semantic_digest"] = digest
+        candidate["lifecycle"]["continuation_receipts"].append(
+            {
+                "id": session["id"],
+                "reason": session["reason"],
+                "revision": revision,
+                "recorded_at": _now(),
+            }
+        )
+        del candidate["lifecycle"]["continuation_session"]
+        issues = plan_readiness_issues(paths["plan"], candidate)
+        if issues:
+            raise ToolError("continuation is not ready: %s" % "; ".join(issue.message for issue in issues))
+        plan = candidate
+        _save_plan(paths, plan)
+        checkpoints = read_json(paths["checkpoints"])
+        existing = {str(item.get("code")): item for item in checkpoints.get("tasks", [])}
+        checkpoints["tasks"] = [
+            existing.get(str(task.get("code")), task_state(task.get("code")))
+            for task in plan.get("spec", {}).get("tasks", [])
+        ]
+        checkpoints.update({"revision": revision, "semantic_digest": digest})
+        # A revision may add work behind an already blocked prerequisite; keep the
+        # blocked frontier closed so no Task is left permanently unreachable.
+        for state in list(checkpoints["tasks"]):
+            status = str(state.get("status", ""))
+            if status.startswith("blocked_by_"):
+                _propagate_blocker(
+                    plan, checkpoints, str(state.get("code")), status, str(state.get("status_reason", "upstream blocker"))
+                )
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"continued": True, "revision": revision}))
+    return 0
+
+
+def _execution_context(
+    root: Path, selector: str, *, phases: frozenset[str] = frozenset({"authorized"})
+) -> tuple[dict[str, Any], dict[str, Path], dict[str, Any]]:
+    _, plan, paths = load_plan(root, selector)
+    if plan.get("phase") not in phases:
+        raise ToolError("Plan phase %s does not accept this action" % plan.get("phase"))
+    checkpoints = read_json(paths["checkpoints"])
+    issues = validate_checkpoints_document(paths["checkpoints"], checkpoints, plan)
+    if issues:
+        raise ToolError("invalid Checkpoints.json: %s" % "; ".join(issue.message for issue in issues))
+    return plan, paths, checkpoints
+
+
+def _task_by_code(plan: Mapping[str, Any], code: str) -> dict[str, Any]:
+    matches = [item for item in plan.get("spec", {}).get("tasks", []) if item.get("code") == code]
+    if len(matches) != 1:
+        raise ToolError("Task code must resolve exactly once")
+    return matches[0]
+
+
+def _state_by_code(checkpoints: Mapping[str, Any], code: str) -> dict[str, Any]:
+    matches = [item for item in checkpoints.get("tasks", []) if item.get("code") == code]
+    if len(matches) != 1:
+        raise ToolError("Task code must resolve exactly once")
+    return matches[0]
+
+
+def _eligible(task: Mapping[str, Any], checkpoints: Mapping[str, Any]) -> bool:
+    states = {str(item.get("code")): item.get("status") for item in checkpoints.get("tasks", [])}
+    return all(states.get(str(code)) == "completed" for code in task.get("prerequisites", []))
+
+
+def _propagate_blocker(
+    plan: Mapping[str, Any],
+    checkpoints: dict[str, Any],
+    seed: str,
+    status: str,
+    reason: str,
+) -> set[str]:
+    affected = {seed}
+    changed = True
+    while changed:
+        changed = False
+        for task in plan.get("spec", {}).get("tasks", []):
+            state = _state_by_code(checkpoints, str(task.get("code")))
+            if state.get("status") == "pending" and affected.intersection(task.get("prerequisites", [])):
+                state.update(
+                    {
+                        "status": status,
+                        "status_reason": "upstream blocker: %s" % reason,
+                        "dispatch": None,
+                    }
+                )
+                affected.add(str(task.get("code")))
+                changed = True
+    return affected
+
+
+PRE_DELIVERY_ACTIONS = {
+    "draft": "open_designer_session",
+    "designing": "close_designer_session",
+    "ready": "authorize_plan",
+    "revising": "close_continuation",
+    "completed": "delivery_complete",
+    "blocked": "delivery_blocked",
+}
+
+
+def next_action(args: Any) -> int:
+    """Name exactly one next action for every reachable delivery state."""
+
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        phase = str(plan.get("phase"))
+        if phase != "authorized":
+            print(json.dumps({"action": PRE_DELIVERY_ACTIONS[phase], "phase": phase}))
+            return 0
+        checkpoints = read_json(paths["checkpoints"])
+    corrections: list[str] = []
+    awaiting: list[str] = []
+    running: list[str] = []
+    exhausted: list[str] = []
+    eligible: list[str] = []
+    unreachable: list[str] = []
+    for task in plan.get("spec", {}).get("tasks", []):
+        code = str(task.get("code"))
+        state = _state_by_code(checkpoints, code)
+        status = state.get("status")
+        dispatch = state.get("dispatch")
+        dispatch_phase = dispatch.get("phase") if isinstance(dispatch, Mapping) else None
+        if status == "in_progress" and dispatch_phase == "worker_correction":
+            corrections.append(code)
+        elif status == "in_progress" and dispatch_phase == "awaiting_acceptance":
+            awaiting.append(code)
+        elif status == "in_progress":
+            (exhausted if isinstance(dispatch, Mapping) and dispatch.get("main_thread_fallback") else running).append(code)
+        elif status == "pending" and _eligible(task, checkpoints):
+            eligible.append(code)
+        elif status == "pending":
+            unreachable.append(code)
+    reviewer = plan.get("lifecycle", {}).get("reviewer_session")
+    reviewer_active = isinstance(reviewer, Mapping) and reviewer.get("status") == "active"
+    if corrections:
+        action = "repair_tasks"
+    elif awaiting:
+        action = "accept_tasks"
+    elif exhausted:
+        action = "complete_in_main"
+    elif running:
+        action = "await_tasks"
+    elif eligible:
+        action = "dispatch_tasks"
+    elif unreachable:
+        # Every remaining Task sits behind a blocked prerequisite. Record the
+        # blockers so delivery can still close through the sole Reviewer.
+        action = "block_unreachable_tasks"
+    elif reviewer is None:
+        action = "open_reviewer_session"
     else:
-        raise ToolError("unsupported delivery dispatch role")
-
-    dispatch = acceptance["dispatch"]
-    assert isinstance(dispatch, dict)
-    selector_missing = False
-    if getattr(args, "native_host", None) == "codex":
-        dispatch_action = _dispatch_action_for_role(args.role)
-        agent_type = _agent_type_for_action(node, dispatch_action)
-        home_value = getattr(args, "codex_home", None)
-        home = Path(home_value).expanduser() if home_value else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
-        selector = resolve_codex_role(agent_type, home) if agent_type is not None else None
-        if selector is None:
-            dispatch["delegation_failures"] = MAX_DELEGATION_FAILURES
-            selector_missing = True
-        else:
-            dispatch.update({"model": selector.model, "selector_source": selector.source})
-            if selector.reasoning_effort is not None:
-                dispatch["reasoning_effort"] = selector.reasoning_effort
-            if selector.model_provider is not None:
-                dispatch["model_provider"] = selector.model_provider
-
-    node["acceptance"] = acceptance
-    write_location_and_sync_plan(location)
-    print_acceptance_payload(
-        node,
-        action="main_thread_fallback" if selector_missing else _dispatch_action_for_role(args.role),
-        group_nodes=location.checkpoints_data,
-        location=location,
-        **_native_host_options(args),
+        action = "await_reviewer" if reviewer_active and reviewer.get("agent_returned") is not True else "close_reviewer_session"
+    print(
+        json.dumps(
+            {
+                "action": action,
+                "phase": phase,
+                "corrections": corrections,
+                "awaiting_acceptance": awaiting,
+                "exhausted": exhausted,
+                "running": running,
+                "eligible": eligible,
+                "unreachable": unreachable,
+            }
+        )
     )
     return 0
 
 
-def ensure_host_agent_id(value: Any) -> str:
-    """Validate one bounded opaque identity returned by the native host."""
+def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, Any]:
+    upstream_codes = set(task.get("prerequisites", []))
+    upstream = [
+        {"code": candidate.get("code"), "outcome": candidate.get("outcome"), "outputs": candidate.get("outputs")}
+        for candidate in plan.get("spec", {}).get("tasks", [])
+        if candidate.get("code") in upstream_codes
+    ]
+    ledger = plan.get("ledger", {})
+    policy = [
+        "Do not ask the user questions after authorization.",
+        "Resolve local choices from the frozen contract, then the simplest safe implementation.",
+        "Return every changed repository-relative path and focused evidence.",
+    ]
+    if task.get("verification") in RENDERED_VERIFICATIONS:
+        policy.append("This Task's acceptance requires real rendered evidence, not source inspection.")
+    return {
+        "goal": plan.get("intent", {}).get("goal"),
+        "authorized_scope": plan.get("intent", {}).get("scope"),
+        "decisions": list(ledger.get("user_decided", [])) + list(ledger.get("defaulted", [])),
+        "task": task,
+        "upstream": upstream,
+        "execution_policy": policy,
+    }
 
-    if not isinstance(value, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(value):
-        raise ToolError("--agent-id must be a bounded opaque host agent id")
-    return value
 
+def dispatch_task(args: Any) -> int:
+    """Dispatch an eligible Task, or re-dispatch one that failed acceptance."""
 
-def bind_agent_command(args: argparse.Namespace) -> int:
-    """Commit the real host identity to one outstanding dispatch."""
-
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-    dispatch_id = ensure_event_id(args.dispatch_id)
-    agent_id = ensure_host_agent_id(args.agent_id)
-    node = location.checkpoints_data[location.node_index]
-    acceptance = acceptance_snapshot(node, required=True)
-    dispatch = acceptance.get("dispatch")
-    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id:
-        raise ToolError("bind-agent does not match the outstanding dispatch")
-    if acceptance.get("phase") not in {
-        "designer_running",
-        "worker_running",
-        "visual_verifier_running",
-        "reviewer_running",
-    }:
-        raise ToolError("bind-agent is out of order for the current delivery phase")
-    prior = dispatch.get("host_agent_id")
-    if prior is not None:
-        if prior != agent_id:
-            raise ToolError("bind-agent cannot replace an existing host identity")
-        print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
-        return 0
-    if int(dispatch.get("delegation_failures", 0)) >= MAX_DELEGATION_FAILURES:
-        raise ToolError("bind-agent cannot start another child after the delegation failure ceiling")
-    dispatch["host_agent_id"] = agent_id
-    write_location_and_sync_plan(location)
-    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        task = _task_by_code(plan, args.task)
+        state = _state_by_code(checkpoints, args.task)
+        prior = state.get("dispatch")
+        correction = (
+            state.get("status") == "in_progress"
+            and isinstance(prior, Mapping)
+            and prior.get("phase") == "worker_correction"
+        )
+        if not correction and (state.get("status") != "pending" or not _eligible(task, checkpoints)):
+            raise ToolError("Task is not eligible for dispatch")
+        attempts = int(prior.get("attempts", 0)) + 1 if correction and isinstance(prior, Mapping) else 1
+        role = "worker-%s" % task.get("difficulty")
+        selector = _selector_payload(role, args.native_host, args.codex_home)
+        dispatch_id = generate_id()
+        state.update(
+            {
+                "status": "in_progress",
+                "dispatch": {
+                    "id": dispatch_id,
+                    "role": role,
+                    "attempts": attempts,
+                    "host_agent_id": None,
+                    "selector": selector,
+                    "main_thread_fallback": selector.get("main_thread_fallback", False),
+                    "phase": "worker_running",
+                },
+            }
+        )
+        checkpoints["delivery_status"] = "in_progress"
+        write_json(paths["checkpoints"], checkpoints)
+    payload = {
+        "action": "dispatch_worker",
+        "dispatch_id": dispatch_id,
+        "task": args.task,
+        "correction": correction,
+        "role_reference": "references/worker.md",
+        "brief": _leaf_brief(plan, task),
+    }
+    payload.update(selector)
+    print(json.dumps(payload))
     return 0
 
 
-def delegation_failed_command(args: argparse.Namespace) -> int:
-    """Record one conclusive delegation failure without confusing silence with failure."""
+def _plan_role_sessions(plan: Mapping[str, Any]) -> list[Any]:
+    lifecycle = plan.get("lifecycle", {})
+    return [lifecycle.get("designer_session"), lifecycle.get("reviewer_session")]
 
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-    dispatch_id = ensure_event_id(args.dispatch_id)
-    node = location.checkpoints_data[location.node_index]
-    acceptance = acceptance_snapshot(node, required=True)
-    dispatch = acceptance.get("dispatch")
-    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id:
-        raise ToolError("delegation-failed does not match the outstanding dispatch")
-    if acceptance.get("phase") not in {"designer_running", "worker_running", "visual_verifier_running", "reviewer_running"}:
-        raise ToolError("delegation-failed is out of order for the current delivery phase")
 
-    bound_agent_id = dispatch.get("host_agent_id")
-    failed_agent_id = getattr(args, "terminal_failed_agent_id", None)
-    if bound_agent_id is not None:
-        if failed_agent_id is None or ensure_host_agent_id(failed_agent_id) != bound_agent_id:
-            raise ToolError(
-                "a bound delegation failure requires --terminal-failed-agent-id from an "
-                "unambiguous terminal-failed host notification; interruption, cancellation, "
-                "silence, elapsed time, missing artifacts, and context compaction are not failures"
+def _live_dispatches(plan: Mapping[str, Any], paths: Mapping[str, Path]) -> list[dict[str, Any]]:
+    """Return every dispatch that a final callback could still advance."""
+
+    live = [
+        item
+        for item in _plan_role_sessions(plan)
+        if isinstance(item, dict) and item.get("status") == "active"
+    ]
+    if paths["checkpoints"].is_file():
+        checkpoints = read_json(paths["checkpoints"])
+        live.extend(
+            state["dispatch"]
+            for state in checkpoints.get("tasks", [])
+            if isinstance(state.get("dispatch"), dict)
+            and state["dispatch"].get("phase") == "worker_running"
+        )
+    return live
+
+
+def _reject_reused_agent(
+    plan: Mapping[str, Any], paths: Mapping[str, Path], agent_id: str, dispatch_id: str
+) -> None:
+    """One host agent id may never own two live dispatches at once.
+
+    Without this, a single final callback could not be attributed to exactly one
+    dispatch, and one child return would advance unrelated work.
+    """
+
+    for dispatch in _live_dispatches(plan, paths):
+        if dispatch.get("id") != dispatch_id and dispatch.get("host_agent_id") == agent_id:
+            raise ToolError("this agent id already owns another live dispatch")
+
+
+def bind_agent(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    agent_id = _opaque_event_id(args.agent_id, "agent id")
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if args.target == plan.get("code"):
+            session = next(
+                (
+                    item
+                    for item in _plan_role_sessions(plan)
+                    if isinstance(item, dict) and item.get("id") == args.dispatch_id and item.get("status") == "active"
+                ),
+                None,
             )
-        dispatch.pop("host_agent_id", None)
-    elif failed_agent_id is not None:
-        raise ToolError("--terminal-failed-agent-id is valid only for a conclusively failed bound child")
-    elif not bool(getattr(args, "spawn_refused", False)) and not bool(args.unavailable):
+            if session is None:
+                raise ToolError("no matching Plan role dispatch")
+            if session.get("host_agent_id") not in {None, agent_id}:
+                raise ToolError("dispatch already binds another agent")
+            _reject_reused_agent(plan, paths, agent_id, args.dispatch_id)
+            session["host_agent_id"] = agent_id
+            write_json(paths["plan"], plan)
+        else:
+            checkpoints = read_json(paths["checkpoints"])
+            dispatch = _state_by_code(checkpoints, args.target).get("dispatch")
+            if not isinstance(dispatch, dict) or dispatch.get("id") != args.dispatch_id:
+                raise ToolError("no matching Task dispatch")
+            if dispatch.get("host_agent_id") not in {None, agent_id}:
+                raise ToolError("dispatch already binds another agent")
+            _reject_reused_agent(plan, paths, agent_id, args.dispatch_id)
+            dispatch["host_agent_id"] = agent_id
+            write_json(paths["checkpoints"], checkpoints)
+    print("OK: bound")
+    return 0
+
+
+def delegation_failed(args: Any) -> int:
+    """Record a conclusive delegation failure.
+
+    Silence and elapsed time are never failures. A host-confirmed terminated
+    child without a final callback is conclusive and belongs here.
+    """
+
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if args.target == plan.get("code"):
+            target = next(
+                (
+                    item
+                    for item in _plan_role_sessions(plan)
+                    if isinstance(item, dict)
+                    and item.get("id") == args.dispatch_id
+                    and item.get("status") == "active"
+                ),
+                None,
+            )
+            document, path = plan, paths["plan"]
+        else:
+            checkpoints = read_json(paths["checkpoints"])
+            dispatch = _state_by_code(checkpoints, args.target).get("dispatch")
+            target = (
+                dispatch
+                if isinstance(dispatch, dict)
+                and dispatch.get("id") == args.dispatch_id
+                and dispatch.get("phase") == "worker_running"
+                else None
+            )
+            document, path = checkpoints, paths["checkpoints"]
+        if not isinstance(target, dict):
+            raise ToolError("delegation failure does not match an active dispatch")
+        target["attempts"] = int(target.get("attempts", 1)) + 1
+        target["host_agent_id"] = None
+        target["last_failure"] = public_summary(args.reason, "delegation failure")
+        if target["attempts"] >= MAX_DELEGATION_ATTEMPTS:
+            target["main_thread_fallback"] = True
+        write_json(path, document)
+    print(json.dumps({"attempts": target["attempts"], "main_thread_fallback": target.get("main_thread_fallback", False)}))
+    return 0
+
+
+def agent_complete(args: Any) -> int:
+    """Consume one exact final callback, or nothing at all.
+
+    An ambiguous match never advances state: one child return may only ever
+    advance the single dispatch it is bound to.
+    """
+
+    root = workspace_root(Path(args.root))
+    agent_id = _opaque_event_id(args.agent_id, "agent id")
+    if not args.final:
+        print(json.dumps({"consumed": False}))
+        return 0
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else {}
+        matches: list[tuple[str, dict[str, Any], str]] = []
+        for name in ("designer_session", "reviewer_session"):
+            session = plan.get("lifecycle", {}).get(name)
+            if (
+                isinstance(session, dict)
+                and session.get("status") == "active"
+                and session.get("host_agent_id") == agent_id
+            ):
+                matches.append(("close_%s" % name, session, "plan"))
+        for state in checkpoints.get("tasks", []):
+            dispatch = state.get("dispatch")
+            if (
+                isinstance(dispatch, dict)
+                and dispatch.get("host_agent_id") == agent_id
+                and dispatch.get("phase") == "worker_running"
+            ):
+                matches.append(("accept_task", dispatch, str(state.get("code"))))
+        if len(matches) != 1:
+            print(json.dumps({"consumed": False, "matches": len(matches)}))
+            return 0
+        action, target, owner = matches[0]
+        if owner == "plan":
+            target["agent_returned"] = True
+            target["agent_returned_at"] = _now()
+            write_json(paths["plan"], plan)
+            print(json.dumps({"consumed": True, "action": action}))
+            return 0
+        target["phase"] = "awaiting_acceptance"
+        target["agent_returned_at"] = _now()
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"consumed": True, "action": action, "task": owner}))
+    return 0
+
+
+def main_complete(args: Any) -> int:
+    """Record completion when the native main owns an exhausted delegation."""
+
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if args.target == plan.get("code"):
+            target = next(
+                (
+                    item
+                    for item in _plan_role_sessions(plan)
+                    if isinstance(item, dict)
+                    and item.get("id") == args.dispatch_id
+                    and item.get("status") == "active"
+                    and item.get("main_thread_fallback") is True
+                ),
+                None,
+            )
+            if target is None:
+                raise ToolError("main completion requires an active exhausted Plan-role delegation")
+            target["agent_returned"] = True
+            target["agent_returned_at"] = _now()
+            write_json(paths["plan"], plan)
+            action = (
+                "close_reviewer_session"
+                if target.get("role") in {"reviewer"}
+                else "close_designer_session"
+            )
+        else:
+            checkpoints = read_json(paths["checkpoints"])
+            dispatch = _state_by_code(checkpoints, args.target).get("dispatch")
+            if (
+                not isinstance(dispatch, dict)
+                or dispatch.get("id") != args.dispatch_id
+                or dispatch.get("phase") != "worker_running"
+                or dispatch.get("main_thread_fallback") is not True
+            ):
+                raise ToolError("main completion requires an active exhausted Task delegation")
+            dispatch["phase"] = "awaiting_acceptance"
+            dispatch["agent_returned_at"] = _now()
+            write_json(paths["checkpoints"], checkpoints)
+            action = "accept_task"
+    print(json.dumps({"completed_by_main": True, "action": action, "target": args.target}))
+    return 0
+
+
+def accept_task(args: Any) -> int:
+    """Run the frozen focused regression and complete exactly one Task."""
+
+    root = workspace_root(Path(args.root))
+    project = _project_root(root)
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        task = _task_by_code(plan, args.task)
+        state = _state_by_code(checkpoints, args.task)
+        dispatch = state.get("dispatch")
+        if state.get("status") != "in_progress" or not isinstance(dispatch, dict):
+            raise ToolError("Task is not awaiting acceptance")
+        if dispatch.get("phase") not in {"awaiting_acceptance", "worker_correction"}:
+            raise ToolError("Task is not awaiting acceptance")
+        passed, receipts = _run_commands(project, task["focused_regression"]["commands"])
+        state["evidence"].append(
+            {
+                "kind": "focused_regression",
+                "passed": passed,
+                "commands": receipts,
+                "content_fingerprint": fingerprint_paths(project, task["focused_regression"]["paths"]),
+                "recorded_at": _now(),
+            }
+        )
+        if passed:
+            state["status"] = "completed"
+            state["dispatch"] = None
+        else:
+            dispatch["phase"] = "worker_correction"
+        write_json(paths["checkpoints"], checkpoints)
+    if not passed:
         raise ToolError(
-            "an unbound delegation failure requires --spawn-refused or --unavailable; "
-            "silence and bounded wait expiry are not failures"
+            "focused acceptance failed; repair this Task in the native main and rerun accept-task, "
+            "or run dispatch-task again to send one correction Worker"
         )
-
-    failures = int(dispatch.get("delegation_failures", 0))
-    if failures >= MAX_DELEGATION_FAILURES:
-        action = "main_thread_fallback"
-    else:
-        single_attempt_visual = dispatch.get("role") == "visual-verifier"
-        failures = MAX_DELEGATION_FAILURES if bool(args.unavailable) or single_attempt_visual else failures + 1
-        dispatch["delegation_failures"] = failures
-        write_location_and_sync_plan(location)
-        action = "main_thread_fallback" if failures >= MAX_DELEGATION_FAILURES else "retry_delegation"
-    print_acceptance_payload(node, action=action, group_nodes=location.checkpoints_data, location=location)
+    print(json.dumps({"accepted": True, "task": args.task}))
     return 0
 
 
-def main_complete_command(args: argparse.Namespace) -> int:
-    """Complete one delegated role in the native main after bounded failures."""
-
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-    dispatch_id = ensure_event_id(args.dispatch_id)
-    node = location.checkpoints_data[location.node_index]
-    acceptance = acceptance_snapshot(node, required=True)
-    dispatch = acceptance.get("dispatch")
-    if not isinstance(dispatch, dict) or dispatch.get("id") != dispatch_id or dispatch.get("role") != args.role:
-        raise ToolError("main-complete does not match the outstanding role dispatch")
-    if dispatch.get("host_agent_id") is not None:
-        raise ToolError("main-complete cannot replace a live bound child")
-    if int(dispatch.get("delegation_failures", 0)) < MAX_DELEGATION_FAILURES:
-        raise ToolError(f"main-complete requires {MAX_DELEGATION_FAILURES} recorded delegation failures or an unavailable host")
-
-    completers = {
-        "designer": advance_designer_exit,
-        "worker": advance_worker_exit,
-        "visual-verifier": advance_visual_verifier_exit,
-        "reviewer": advance_reviewer_exit,
-    }
-    updated = completers[str(args.role)](location, dispatch_id)
-    updated_acceptance = acceptance_snapshot(updated, required=True)
-    action = acceptance_next_action(str(updated_acceptance["phase"]), automated_node_role(updated))
-    print_acceptance_payload(updated, action=action, group_nodes=location.checkpoints_data, location=location)
+def block_task(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    status = "blocked_by_authority" if args.kind == "authority" else "blocked_by_environment"
+    reason = public_summary(args.reason, "Task blocker")
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        state = _state_by_code(checkpoints, args.task)
+        if state.get("status") == "completed":
+            raise ToolError("a completed Task is frozen")
+        state.update({"status": status, "status_reason": reason, "dispatch": None})
+        affected = _propagate_blocker(plan, checkpoints, args.task, status, reason)
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"blocked": True, "status": status, "affected_tasks": sorted(affected)}))
     return 0
 
 
-def agent_complete_command(args: argparse.Namespace) -> int:
-    """Reduce one explicit final host callback, or emit a safe no-op."""
-
-    from .agent_completion import reduce_agent_completion
-
-    manifest = workspace_manifest_path(Path(args.root))
-    # Validate the identity before invoking the reducer so malformed values
-    # cannot be correlated accidentally and are never echoed in output.
-    agent_id = ensure_host_agent_id(args.agent_id)
-    directive = reduce_agent_completion(
-        manifest,
-        agent_id=agent_id,
-        final=bool(args.final),
-        node_id=args.node_id,
-        dispatch_id=getattr(args, "dispatch_id", None),
-    )
-    if directive is None:
-        print("{}")
-    else:
-        from dataclasses import asdict
-
-        print(json.dumps(asdict(directive), sort_keys=True, separators=(",", ":")))
-    return 0
-
-
-def _delivery_preparation_binding(
-    location: _NodeLocation,
-    acceptance: dict[str, Any],
-) -> dict[str, str]:
-    role = location.checkpoints_data[location.node_index].get("role")
-    fields = ACCEPTANCE_STABLE_PREPARATION_FIELDS if role == "implementation" else ACCEPTANCE_PREPARATION_FIELDS
-    current = preparation_fingerprints(location)
-    binding = {
-        field: str(acceptance[field])
-        for field in fields
-        if isinstance(acceptance.get(field), str) and SHA256_PATTERN.fullmatch(str(acceptance[field]))
-    }
-    for field in fields:
-        binding.setdefault(field, current[field])
-    return binding
-
-
-def _complete_mapped_criteria(location: _NodeLocation, node: dict[str, Any]) -> None:
-    regression = validated_regression_contract(location)
-    criteria = node.get("acceptance_criteria")
-    if not isinstance(criteria, list):
-        raise ToolError("acceptance criteria are unavailable for automatic completion")
-    for criterion_index in regression["criteria"]:
-        criterion = criteria[criterion_index]
-        if not isinstance(criterion, dict):
-            raise ToolError("acceptance criteria are invalid for automatic completion")
-        criterion["checked"] = True
-
-
-def advance_designer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "group_design":
-        raise ToolError("Designer exit events require a group_design node")
-    acceptance = acceptance_snapshot(node, required=True)
-    ensure_matching_dispatch(
-        acceptance,
-        expected_phase="designer_running",
-        expected_role="designer",
-        dispatch_id=dispatch_id,
-    )
-    criteria = node.get("acceptance_criteria")
-    if not isinstance(criteria, list):
-        raise ToolError("group design criteria are unavailable")
-    for criterion in criteria:
-        if not isinstance(criterion, dict):
-            raise ToolError("group design criteria are invalid")
-        criterion["checked"] = True
-    node["acceptance"] = {
-        "phase": acceptance_transition("designer_running", "agent-complete", "designer"),
-        "attempt": int(acceptance.get("attempt", 0)),
-        "outcome": "accepted",
-    }
-    node["status"] = "completed"
-    node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_worker_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "implementation":
-        raise ToolError("worker exit events require an implementation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    ensure_matching_dispatch(
-        acceptance,
-        expected_phase="worker_running",
-        expected_role="worker",
-        dispatch_id=dispatch_id,
-    )
-    acceptance = refresh_preparation(location, node)
-    if acceptance.get("phase") != "worker_running":
-        write_location_and_sync_plan(location)
-        return node
-    preparation = _delivery_preparation_binding(location, acceptance)
-    clear_regression_proof(node)
-    if not implementation_requires_visual_verifier(node):
-        return _complete_implementation_regression(
-            location,
-            node,
-            acceptance,
-            preparation=preparation,
-            source_phase="worker_running",
-            actor="worker",
-        )
-    acceptance = {
-        "phase": acceptance_transition("worker_running", "agent-complete", "worker"),
-        "attempt": int(acceptance["attempt"]),
-        "outcome": "none",
-        **preparation,
-    }
-    node["acceptance"] = acceptance
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_visual_verifier_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    """Let the rendered-evidence leaf repair the Node, then prove its final state."""
-
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "implementation":
-        raise ToolError("Visual Verifier exit events require an implementation node")
-    if not implementation_requires_visual_verifier(node):
-        raise ToolError("Visual Verifier exit events require a visual or hybrid critical implementation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    ensure_matching_dispatch(
-        acceptance,
-        expected_phase="visual_verifier_running",
-        expected_role="visual-verifier",
-        dispatch_id=dispatch_id,
-    )
-    acceptance = refresh_preparation(location, node)
-    if acceptance.get("phase") != "visual_verifier_running":
-        write_location_and_sync_plan(location)
-        return node
-    preparation = _delivery_preparation_binding(location, acceptance)
-    return _complete_implementation_regression(
-        location,
-        node,
-        acceptance,
-        preparation=preparation,
-        source_phase="visual_verifier_running",
-        actor="visual-verifier",
-    )
-
-
-def _complete_implementation_regression(
-    location: _NodeLocation,
-    node: dict[str, Any],
-    acceptance: dict[str, Any],
-    *,
-    preparation: dict[str, str],
-    source_phase: str,
-    actor: str,
-) -> dict[str, Any]:
-    """Run the one focused regression at the Node's deterministic delivery boundary."""
-
-    clear_regression_proof(node)
-    try:
-        _run_regression_at_location(location, persist=False)
-    except ToolError as exc:
-        clear_regression_proof(node)
-        node["acceptance"] = {
-            "phase": acceptance_transition(source_phase, "regression-failed", actor),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": regression_failure_outcome(exc),
-            **preparation,
+def open_reviewer_session(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") != "authorized":
+            raise ToolError("the Reviewer opens only on an authorized Plan with no open continuation")
+        checkpoints = read_json(paths["checkpoints"])
+        if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
+            raise ToolError("the Reviewer requires every Task terminal")
+        if plan.get("lifecycle", {}).get("reviewer_session") is not None:
+            raise ToolError("the Reviewer runs exactly once")
+        rendered = [
+            task.get("code")
+            for task in plan.get("spec", {}).get("tasks", [])
+            if task.get("verification") in RENDERED_VERIFICATIONS
+        ]
+        selector = _selector_payload("reviewer", args.native_host, args.codex_home)
+        dispatch_id = generate_id()
+        plan["lifecycle"]["reviewer_session"] = {
+            "count": 1,
+            "id": dispatch_id,
+            "role": "reviewer",
+            "status": "active",
+            "opened_at": _now(),
+            "host_agent_id": None,
+            "attempts": 1,
+            "selector": selector,
+            "main_thread_fallback": selector.get("main_thread_fallback", False),
         }
-    else:
-        _complete_mapped_criteria(location, node)
-        node["acceptance"] = {
-            "phase": acceptance_transition(source_phase, "regression-passed", actor),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "accepted",
-            **preparation,
-        }
-        node["status"] = "completed"
-        node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_reviewer_exit(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    """Persist the one group Reviewer completion for native-main decision handling."""
-
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "final_validation":
-        raise ToolError("Reviewer exit events require a final_validation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    ensure_matching_dispatch(
-        acceptance,
-        expected_phase="reviewer_running",
-        expected_role="reviewer",
-        dispatch_id=dispatch_id,
-    )
-    current = preparation_fingerprints(location)
-    node["acceptance"] = {
-        "phase": acceptance_transition("reviewer_running", "agent-complete", "reviewer"),
-        "attempt": int(acceptance["attempt"]),
-        "outcome": "none",
-        "review": {"recorded_at": evidence_timestamp(), "dispatch_id": dispatch_id},
-        **current,
+        write_json(paths["plan"], plan)
+    payload = {
+        "action": "dispatch_reviewer",
+        "dispatch_id": dispatch_id,
+        "plan": plan["code"],
+        "role_reference": "references/reviewer.md",
+        "rendered_evidence_tasks": rendered,
+        "tasks": [task.get("code") for task in plan.get("spec", {}).get("tasks", [])],
     }
-    write_location_and_sync_plan(location)
-    return node
+    payload.update(selector)
+    print(json.dumps(payload))
+    return 0
 
 
-def _run_group_regression_after_review(
-    location: _NodeLocation,
-    acceptance: dict[str, Any],
-    *,
-    source_phase: str,
-) -> dict[str, Any]:
-    """Run one normal group regression, or a failure-driven repair rerun."""
-
-    node = location.checkpoints_data[location.node_index]
-    review = acceptance.get("review")
-    if not isinstance(review, dict):
-        raise ToolError("full regression requires the completed group Reviewer receipt")
-    ensure_immediate_decisions_resolved(location)
-    ensure_node_can_start(location, node)
-    node["status"] = "in_progress"
-    node.pop("status_reason", None)
-    current = preparation_fingerprints(location)
-    clear_regression_proof(node)
-    try:
-        _run_regression_at_location(location, persist=False)
-    except ToolError as exc:
-        clear_regression_proof(node)
-        node["acceptance"] = {
-            "phase": acceptance_transition(source_phase, "regression-failed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": regression_failure_outcome(exc),
-            "review": review,
-            **current,
+def close_reviewer_session(args: Any) -> int:
+    root = workspace_root(Path(args.root))
+    project = _project_root(root)
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        session = plan.get("lifecycle", {}).get("reviewer_session")
+        if not isinstance(session, dict) or session.get("status") != "active" or session.get("id") != args.dispatch_id:
+            raise ToolError("Reviewer session correlation mismatch")
+        if session.get("agent_returned") is not True:
+            raise ToolError("Reviewer session has not reached a final role boundary")
+        checkpoints = read_json(paths["checkpoints"])
+        if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
+            raise ToolError("closing review requires every Task terminal")
+        blocked = [
+            item
+            for item in checkpoints.get("tasks", [])
+            if str(item.get("status", "")).startswith("blocked_by_")
+        ]
+        if args.blocked_reason:
+            if not blocked:
+                raise ToolError("a blocked close requires at least one authority or environment blocker")
+            session["status"] = "blocked"
+            session["closed_at"] = _now()
+            session["blocker_evidence"] = {
+                "reason": public_summary(args.blocked_reason, "Reviewer blocker"),
+                "targets": [item.get("code") for item in blocked],
+            }
+            plan["phase"] = "blocked"
+            _save_plan(paths, plan)
+            checkpoints["delivery_status"] = "blocked"
+            write_json(paths["checkpoints"], checkpoints)
+            print(json.dumps({"blocked": True, "reviewer_session_count": 1}))
+            return 0
+        if blocked:
+            raise ToolError("blocked Tasks require --blocked-reason and cannot be reported as completed")
+        passed, receipts = _run_commands(project, plan["spec"]["full_regression"]["commands"])
+        session["full_regression"] = {
+            "passed": passed,
+            "commands": receipts,
+            "content_fingerprint": fingerprint_paths(project, plan["spec"]["full_regression"]["paths"]),
+            "recorded_at": _now(),
         }
-        node["status"] = "pending"
-        node.pop("status_reason", None)
-    else:
-        _complete_mapped_criteria(location, node)
-        node["acceptance"] = {
-            "phase": acceptance_transition(source_phase, "regression-passed", "system"),
-            "attempt": int(acceptance["attempt"]),
-            "outcome": "accepted",
-            "review": review,
-            **current,
-        }
-        node["status"] = "completed"
-        node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_reviewer_finished(location: _NodeLocation, dispatch_id: str) -> dict[str, Any]:
-    """After main records decisions, verify the Reviewer's repairs with full regression."""
-
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "final_validation":
-        raise ToolError("reviewer-finished events require a final_validation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    review = acceptance.get("review")
-    if acceptance.get("phase") != "reviewer_complete" or not isinstance(review, dict) or review.get("dispatch_id") != dispatch_id:
-        raise ToolError("reviewer-finished does not match the completed group Reviewer")
-    return _run_group_regression_after_review(
-        location,
-        acceptance,
-        source_phase="reviewer_complete",
-    )
-
-
-def ensure_immediate_decisions_resolved(location: _NodeLocation) -> None:
-    """Prevent every post-Reviewer regression path from bypassing a blocking choice."""
-
-    plan = location.manifest_data[location.plan_index]
-    decisions = plan.get("decision_issues") if isinstance(plan, dict) else None
-    if isinstance(decisions, list) and any(
-        isinstance(decision, dict)
-        and decision.get("status") == "open"
-        and decision.get("urgency") == "immediate"
-        for decision in decisions
-    ):
-        raise ToolError(
-            "post-Reviewer regression requires every immediate developer decision to be resolved"
-        )
-
-
-def ensure_repair_node_id(value: Any) -> str:
-    if not isinstance(value, str) or not UUID4_PATTERN.fullmatch(value):
-        raise ToolError("--repair-node must be a UUID4 node id")
-    return value
-
-
-def validated_final_repair_node(
-    location: _NodeLocation,
-    repair_node_id: str,
-    *,
-    required_status: str,
-) -> dict[str, Any]:
-    final = location.checkpoints_data[location.node_index]
-    if automated_node_role(final) != "final_validation":
-        raise ToolError("repair handoff events require a final_validation node")
-    prerequisites = final.get("prerequisites")
-    if not is_string_list(prerequisites) or repair_node_id not in prerequisites:
-        raise ToolError("repair node must already be a prerequisite of final_validation")
-
-    repair_index: int | None = None
-    repair: dict[str, Any] | None = None
-    for index, entry in enumerate(location.checkpoints_data):
-        if isinstance(entry, dict) and entry.get("id") == repair_node_id:
-            repair_index = index
-            repair = entry
-            break
-    if repair is None or repair_index is None:
-        raise ToolError("repair node was not found in the final_validation checkpoints")
-    if repair_index >= location.node_index:
-        raise ToolError("repair node must appear before final_validation")
-    if repair.get("role") != "implementation":
-        raise ToolError("repair node must use the implementation role")
-    if repair.get("status") != required_status:
-        raise ToolError(f"repair node must be {required_status}")
-    if required_status == "completed":
-        repair_acceptance = repair.get("acceptance")
-        if not isinstance(repair_acceptance, dict) or repair_acceptance.get("phase") != "accepted":
-            raise ToolError("repair node must complete its automated acceptance cycle")
-    return repair
-
-
-def advance_repair_registration(location: _NodeLocation, repair_node_id: str) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "final_validation":
-        raise ToolError("repair-registered events require a final_validation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    if acceptance.get("phase") != "repair_plan_required":
-        raise ToolError("acceptance event is out of order for the current phase")
-    validated_final_repair_node(location, repair_node_id, required_status="pending")
-
-    preserved_preparation = _delivery_preparation_binding(location, acceptance)
-    node["acceptance"] = {
-        "phase": acceptance_transition("repair_plan_required", "repair-registered", "final_validation"),
-        "attempt": int(acceptance["attempt"]),
-        "outcome": str(acceptance["outcome"]),
-        "repair_node_id": repair_node_id,
-        "review": acceptance["review"],
-        **preserved_preparation,
-    }
-    node["status"] = "pending"
-    node.pop("status_reason", None)
-    write_location_and_sync_plan(location)
-    return node
-
-
-def advance_repair_completion(location: _NodeLocation, repair_node_id: str) -> dict[str, Any]:
-    node = location.checkpoints_data[location.node_index]
-    if automated_node_role(node) != "final_validation":
-        raise ToolError("repair-completed events require a final_validation node")
-    acceptance = acceptance_snapshot(node, required=True)
-    if acceptance.get("phase") != "awaiting_repair":
-        raise ToolError("acceptance event is out of order for the current phase")
-    if acceptance.get("repair_node_id") != repair_node_id:
-        raise ToolError("repair completion does not match the bound repair node")
-    validated_final_repair_node(location, repair_node_id, required_status="completed")
-    return _run_group_regression_after_review(
-        location,
-        acceptance,
-        source_phase="awaiting_repair",
-    )
-
-
-def advance_command(args: argparse.Namespace) -> int:
-    repair_events = {"repair-registered", "repair-completed"}
-    if args.event in repair_events:
-        if args.dispatch_id is not None:
-            raise ToolError("repair handoff events reject --dispatch-id")
-        repair_node_id = ensure_repair_node_id(args.repair_node)
-        dispatch_id = None
-    elif args.event == "reviewer-finished":
-        if args.repair_node is not None:
-            raise ToolError("Reviewer events reject --repair-node")
-        dispatch_id = ensure_event_id(args.dispatch_id)
-        repair_node_id = None
-    else:
-        raise ToolError("unsupported acceptance event")
-
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    ensure_location_is_valid(location)
-
-    if args.event == "reviewer-finished":
-        assert dispatch_id is not None
-        node = advance_reviewer_finished(location, dispatch_id)
-    elif args.event == "repair-registered":
-        assert repair_node_id is not None
-        node = advance_repair_registration(location, repair_node_id)
-    elif args.event == "repair-completed":
-        assert repair_node_id is not None
-        node = advance_repair_completion(location, repair_node_id)
-    else:
-        raise ToolError("unsupported acceptance event")
-
-    print_acceptance_payload(node, group_nodes=location.checkpoints_data, location=location)
-    return 0
-
-
-def start_command(args: argparse.Namespace) -> int:
-    reject_manual_delivery_command(args.root, args.node_id, "start")
-    print(f"OK: current platform is {current_platform()}")
-    for message in run_node_mutation(args.root, args.node_id, "in_progress"):
-        print(message)
-    return 0
-
-
-def reject_manual_delivery_command(root: str | Path, node_id: str, command: str) -> None:
-    manifest = workspace_manifest_path(Path(root))
-    location = locate_node(manifest, node_id)
-    node = location.checkpoints_data[location.node_index]
-    if node.get("role") in AUTOMATED_NODE_ROLES:
-        raise ToolError(
-            f"node {node_id}: automated acceptance rejects direct {command}; use next-action, dispatch, and advance"
-        )
-
-
-def regress_command(args: argparse.Namespace) -> int:
-    reject_manual_delivery_command(args.root, args.node_id, "regress")
-    for message in run_node_regression(args.root, args.node_id, force=True):
-        print(message)
-    return 0
-
-
-def complete_command(args: argparse.Namespace) -> int:
-    reject_manual_delivery_command(args.root, args.node_id, "complete")
-    if args.delivered is not None and not GIT_SHA_PATTERN.fullmatch(args.delivered):
-        raise ToolError("--delivered must be a lowercase hex commit sha (7-40 characters)")
-    for message in ensure_node_regression(args.root, args.node_id):
-        print(message)
-    for message in run_node_mutation(args.root, args.node_id, "completed", delivered=args.delivered):
-        print(message)
-    return 0
-
-
-def block_command(args: argparse.Namespace) -> int:
-    for message in run_node_mutation(args.root, args.node_id, "blocked", reason=args.reason):
-        print(message)
-    return 0
-
-
-def skip_command(args: argparse.Namespace) -> int:
-    for message in run_node_mutation(args.root, args.node_id, "skipped", reason=args.reason):
-        print(message)
-    return 0
-
-
-def defer_command(args: argparse.Namespace) -> int:
-    for message in run_node_mutation(
-        args.root,
-        args.node_id,
-        "deferred",
-        reason=args.reason,
-    ):
-        print(message)
-    return 0
-
-
-def activate_command(args: argparse.Namespace) -> int:
-    for message in run_node_mutation(
-        args.root,
-        args.node_id,
-        "pending",
-        require_current="deferred",
-    ):
-        print(message)
-    return 0
-
-
-def pause_command(args: argparse.Namespace) -> int:
-    for message in run_node_mutation(args.root, args.node_id, "pending", reason=args.reason, require_current="in_progress"):
-        print(message)
+        if not passed:
+            # The session stays open and closable: the same Reviewer repairs the
+            # failure and this command is rerun. Clearing the returned flag here
+            # would strand a delivery whose child cannot emit a second callback.
+            session["repair_required"] = True
+            write_json(paths["plan"], plan)
+            raise ToolError(
+                "final regression failed; repair inside this same Reviewer session and rerun close-reviewer-session"
+            )
+        session.pop("repair_required", None)
+        session["status"] = "completed"
+        session["closed_at"] = _now()
+        plan["phase"] = "completed"
+        _save_plan(paths, plan)
+        checkpoints["delivery_status"] = "completed"
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"completed": True, "reviewer_session_count": 1}))
     return 0

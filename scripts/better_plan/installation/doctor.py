@@ -24,8 +24,8 @@ def run_manifest_tool(skill_root) -> bool:
     tool = skill_root / "scripts" / "manifest_tool.py"
     if not tool.is_file():
         return False
-    result = _targets.run_text_command([sys.executable, str(tool), "uuid"], timeout=10)
-    return result.returncode == 0 and bool(result.stdout.strip())
+    result = _targets.run_text_command([sys.executable, str(tool), "schema", "plan"], timeout=10)
+    return result.returncode == 0 and "better-plan.plan/v3" in result.stdout
 
 
 def check_skill_tree(target: str, root) -> _Check:

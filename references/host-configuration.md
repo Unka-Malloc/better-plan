@@ -4,35 +4,33 @@ Read this reference only before the first Better Plan role dispatch in a convers
 configuration changes, installation/update/Doctor work, selector diagnosis, or host integration.
 Ordinary planning and delivery turns do not load it.
 
-## First-use role visibility gate
+## Role matrix
 
-Before dispatching the first Better Plan role agent in a conversation, inspect the current host's
-installed Better Plan role files and receipt read-only. Read-only analysis, history audits,
-workspace discovery, and state inspection skip this gate.
-Compare every installed role with the package recommendation in one localized Markdown table:
+Better Plan installs four delivery roles per supported host:
 
-| 角色 | 用途 | 已安装选择器 | 推荐选择器 | 差异 |
-|---|---|---|---|---|
-| Designer | 整组预测式设计 | `gpt-5.6-sol / max` | `gpt-5.6-sol / max` | 无 |
+| 角色 | 用途 | 推荐选择器 |
+|---|---|---|
+| `designer` | 单次直接写完整个 Delivery Plan | `gpt-5.6-sol / max` |
+| `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
+| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / high` |
+| `reviewer` | 唯一可写终审，含渲染证据与完整回归 | `gpt-5.6-sol / max` |
 
-Render selectors as `model / effort`. When either side pins a provider, append `@ provider` and
-label the other side `@ unpinned`; otherwise omit provider cells and state once that every role uses
-the host default. Mark missing roles explicitly. Never infer a provider or inspect credentials.
+A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
+user to choose between installed and recommended matrices, and never pause delivery for that choice.
+The package recommendation is only a per-role fallback for an absent, unreadable, unsafe, or
+model-less role, and never overrides or mutates an installed role.
 
-A complete valid installed matrix is authoritative. Use it automatically; do not ask the user to
-choose between installed and recommended matrices or pause for that choice. The package
-recommendation is only a per-role fallback for an absent, unreadable, unsafe, or model-less role and
-never overrides or mutates an installed role. If no native matrix exists, show `not installed`,
-explain packaged fallbacks, and mention bundled templates for Codex, Claude Code, OpenCode, and
-Cursor. Do not solicit configuration changes unless requested. Show this gate once per conversation
-and never inject it from Hooks.
+Show the installed-versus-recommended comparison only when the matrix is missing or invalid, or when
+the user asks about role configuration. Render selectors as `model / effort`; when either side pins a
+provider, append `@ provider` and label the other side `@ unpinned`. Mark missing roles explicitly,
+never infer a provider, and never inspect credentials. Never inject this table from Hooks.
 
 ## Role-change reconfirmation gate
 
-Whenever the user requests any native role configuration change, repeat the complete
+Whenever the user requests any native role configuration change, show the complete
 installed-versus-recommended table even if it was already shown. Include every role, use the same
-five-column selector format, and label client-specific overrides separately from package
-recommendations; never describe a local override as a recommendation change.
+selector format, and label client-specific overrides separately from package recommendations; never
+describe a local override as a recommendation change.
 
 Restate the exact requested mutations, ask the user to confirm them, then stop and wait. Before that
 fresh confirmation, do not edit role files, provider configuration, receipts, templates, or

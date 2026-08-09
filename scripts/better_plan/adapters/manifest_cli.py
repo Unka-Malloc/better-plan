@@ -1,1666 +1,267 @@
-"""Manifest Cli layer for Better Plan workflow state."""
+"""Public CLI for the Better Plan v3 protocol."""
 
 from __future__ import annotations
 
-from typing import Any
 from pathlib import Path
+from typing import Any
 import argparse
-import hashlib
 import json
-import subprocess
 import sys
-from .capability_cli import capability_projection, register_capability_commands
-from ..application.workflow import activate_command, advance_command as _advance_command, agent_complete_command, bind_agent_command, block_command, complete_command, defer_command, delegation_failed_command, dispatch_command, invalidate_preparation_after_plan_edit, main_complete_command, next_action_command, pause_command, regress_command, skip_command, start_command
-from ..domain.capabilities import capability_schema_payload
-from ..domain.design import DECISION_FIELDS, DESIGN_REQUIRED_FIELDS, SYMBOL_KINDS, SYMBOL_OPERATIONS, validate_design_contract as _validate_design_contract
-from ..domain.models import ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_REQUIRED_FIELDS, AUTOMATED_NODE_ROLES, CAPABILITIES_NAME, CHECKPOINTS_NAME, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DECISION_ISSUE_OPTIONAL_FIELDS, DECISION_ISSUE_REQUIRED_FIELDS, DECISION_SESSION_OPTIONAL_FIELDS, DECISION_SESSION_REQUIRED_FIELDS, DESIGN_NODE_ROLES, ENTRY_GATE_REQUIRED_FIELDS, EVIDENCE_COMMAND_TIMEOUT_SECONDS, Issue, MANIFEST_NAME, MILESTONE_GATE_ROLE, NODE_TEMPLATE, PLAN_OPTIONAL_FIELDS, PLAN_READINESS_OPTIONAL_FIELDS, PLAN_READINESS_RECEIPT_FIELDS, PLAN_READINESS_REQUIRED_FIELDS, PLAN_REQUIRED_FIELDS, PLAN_TEMPLATE, REGRESSION_COMMAND_RECEIPT_FIELDS, REGRESSION_FAILURE_FIELDS, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, REQUIREMENT_LABEL_PATTERN, RESERVED_NODE_TAGS, STATUS_ORDER, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, ToolError, VALID_DECISION_URGENCIES, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_NODE_STATUS_MODES, VALID_PLAN_KINDS, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_TREE_MODES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, derive_plan_status, expected_regression_scope, generate_id, has_same_plan_gate_leaf_prerequisite, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, normalize_workspace_path, public_summary, safe_summary_issue
-from ..domain.tree import render_workspace_tree
-from ..domain.validation import validate_checkpoints_data as _validate_checkpoints_data
-from ..infrastructure.regression import current_platform, evidence_timestamp, platform_matches, preflight_regression_at_location
-from ..infrastructure.readiness import run_plan_readiness_check
-from ..infrastructure.workspace import NodeLocation as _NodeLocation, discover_workspace_manifests, find_manifests, git_transition_issues, load_plan_checkpoints, load_state_entries, locate_node, plan_document_labels, plan_label, project_root_for, referenced_checkpoints_files, relative_path_label, resolve_plan_entry, source_file_issues, validate_manifest, workspace_capability_issues, workspace_dependency_issues, workspace_manifest_path, workspace_node_statuses, write_location_and_sync_plan, write_state_entries
+
+from ..application import workflow
+from ..domain.models import (
+    CHECKPOINTS_SCHEMA,
+    MANIFEST_TEMPLATE,
+    PLAN_TEMPLATE,
+    ToolError,
+    question_template,
+    task_template,
+)
+from ..domain.tree import render_plan_tree, status_payload
+from ..infrastructure.workspace import (
+    load_manifest,
+    load_plan,
+    read_json,
+    validate_workspace,
+    workspace_root,
+)
+
+
 def validate_command(args: argparse.Namespace) -> int:
-    root = Path(args.root).resolve()
-    display_root = root.parent if root.is_file() else root
-    manifests = find_manifests(root)
-
-    if not manifests:
-        message = f"No {MANIFEST_NAME}, {CAPABILITIES_NAME}, or {CHECKPOINTS_NAME} files found at the supplied validation root"
-        if args.json:
-            print(json.dumps({"ok": False, "state_files": 0, "items": 0, "issues": [{"path": ".", "message": message}]}, indent=2))
-        else:
-            print(message, file=sys.stderr)
-        return 1
-
-    snapshot_indexes: set[int] | None = None
-    dependency_roots: set[str] | None = None
-    if args.plan is not None:
-        if manifests[0].name != MANIFEST_NAME:
-            raise ToolError(f"--plan requires the Better Plan workspace root or its {MANIFEST_NAME}, not a single {CHECKPOINTS_NAME}")
-        manifest_data = load_state_entries(manifests[0])
-        plan_index, plan = resolve_plan_entry(manifests[0], manifest_data, args.plan)
-        snapshot_indexes = {plan_index}
-        checkpoints = plan.get("checkpoints")
-        if is_relative_workspace_path(checkpoints):
-            checkpoint_path = manifests[0].parent / normalize_workspace_path(str(checkpoints))
-            if checkpoint_path.name == CHECKPOINTS_NAME and checkpoint_path.is_file():
-                manifests.append(checkpoint_path)
-                dependency_roots = {
-                    str(node.get("id"))
-                    for node in load_state_entries(checkpoint_path)
-                    if isinstance(node, dict) and isinstance(node.get("id"), str)
-                }
-    elif manifests[0].name == MANIFEST_NAME:
-        for checkpoints_path in referenced_checkpoints_files(manifests[0]):
-            if checkpoints_path not in manifests:
-                manifests.append(checkpoints_path)
-
-    all_issues: list[Issue] = []
-    total_entries = 0
-    global_ids: dict[str, Path] = {}
-
-    for manifest in manifests:
-        entry_count, issues = validate_manifest(
-            manifest,
-            snapshot_indexes=snapshot_indexes if manifest.name == MANIFEST_NAME else None,
-        )
-        total_entries += entry_count
-        all_issues.extend(issues)
-
-        try:
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        if not isinstance(data, list):
-            continue
-
-        if not args.no_git:
-            all_issues.extend(git_transition_issues(manifest, data))
-
-        if args.check_sources and manifest.name == MANIFEST_NAME:
-            all_issues.extend(source_file_issues(manifest, data, include_indexes=snapshot_indexes))
-
-        for index, node in enumerate(data):
-            if not isinstance(node, dict) or not isinstance(node.get("id"), str):
-                continue
-            node_id = node["id"]
-            other = global_ids.get(node_id)
-            if other is not None and other != manifest:
-                other_label = relative_path_label(other, display_root)
-                all_issues.append(Issue(manifest, f"entry[{index}].id: duplicates id from {other_label}: {node_id!r}"))
-            else:
-                global_ids[node_id] = manifest
-
-    if manifests[0].name == MANIFEST_NAME:
-        all_issues.extend(
-            workspace_dependency_issues(manifests[0], roots=dependency_roots)
-        )
-        all_issues.extend(workspace_capability_issues(manifests[0]))
-
+    root = workspace_root(Path(args.root))
+    issues = validate_workspace(root)
     if args.json:
-        payload = {
-            "ok": not all_issues,
-            "state_files": len(manifests),
-            "items": total_entries,
-            "issues": [
-                {"path": relative_path_label(issue.path, display_root), "message": issue.message}
-                for issue in all_issues
-            ],
-        }
-        print(json.dumps(payload, indent=2))
-        return 1 if all_issues else 0
-
-    if all_issues:
-        for issue in all_issues:
-            print(f"{relative_path_label(issue.path, display_root)}: {issue.message}", file=sys.stderr)
-        print(
-            f"Validated {len(manifests)} state file(s), {total_entries} item(s), "
-            f"{len(all_issues)} issue(s).",
-            file=sys.stderr,
-        )
-        return 1
-
-    if not args.quiet:
-        print(f"OK: validated {len(manifests)} state file(s), {total_entries} item(s).")
-    return 0
-
-def discover_command(args: argparse.Namespace) -> int:
-    root = Path(args.root).resolve()
-    manifests = discover_workspace_manifests(root)
-
-    if not manifests:
-        print("No structurally valid Better Plan workspaces found at the supplied search root", file=sys.stderr)
-        return 1
-
-    for manifest in manifests:
-        print(relative_path_label(manifest.parent, root))
-    return 0
-
-def uuid_command(args: argparse.Namespace) -> int:
-    for _ in range(args.count):
-        print(generate_id())
-    return 0
-
-def platform_command(args: argparse.Namespace) -> int:
-    platform = current_platform()
-    if args.json:
-        print(json.dumps({"platform": platform}))
-    else:
-        print(platform)
-    return 0
-
-def transition_command(args: argparse.Namespace) -> int:
-    issues = WORKFLOW_STATE_MACHINE.transition_issues(Path("<state-machine>"), "transition", args.current, args.target)
-    if issues:
+        print(json.dumps({"valid": not issues, "issues": issues}))
+    elif issues:
         for issue in issues:
-            print(issue.message, file=sys.stderr)
-        return 1
-    if not args.quiet:
-        print(f"OK: {args.current} -> {args.target}")
-    return 0
-
-
-def file_evidence_ref(value: str, project_root: Path) -> dict[str, Any]:
-    if not is_relative_workspace_path(value):
-        raise ToolError("--evidence-file must be a repository-relative regular file inside the project root")
-    normalized = normalize_workspace_path(value)
-    root = project_root.resolve()
-    path = root / normalized
-    if path.is_symlink():
-        raise ToolError("--evidence-file must not be a symbolic link")
-    try:
-        resolved = path.resolve()
-        resolved.relative_to(root)
-    except (OSError, ValueError) as exc:
-        raise ToolError("--evidence-file must stay inside the project root") from exc
-    if not resolved.is_file():
-        raise ToolError("--evidence-file must be a readable repository file")
-    digest = hashlib.sha256()
-    try:
-        with resolved.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-    except OSError as exc:
-        raise ToolError("--evidence-file could not be read") from exc
-    return {
-        "type": "file",
-        "path": normalized,
-        "sha256": digest.hexdigest(),
-        "recorded_at": evidence_timestamp(),
-    }
-
-
-def command_evidence_ref(command: str, project_root: Path) -> dict[str, Any]:
-    if not command.strip():
-        raise ToolError("--evidence-cmd must be a non-empty command")
-    try:
-        result = subprocess.run(
-            command,
-            cwd=project_root,
-            shell=True,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=EVIDENCE_COMMAND_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ToolError("--evidence-cmd timed out; command output was discarded") from exc
-    except OSError as exc:
-        raise ToolError("--evidence-cmd could not be started; command output was discarded") from exc
-    if result.returncode != 0:
-        raise ToolError(
-            f"--evidence-cmd exited with {result.returncode}; command output was discarded and no evidence was recorded"
-        )
-    return {
-        "type": "command",
-        "command_sha256": hashlib.sha256(command.strip().encode("utf-8")).hexdigest(),
-        "exit_code": 0,
-        "recorded_at": evidence_timestamp(),
-    }
-
-
-def check_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    node = location.checkpoints_data[location.node_index]
-    if node.get("role") in AUTOMATED_NODE_ROLES:
-        raise ToolError(
-            f"node {args.node_id}: automated acceptance rejects direct check; use next-action, dispatch, and advance"
-        )
-    project_root = project_root_for(manifest.parent)
-
-    criteria = node.get("acceptance_criteria")
-    if not isinstance(criteria, list) or not criteria:
-        raise ToolError(f"node {args.node_id}: acceptance_criteria must be a non-empty array")
-    if not 0 <= args.criterion < len(criteria):
-        raise ToolError(f"node {args.node_id}: criterion index must be between 0 and {len(criteria) - 1}")
-    criterion = criteria[args.criterion]
-    if not isinstance(criterion, dict):
-        raise ToolError(f"node {args.node_id}: acceptance_criteria[{args.criterion}] must be an object")
-
-    refs: list[dict[str, Any]] = []
-    for value in args.evidence_cmd or []:
-        refs.append(command_evidence_ref(value, project_root))
-    for value in args.evidence_file or []:
-        refs.append(file_evidence_ref(value, project_root))
-
-    criterion["checked"] = True
-    if args.evidence is not None:
-        evidence_issue = safe_summary_issue(args.evidence)
-        if evidence_issue is not None:
-            raise ToolError(f"--evidence {evidence_issue}")
-        criterion["evidence"] = args.evidence.strip()
-    if refs:
-        criterion["evidence_refs"] = refs
-
-    _, issues = _validate_checkpoints_data(location.checkpoints_path, location.checkpoints_data)
-    if issues:
-        details = "\n".join(
-            f"  {relative_path_label(issue.path, project_root)}: {issue.message}"
-            for issue in issues
-        )
-        raise ToolError(f"refusing to write an invalid state file; fix these issues first:\n{details}")
-
-    write_state_entries(location.checkpoints_path, location.checkpoints_data)
-    suffix = f" with {len(refs)} evidence reference(s)" if refs else ""
-    print(f"OK: node {args.node_id} acceptance_criteria[{args.criterion}] checked{suffix}")
-    return 0
-
-
-def parse_id_list(value: str | None) -> list[str] | None:
-    if value is None:
-        return None
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def find_node_index(checkpoints_data: list[Any], node_id: str, checkpoints_path: Path) -> int:
-    for index, node in enumerate(checkpoints_data):
-        if isinstance(node, dict) and node.get("id") == node_id:
-            return index
-    raise ToolError(f"node {node_id} not found in {checkpoints_path.name}")
-
-
-def plan_checkpoints_location(manifest: Path, manifest_data: list[Any], selector: str) -> tuple[int, dict[str, Any], Path, list[Any]]:
-    plan_index, plan = resolve_plan_entry(manifest, manifest_data, selector)
-    checkpoints_value = plan.get("checkpoints")
-    if not is_relative_workspace_path(checkpoints_value):
-        raise ToolError(f"plan {plan_label(plan, plan_index)!r}: checkpoints must be a relative path to {CHECKPOINTS_NAME}")
-    checkpoints_path = manifest.parent / normalize_workspace_path(str(checkpoints_value))
-    if checkpoints_path.name != CHECKPOINTS_NAME or not checkpoints_path.is_file():
-        raise ToolError(
-            f"plan {plan_label(plan, plan_index)!r}: missing checkpoints file "
-            f"{normalize_workspace_path(str(checkpoints_value))}"
-        )
-    return plan_index, plan, checkpoints_path, load_state_entries(checkpoints_path)
-
-
-def record_decision_command(args: argparse.Namespace) -> int:
-    """Record one Reviewer-raised choice on its owning task group."""
-
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    plan_index, plan = resolve_plan_entry(manifest, manifest_data, args.plan)
-    if plan.get("kind") != "group":
-        raise ToolError("user decisions may be recorded only on a task-group Plan")
-    for field, value in (("--question", args.question), ("--context", args.context)):
-        issue = safe_summary_issue(value)
-        if issue is not None:
-            raise ToolError(f"{field} {issue}")
-    if len(args.option) < 2:
-        raise ToolError("record-decision requires at least two --option values")
-    for value in args.option:
-        issue = safe_summary_issue(value)
-        if issue is not None:
-            raise ToolError(f"--option {issue}")
-    normalized_options = [value.strip() for value in args.option]
-    if len(set(normalized_options)) < 2:
-        raise ToolError("record-decision requires at least two distinct --option values")
-    decisions = plan.setdefault("decision_issues", [])
-    if not isinstance(decisions, list):
-        raise ToolError("the selected Plan has an invalid decision_issues field")
-    decision_id = generate_id()
-    decisions.append(
-        {
-            "id": decision_id,
-            "urgency": args.urgency,
-            "question": args.question.strip(),
-            "context": args.context.strip(),
-            "options": normalized_options,
-            "status": "open",
-        }
-    )
-    session = plan.get("decision_session")
-    if isinstance(session, dict) and session.get("status") == "open":
-        session.setdefault("decision_ids", []).append(decision_id)
-        session["projection_dirty"] = True
-    write_state_entries(manifest, manifest_data)
-    action = "report to the user now" if args.urgency == "immediate" else "include in the final decision report"
-    print(f"OK: plan[{plan_index}] recorded {args.urgency} decision {decision_id}; native main must {action}")
-    return 0
-
-
-def open_decision_session_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    data = load_state_entries(manifest)
-    _, plan = resolve_plan_entry(manifest, data, args.plan)
-    current = plan.get("decision_session")
-    if isinstance(current, dict) and current.get("status") == "open":
-        raise ToolError("the selected Plan already has an open decision session")
-    title_issue = safe_summary_issue(args.title)
-    if title_issue is not None:
-        raise ToolError(f"--title {title_issue}")
-    session_id = generate_id()
-    plan["decision_session"] = {
-        "id": session_id,
-        "title": args.title.strip(),
-        "status": "open",
-        "projection_dirty": False,
-        "decision_ids": [],
-        "opened_at": evidence_timestamp(),
-    }
-    write_state_entries(manifest, data)
-    print(f"OK: decision session {session_id} opened")
-    return 0
-
-
-def close_decision_session_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    data = load_state_entries(manifest)
-    _, plan = resolve_plan_entry(manifest, data, args.plan)
-    session = plan.get("decision_session")
-    if not isinstance(session, dict) or session.get("status") != "open":
-        raise ToolError("the selected Plan has no open decision session")
-    commands = list(args.projection_command or [])
-    if session.get("projection_dirty") and not commands:
-        raise ToolError("a dirty decision session requires at least one --projection-command")
-    root = project_root_for(manifest.parent)
-    failures: list[str] = []
-    for index, command in enumerate(commands):
-        result = subprocess.run(
-            command,
-            cwd=root,
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode != 0:
-            failures.append(f"projection command[{index}] exited with {result.returncode}")
-    if failures:
-        raise ToolError("; ".join(failures))
-    session["projection_dirty"] = False
-    session["status"] = "closed"
-    session["closed_at"] = evidence_timestamp()
-    write_state_entries(manifest, data)
-    print(f"OK: decision session {session['id']} closed after one projection batch")
-    return 0
-
-def resolve_decision_command(args: argparse.Namespace) -> int:
-    """Record the developer's resolution without rewriting decision history."""
-
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    _, plan = resolve_plan_entry(manifest, manifest_data, args.plan)
-    resolution_issue = safe_summary_issue(args.resolution)
-    if resolution_issue is not None:
-        raise ToolError(f"--resolution {resolution_issue}")
-    decisions = plan.get("decision_issues")
-    if not isinstance(decisions, list):
-        raise ToolError("the selected Plan has no decision issues")
-    match = next(
-        (
-            decision
-            for decision in decisions
-            if isinstance(decision, dict) and decision.get("id") == args.decision_id
-        ),
-        None,
-    )
-    if match is None:
-        raise ToolError("decision id was not found in the selected Plan")
-    if match.get("status") == "resolved":
-        if match.get("resolution") != args.resolution.strip():
-            raise ToolError("an idempotent resolution must use the existing text exactly")
-    else:
-        match["status"] = "resolved"
-        match["resolution"] = args.resolution.strip()
-        write_state_entries(manifest, manifest_data)
-    print(f"OK: decision {args.decision_id} resolved")
-    return 0
-
-def check_plan_readiness_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    plan_index, plan, checkpoints_path, checkpoints_data = plan_checkpoints_location(manifest, manifest_data, args.plan)
-    location = _NodeLocation(manifest, manifest_data, plan_index, checkpoints_path, checkpoints_data, 0)
-    run_plan_readiness_check(location, list(args.command), list(args.path))
-    print(f"OK: plan {plan_label(plan, plan_index)!r} passed host-repository readiness checks")
-    return 0
-
-
-def preflight_regression_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    for message in preflight_regression_at_location(location, list(args.probe or [])):
-        print(message)
-    return 0
-
-def add_node_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    plan_index, plan, checkpoints_path, checkpoints_data = plan_checkpoints_location(manifest, manifest_data, args.plan)
-
-    node_id = args.id or generate_id()
-    if not is_manifest_id(node_id):
-        raise ToolError("--id must be a UUID4 value; generate ids with the uuid command")
-
-    if args.after and args.before:
-        raise ToolError("use only one of --after or --before")
-    if args.splice and not args.after:
-        raise ToolError("--splice requires --after <node-id>; splice inserts the new node into that node's outgoing chain")
-
-    prerequisites = parse_id_list(args.prerequisites) or []
-    next_refs = parse_id_list(args.next) or []
-    requirements = parse_id_list(args.requirements)
-    design: dict[str, Any] | None = None
-    if args.design_json is not None:
-        try:
-            parsed_design = json.loads(args.design_json)
-        except json.JSONDecodeError as exc:
-            raise ToolError("--design-json must be a valid JSON object") from exc
-        if not isinstance(parsed_design, dict):
-            raise ToolError("--design-json must be a JSON object")
-        design_issues = _validate_design_contract(parsed_design)
-        if design_issues:
-            raise ToolError(f"--design-json is invalid: {'; '.join(design_issues)}")
-        design = parsed_design
-    if args.role in DESIGN_NODE_ROLES and design is None:
-        raise ToolError(f"role {args.role!r} requires --design-json before the Node can be added")
-    regression_values_present = any(
-        value is not None
-        for value in (
-            args.regression_scope,
-            args.regression_command,
-            args.regression_command_path,
-            args.regression_path,
-            args.regression_criterion,
-        )
-    )
-    required_regression_scope = expected_regression_scope(args.role)
-    if required_regression_scope is not None or regression_values_present:
-        missing: list[str] = []
-        if not args.regression_command:
-            missing.append("--regression-command")
-        if not args.regression_path:
-            missing.append("--regression-path")
-        if not args.regression_criterion:
-            missing.append("--regression-criterion")
-        if missing:
-            raise ToolError(
-                f"role {args.role!r} requires a complete regression contract; missing {', '.join(missing)}"
-            )
-        if args.regression_command_path is not None and len(args.regression_command_path) != len(args.regression_command):
-            raise ToolError("--regression-command-path must be repeated exactly once per --regression-command")
-
-    anchor_index: int | None = None
-    if args.after or args.before:
-        anchor_index = find_node_index(checkpoints_data, args.after or args.before, checkpoints_path)
-
-    spliced_downstream: list[str] = []
-    if args.splice and anchor_index is not None:
-        anchor = checkpoints_data[anchor_index]
-        anchor_id = str(anchor.get("id"))
-        anchor_next = anchor.get("next")
-        inherited_next = [ref for ref in anchor_next if isinstance(ref, str)] if isinstance(anchor_next, list) else []
-        merged_next = list(inherited_next)
-        for ref in next_refs:
-            if ref not in merged_next:
-                merged_next.append(ref)
-        next_refs = merged_next
-        if anchor_id not in prerequisites:
-            prerequisites.insert(0, anchor_id)
-        anchor["next"] = [node_id]
-        for entry in checkpoints_data:
-            if not isinstance(entry, dict) or entry.get("id") not in inherited_next:
-                continue
-            entry_prerequisites = entry.get("prerequisites")
-            if is_string_list(entry_prerequisites) and anchor_id in entry_prerequisites:
-                entry["prerequisites"] = [node_id if ref == anchor_id else ref for ref in entry_prerequisites]
-                spliced_downstream.append(str(entry.get("id")))
-
-    node: dict[str, Any] = {
-        "id": node_id,
-        "status": "pending",
-        "role": args.role,
-        "prerequisites": prerequisites,
-        "platform": args.platform,
-        "difficulty": args.difficulty,
-        "verification_profile": args.verification_profile,
-        "goal": args.goal,
-        "description": args.description,
-    }
-    if requirements is not None:
-        node["requirements"] = requirements
-    if design is not None:
-        node["design"] = design
-    node["acceptance_criteria"] = [{"checked": False, "text": text} for text in args.criterion]
-    node["commit"] = {
-        "repository": args.commit_repository,
-        "message": args.commit_message,
-        "target": args.commit_target,
-    }
-    if required_regression_scope is not None or regression_values_present:
-        node["regression"] = {
-            "scope": args.regression_scope or required_regression_scope or "focused",
-            "commands": list(args.regression_command),
-            "criteria": list(args.regression_criterion),
-            "paths": list(args.regression_path),
-        }
-        if args.regression_command_path is not None:
-            node["regression"]["command_paths"] = [parse_id_list(value) or [] for value in args.regression_command_path]
-    node["next"] = next_refs
-
-    if args.before is not None and anchor_index is not None:
-        insert_index = anchor_index
-    elif args.after is not None and anchor_index is not None:
-        insert_index = anchor_index + 1
-    else:
-        insert_index = len(checkpoints_data)
-    checkpoints_data.insert(insert_index, node)
-
-    location = _NodeLocation(manifest, manifest_data, plan_index, checkpoints_path, checkpoints_data, insert_index)
-    messages = [f"OK: node {node_id} added to plan {plan_label(plan, plan_index)!r} at index {insert_index}"]
-    if spliced_downstream:
-        messages.append(f"OK: spliced into the chain; downstream prerequisites rewired: {', '.join(spliced_downstream)}")
-    messages.extend(write_location_and_sync_plan(location))
-    for message in messages:
-        print(message)
-    return 0
-
-
-def repair_plan_command(args: argparse.Namespace) -> int:
-    """Atomically materialize and register one bounded repair for a failed final gate."""
-
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.final_node_id)
-    final = location.checkpoints_data[location.node_index]
-    acceptance = final.get("acceptance")
-    if final.get("role") != "final_validation" or not isinstance(acceptance, dict):
-        raise ToolError("repair-plan requires a final_validation node with acceptance state")
-    if acceptance.get("phase") != "repair_plan_required":
-        raise ToolError("repair-plan requires a failed final regression awaiting a repair plan")
-
-    try:
-        design = json.loads(args.design_json)
-    except json.JSONDecodeError as exc:
-        raise ToolError("--design-json must be a valid JSON object") from exc
-    if not isinstance(design, dict):
-        raise ToolError("--design-json must be a JSON object")
-    design_issues = _validate_design_contract(design)
-    if design_issues:
-        raise ToolError(f"--design-json is invalid: {'; '.join(design_issues)}")
-
-    repair_id = args.id or generate_id()
-    if not is_manifest_id(repair_id):
-        raise ToolError("--id must be a UUID4 value")
-    if any(isinstance(node, dict) and node.get("id") == repair_id for node in location.checkpoints_data):
-        raise ToolError("repair node id already exists")
-
-    previous_prerequisites = list(final.get("prerequisites", []))
-    repair: dict[str, Any] = {
-        "id": repair_id,
-        "status": "pending",
-        "role": "implementation",
-        "prerequisites": previous_prerequisites,
-        "platform": args.platform,
-        "difficulty": args.difficulty,
-        "verification_profile": args.verification_profile,
-        "goal": args.goal,
-        "description": args.description,
-        "acceptance_criteria": [{"checked": False, "text": text} for text in args.criterion],
-        "commit": {
-            "repository": args.commit_repository,
-            "message": args.commit_message,
-            "target": args.commit_target,
-        },
-        "design": design,
-        "regression": {
-            "scope": "focused",
-            "commands": list(args.regression_command),
-            "paths": list(args.regression_path),
-            "criteria": list(args.regression_criterion),
-        },
-        "next": [args.final_node_id],
-    }
-    requirements = parse_id_list(args.requirements)
-    if requirements is None and is_string_list(final.get("requirements")):
-        requirements = list(final["requirements"])
-    if requirements is not None:
-        repair["requirements"] = requirements
-
-    final["prerequisites"] = [*previous_prerequisites, repair_id]
-    final["status"] = "pending"
-    final["acceptance"] = {
-        "phase": "awaiting_repair",
-        "attempt": int(acceptance.get("attempt", 0)),
-        "outcome": acceptance.get("outcome"),
-        "repair_node_id": repair_id,
-        "review": acceptance.get("review"),
-        **{
-            field: acceptance[field]
-            for field in ("design_digest", "scaffold_fingerprint", "acceptance_fingerprint")
-            if field in acceptance
-        },
-    }
-    location.checkpoints_data.insert(location.node_index, repair)
-    repair_location = _NodeLocation(
-        location.manifest,
-        location.manifest_data,
-        location.plan_index,
-        location.checkpoints_path,
-        location.checkpoints_data,
-        location.node_index,
-    )
-    for message in write_location_and_sync_plan(repair_location):
-        print(message)
-    print(f"OK: repair node {repair_id} atomically created, wired, and registered")
-    return 0
-
-
-def rewire_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    node = location.checkpoints_data[location.node_index]
-
-    changed = False
-    replacements = {"prerequisites": parse_id_list(args.prerequisites), "next": parse_id_list(args.next)}
-    for field, value in replacements.items():
-        if value is not None:
-            node[field] = value
-            changed = True
-
-    additions = {"prerequisites": args.add_prerequisite or [], "next": args.add_next or []}
-    removals = {"prerequisites": args.remove_prerequisite or [], "next": args.remove_next or []}
-    for field in ("prerequisites", "next"):
-        if not additions[field] and not removals[field]:
-            continue
-        refs = node.get(field)
-        if not is_string_list(refs):
-            raise ToolError(f"node {args.node_id}: {field} must be an array of node ids before incremental rewiring")
-        for ref in additions[field]:
-            if ref not in refs:
-                refs.append(ref)
-                changed = True
-        for ref in removals[field]:
-            if ref not in refs:
-                raise ToolError(f"node {args.node_id}: cannot remove {ref!r} from {field}; it is not present")
-            refs.remove(ref)
-            changed = True
-
-    if not changed:
-        raise ToolError("provide at least one of --prerequisites, --next, --add-prerequisite, --remove-prerequisite, --add-next, --remove-next")
-
-    messages = [
-        f"OK: node {args.node_id} rewired; prerequisites={json.dumps(node.get('prerequisites'))} next={json.dumps(node.get('next'))}"
-    ]
-    messages.extend(write_location_and_sync_plan(location))
-    for message in messages:
-        print(message)
-    return 0
-
-
-def edit_node_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    location = locate_node(manifest, args.node_id)
-    node = location.checkpoints_data[location.node_index]
-
-    text_updates: dict[str, str | None] = {
-        "goal": args.goal,
-        "description": args.description,
-        "difficulty": args.difficulty,
-        "platform": args.platform,
-        "verification_profile": args.verification_profile,
-    }
-    commit_updates: dict[str, str | None] = {
-        "repository": args.commit_repository,
-        "message": args.commit_message,
-        "target": args.commit_target,
-    }
-    requirements_replacement = parse_id_list(args.requirements)
-    wants_regression_edit = any(
-        value is not None
-        for value in (
-            args.regression_scope,
-            args.regression_command,
-            args.regression_command_path,
-            args.regression_path,
-            args.regression_criterion,
-        )
-    )
-    wants_content_edit = (
-        any(value is not None for value in text_updates.values())
-        or any(value is not None for value in commit_updates.values())
-        or args.criterion is not None
-        or wants_regression_edit
-    )
-    wants_requirements_edit = (
-        requirements_replacement is not None or bool(args.add_requirement) or bool(args.remove_requirement)
-    )
-    if not wants_content_edit and not wants_requirements_edit:
-        raise ToolError("provide at least one field to edit")
-
-    status = node.get("status")
-    if status in WORKFLOW_STATE_MACHINE.terminal_statuses and wants_content_edit:
-        raise ToolError(
-            f"node {args.node_id} is {status}; terminal nodes are historical snapshots and only accept requirements-label "
-            "corrections. Record current truth in the plan documents or add a new node instead"
-        )
-
-    changed: list[str] = []
-    for field, value in text_updates.items():
-        if value is None:
-            continue
-        node[field] = value
-        changed.append(field)
-    if any(value is not None for value in commit_updates.values()):
-        commit = node.get("commit")
-        if not isinstance(commit, dict):
-            raise ToolError(f"node {args.node_id}: commit must be an object before editing commit fields")
-        for field, value in commit_updates.items():
-            if value is None:
-                continue
-            commit[field] = value
-            changed.append(f"commit.{field}")
-    criterion_replacement = (
-        [{"checked": False, "text": text} for text in args.criterion]
-        if args.criterion is not None
-        else None
-    )
-    if criterion_replacement is not None:
-        if not criterion_replacement:
-            raise ToolError("criterion replacement requires at least one value")
-        node["acceptance_criteria"] = criterion_replacement
-        changed.append("acceptance_criteria")
-
-    regression: dict[str, Any] | None = (
-        dict(node.get("regression")) if isinstance(node.get("regression"), dict) else None
-    )
-    if wants_regression_edit:
-        if regression is None:
-            regression = {}
-        replacements: dict[str, Any] = {
-            "scope": args.regression_scope,
-            "commands": list(args.regression_command) if args.regression_command is not None else None,
-            "command_paths": [parse_id_list(value) or [] for value in args.regression_command_path] if args.regression_command_path is not None else None,
-            "paths": list(args.regression_path) if args.regression_path is not None else None,
-            "criteria": list(args.regression_criterion) if args.regression_criterion is not None else None,
-        }
-        for field, value in replacements.items():
-            if value is not None:
-                regression[field] = value
-                changed.append(f"regression.{field}")
-        node["regression"] = regression
-
-    if requirements_replacement is not None:
-        node["requirements"] = requirements_replacement
-        changed.append("requirements")
-    if args.add_requirement or args.remove_requirement:
-        requirements = node.get("requirements")
-        if not is_string_list(requirements):
-            requirements = []
-            node["requirements"] = requirements
-        for label in args.add_requirement or []:
-            if label not in requirements:
-                requirements.append(label)
-                changed.append("requirements")
-        for label in args.remove_requirement or []:
-            if label not in requirements:
-                raise ToolError(f"node {args.node_id}: cannot remove requirement {label!r}; it is not present")
-            requirements.remove(label)
-            changed.append("requirements")
-
-    preparation_semantic_edit = (
-        args.criterion is not None
-        or any(value is not None for value in text_updates.values())
-        or wants_regression_edit
-        or wants_requirements_edit
-    )
-    if preparation_semantic_edit:
-        invalidate_preparation_after_plan_edit(node)
-
-    messages = [f"OK: node {args.node_id} updated fields: {', '.join(sorted(set(changed)))}"]
-    messages.extend(write_location_and_sync_plan(location))
-    for message in messages:
-        print(message)
-    return 0
-
-
-def check_labels_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-
-    selected_index: int | None = None
-    if args.plan is not None:
-        selected_index, _ = resolve_plan_entry(manifest, manifest_data, args.plan)
-
-    plan_dirs: dict[int, Path] = {}
-    for index, plan in enumerate(manifest_data):
-        if isinstance(plan, dict) and is_relative_workspace_path(plan.get("directory")):
-            plan_dirs[index] = (manifest.parent / normalize_workspace_path(str(plan.get("directory")))).resolve()
-
-    plans_payload: list[dict[str, Any]] = []
-    errors = 0
-    warnings = 0
-    for index, plan in enumerate(manifest_data):
-        if not isinstance(plan, dict):
-            continue
-        if selected_index is not None and index != selected_index:
-            continue
-        label = plan_label(plan, index)
-        payload: dict[str, Any] = {"plan": label, "directory": plan.get("directory")}
-
-        plan_dir = plan_dirs.get(index)
-        if plan_dir is None or not plan_dir.is_dir():
-            payload["error"] = "plan directory missing"
-            plans_payload.append(payload)
-            errors += 1
-            continue
-        nodes, error = load_plan_checkpoints(manifest, plan)
-        if nodes is None:
-            payload["error"] = error
-            plans_payload.append(payload)
-            errors += 1
-            continue
-
-        exclude_dirs = {path for other_index, path in plan_dirs.items() if other_index != index}
-        doc_labels, invalid_document_labels, scanned = plan_document_labels(plan_dir, exclude_dirs)
-
-        carried: dict[str, list[str]] = {}
-        invalid_node_labels: dict[str, list[str]] = {}
-        carried_non_skipped: set[str] = set()
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            requirements = node.get("requirements")
-            if not is_string_list(requirements):
-                continue
-            for value in requirements:
-                if not is_requirement_label(value):
-                    invalid_node_labels.setdefault(value, []).append(str(node.get("id")))
-                    continue
-                carried.setdefault(value, []).append(str(node.get("id")))
-                if node.get("status") != "skipped":
-                    carried_non_skipped.add(value)
-
-        payload["documents_scanned"] = scanned
-        payload["doc_labels"] = len(doc_labels)
-        payload["node_labels"] = len(carried)
-        if invalid_document_labels:
-            payload["invalid_document_labels"] = sorted(invalid_document_labels)
-            errors += len(invalid_document_labels)
-        if invalid_node_labels:
-            payload["invalid_node_labels"] = {
-                value: invalid_node_labels[value] for value in sorted(invalid_node_labels)
-            }
-            errors += len(invalid_node_labels)
-        if not doc_labels:
-            payload["warning"] = "no requirement labels found in plan documents; document labels before relying on traceability"
-            warnings += 1
-            plans_payload.append(payload)
-            continue
-
-        undefined = {value: carried[value] for value in sorted(set(carried) - doc_labels)}
-        # A doc label that prefixes other doc labels (REQ-X next to REQ-X-001) is a family
-        # reference in prose, not a requirement definition; keep it out of coverage warnings.
-        family_prefixes = {
-            value
-            for value in doc_labels
-            if any(other != value and other.startswith(f"{value}-") for other in doc_labels)
-        }
-        uncovered = sorted(doc_labels - family_prefixes - carried_non_skipped)
-        payload["undefined"] = undefined
-        payload["uncovered"] = uncovered
-        errors += len(undefined)
-        warnings += len(uncovered)
-        plans_payload.append(payload)
-
-    if args.json:
-        workspace = relative_path_label(manifest.parent, project_root_for(manifest.parent))
-        print(json.dumps({"workspace": workspace, "errors": errors, "warnings": warnings, "plans": plans_payload}, indent=2, ensure_ascii=False))
-        return 1 if errors else 0
-
-    for payload in plans_payload:
-        print(f"Plan: {payload['plan']} ({payload.get('directory')})")
-        if "error" in payload:
-            print(f"  error: {payload['error']}", file=sys.stderr)
-            continue
-        print(f"  documents scanned: {payload['documents_scanned']}, doc labels: {payload['doc_labels']}, node labels: {payload['node_labels']}")
-        for value in payload.get("invalid_document_labels", []):
-            print(
-                f"  error: noncanonical document label {value}; use REQ first, for example REQ-001",
-                file=sys.stderr,
-            )
-        for value, node_ids in payload.get("invalid_node_labels", {}).items():
-            print(
-                f"  error: noncanonical node label {value} is carried by node(s) {', '.join(node_ids)}; "
-                "use REQ first, for example REQ-001",
-                file=sys.stderr,
-            )
-        if "warning" in payload:
-            print(f"  warning: {payload['warning']}")
-            continue
-        for value, node_ids in payload.get("undefined", {}).items():
-            print(f"  error: label {value} is carried by node(s) {', '.join(node_ids)} but defined in no plan document", file=sys.stderr)
-        for value in payload.get("uncovered", []):
-            print(f"  warning: label {value} appears in plan documents but no non-skipped node carries it")
-        if not payload.get("undefined") and not payload.get("uncovered"):
-            print("  OK: document labels and node labels are consistent")
-    if errors:
-        print(f"{errors} label error(s), {warnings} warning(s).", file=sys.stderr)
-        return 1
-    print(f"OK: label cross-check passed with {warnings} warning(s).")
-    return 0
-
-
-def sync_plan_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    dependency_statuses = workspace_node_statuses(manifest)
-
-    messages: list[str] = []
-    errors: list[str] = []
-    changed = False
-
-    for index, plan in enumerate(manifest_data):
-        if not isinstance(plan, dict):
-            continue
-        status = plan.get("status")
-        label = plan_label(plan, index)
-        if not WORKFLOW_STATE_MACHINE.is_status(status):
-            errors.append(f"plan {label!r}: invalid status {status!r}; fix {MANIFEST_NAME} manually")
-            continue
-        nodes, error = load_plan_checkpoints(manifest, plan)
-        if nodes is None:
-            errors.append(f"plan {label!r}: {error}")
-            continue
-        derived = derive_plan_status(str(status), nodes, dependency_statuses)
-        if derived == status:
-            continue
-        if not WORKFLOW_STATE_MACHINE.can_reach(str(status), derived):
-            errors.append(f"plan {label!r}: cannot move from {status!r} to derived status {derived!r}; fix state files manually")
-            continue
-        plan["status"] = derived
-        changed = True
-        messages.append(f"OK: plan {label!r} {status} -> {derived}")
-
-    if changed:
-        write_state_entries(manifest, manifest_data)
-    for message in messages:
-        print(message)
-    if not messages and not errors:
-        print("OK: plan statuses already in sync")
-    for error in errors:
-        print(error, file=sys.stderr)
-    return 1 if errors else 0
-def tree_command(args: argparse.Namespace) -> int:
-    """Render the canonical workspace hierarchy without mutating state."""
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    selected_index: int | None = None
-    if args.plan is not None:
-        selected_index, _ = resolve_plan_entry(manifest, manifest_data, args.plan)
-
-    checkpoints: list[list[Any] | None] = []
-    checkpoint_errors: list[str | None] = []
-    for plan in manifest_data:
-        if not isinstance(plan, dict):
-            checkpoints.append(None)
-            checkpoint_errors.append("plan entry is not an object")
-            continue
-        nodes, error = load_plan_checkpoints(manifest, plan)
-        checkpoints.append(nodes)
-        checkpoint_errors.append(error)
-
-    plan_projection = render_workspace_tree(
-        manifest_data,
-        checkpoints,
-        checkpoint_errors,
-        selected_index=selected_index,
-        details=args.details,
-    )
-    capability_text = capability_projection(manifest.parent, details=args.details)
-    print(f"{capability_text}\n\n{plan_projection}" if capability_text is not None else plan_projection)
-    return 0
-def status_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    workspace = relative_path_label(manifest.parent, project_root_for(manifest.parent))
-
-    plans_payload: list[dict[str, Any]] = []
-    for index, plan in enumerate(manifest_data):
-        if not isinstance(plan, dict):
-            continue
-        payload: dict[str, Any] = {
-            "id": plan.get("id"),
-            "title": public_summary(plan.get("title"), f"plan[{index}]"),
-            "status": plan.get("status"),
-            "directory": plan.get("directory"),
-            "capability_key": plan.get("capability_key"),
-        }
-        decisions = plan.get("decision_issues")
-        if isinstance(decisions, list):
-            payload["open_decisions"] = [
-                {
-                    "id": decision.get("id"),
-                    "urgency": decision.get("urgency"),
-                    "question": public_summary(decision.get("question"), "[redacted]"),
-                }
-                for decision in decisions
-                if isinstance(decision, dict) and decision.get("status") == "open"
-            ]
-        else:
-            payload["open_decisions"] = []
-        nodes, error = load_plan_checkpoints(manifest, plan)
-        if nodes is None:
-            payload["error"] = error
-            plans_payload.append(payload)
-            continue
-
-        counts = {status: 0 for status in STATUS_ORDER}
-        in_progress: list[dict[str, Any]] = []
-        blocked: list[dict[str, Any]] = []
-        deferred: list[dict[str, Any]] = []
-        total = 0
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            total += 1
-            status = node.get("status")
-            if WORKFLOW_STATE_MACHINE.is_status(status):
-                counts[str(status)] += 1
-            entry = {"id": node.get("id"), "goal": public_summary(node.get("goal"), "[redacted]")}
-            if status == "in_progress":
-                in_progress.append(entry)
-            elif status == "blocked":
-                blocked.append(
-                    {**entry, "status_reason": public_summary(node.get("status_reason"), "[redacted]")}
-                )
-            elif status == "deferred":
-                deferred.append(
-                    {**entry, "status_reason": public_summary(node.get("status_reason"), "[redacted]")}
-                )
-
-        payload.update(
-            {
-                "nodes": total,
-                "counts": counts,
-                "in_progress": in_progress,
-                "blocked": blocked,
-                "deferred": deferred,
-            }
-        )
-        plans_payload.append(payload)
-
-    if args.json:
-        print(json.dumps({"workspace": workspace, "plans": plans_payload}, indent=2, ensure_ascii=False))
-        return 0
-
-    print(f"Workspace: {workspace}")
-    for payload in plans_payload:
-        print(f"Plan: {payload.get('title')} [{payload.get('status')}] {payload.get('directory')}")
-        if "error" in payload:
-            print(f"  checkpoints: {payload['error']}")
-            continue
-        counts = payload["counts"]
-        summary = ", ".join(f"{status} {counts[status]}" for status in STATUS_ORDER)
-        print(f"  nodes: {payload['nodes']} total | {summary}")
-        for entry in payload["in_progress"]:
-            print(f"  in_progress: {entry['id']} {entry['goal']}")
-        for entry in payload["blocked"]:
-            reason = entry.get("status_reason") or "no status_reason recorded"
-            print(f"  blocked: {entry['id']} {entry['goal']} (reason: {reason})")
-        for entry in payload["deferred"]:
-            reason = entry.get("status_reason") or "no status_reason recorded"
-            print(f"  deferred: {entry['id']} {entry['goal']} (reason: {reason})")
-        for decision in payload["open_decisions"]:
-            timing = "REPORT NOW" if decision.get("urgency") == "immediate" else "report at final handoff"
-            print(f"  user decision ({timing}): {decision.get('id')} {decision.get('question')}")
-    return 0
-
-
-def next_command(args: argparse.Namespace) -> int:
-    manifest = workspace_manifest_path(Path(args.root))
-    manifest_data = load_state_entries(manifest)
-    platform = current_platform()
-    workspace = relative_path_label(manifest.parent, project_root_for(manifest.parent))
-    node_statuses = workspace_node_statuses(manifest)
-
-    plans_payload: list[dict[str, Any]] = []
-    for index, plan in enumerate(manifest_data):
-        if not isinstance(plan, dict):
-            continue
-        status = plan.get("status")
-        if status in WORKFLOW_STATE_MACHINE.terminal_statuses:
-            continue
-        nodes, _ = load_plan_checkpoints(manifest, plan)
-        if nodes is None:
-            continue
-
-        def node_entry(node: dict[str, Any]) -> dict[str, Any]:
-            return {
-                "id": node.get("id"),
-                "goal": public_summary(node.get("goal"), "[redacted]"),
-                "role": node.get("role"),
-                "difficulty": node.get("difficulty"),
-                "verification_profile": node.get("verification_profile"),
-                "platform": node.get("platform"),
-            }
-
-        active_nodes = [
-            node
-            for node in nodes
-            if isinstance(node, dict) and node.get("status") == "in_progress"
-        ]
-        active = [node_entry(node) for node in active_nodes]
-        parallel_worker_window = bool(active_nodes) and all(node.get("role") == "implementation" for node in active_nodes)
-
-        eligible: list[dict[str, Any]] = []
-        if not active_nodes or parallel_worker_window:
-            for node in nodes:
-                if not isinstance(node, dict) or node.get("status") != "pending":
-                    continue
-                if active_nodes and node.get("role") != "implementation":
-                    continue
-                if node.get("role") == MILESTONE_GATE_ROLE and not has_same_plan_gate_leaf_prerequisite(node, nodes):
-                    continue
-                prerequisites = node.get("prerequisites")
-                if not is_string_list(prerequisites):
-                    continue
-                if any(node_statuses.get(ref) != "completed" for ref in prerequisites):
-                    continue
-                if not platform_matches(node.get("platform"), platform):
-                    continue
-                eligible.append(node_entry(node))
-
-        plans_payload.append({
-            "id": plan.get("id"), "title": public_summary(plan.get("title"), f"plan[{index}]"),
-            "status": status, "capability_key": plan.get("capability_key"), "active": active, "eligible": eligible,
-        })
-
-    if args.json:
-        print(json.dumps({"workspace": workspace, "platform": platform, "plans": plans_payload}, indent=2, ensure_ascii=False))
-        return 0
-
-    printed = False
-    for payload in plans_payload:
-        active = payload["active"]
-        eligible = payload["eligible"]
-        if not active and not eligible:
-            continue
-        printed = True
-        print(f"Plan: {payload.get('title')} [{payload.get('status')}]")
-        for entry in active:
-            print(f"  active: {entry['id']} {entry['goal']}")
-        for entry in eligible:
-            print(
-                f"  next: {entry['id']} {entry['goal']} "
-                f"(difficulty {entry['difficulty']}, verification {entry['verification_profile']}, platform {entry['platform']})"
-            )
-    if not printed:
-        print(f"No executable nodes found for platform {platform}.")
-    return 0
+            print("error: %s" % issue)
+    elif not args.quiet:
+        print("OK: Better Plan v3 workspace is valid")
+    return 0 if not issues else 1
 
 
 def schema_command(args: argparse.Namespace) -> int:
-    if args.kind == "capability":
-        payload = capability_schema_payload()
-    elif args.kind == "plan":
-        payload: dict[str, Any] = {
-            "kind": "plan",
-            "file": MANIFEST_NAME,
-            "required_fields": sorted(PLAN_REQUIRED_FIELDS),
-            "optional_fields": sorted(PLAN_OPTIONAL_FIELDS),
-            "statuses": list(STATUS_ORDER),
-            "kinds": sorted(VALID_PLAN_KINDS),
-            "tree_modes": sorted(VALID_TREE_MODES),
-            "node_status_modes": sorted(VALID_NODE_STATUS_MODES),
-            "entry_gate_required_fields": sorted(ENTRY_GATE_REQUIRED_FIELDS),
-            "decision_issue_required_fields": sorted(DECISION_ISSUE_REQUIRED_FIELDS),
-            "decision_issue_optional_fields": sorted(DECISION_ISSUE_OPTIONAL_FIELDS),
-            "decision_urgencies": sorted(VALID_DECISION_URGENCIES),
-            "decision_session_required_fields": sorted(DECISION_SESSION_REQUIRED_FIELDS),
-            "decision_session_optional_fields": sorted(DECISION_SESSION_OPTIONAL_FIELDS),
-            "readiness_required_fields": sorted(PLAN_READINESS_REQUIRED_FIELDS),
-            "readiness_optional_fields": sorted(PLAN_READINESS_OPTIONAL_FIELDS),
-            "readiness_receipt_fields": sorted(PLAN_READINESS_RECEIPT_FIELDS),
-            "template": PLAN_TEMPLATE,
-        }
-    else:
-        payload = {
-            "kind": "node",
-            "file": CHECKPOINTS_NAME,
-            "required_fields": sorted(TASK_REQUIRED_FIELDS),
-            "optional_fields": sorted(TASK_OPTIONAL_FIELDS),
-            "commit_required_fields": sorted(COMMIT_REQUIRED_FIELDS),
-            "commit_optional_fields": sorted(COMMIT_OPTIONAL_FIELDS),
-            "acceptance_criterion_required_fields": sorted(CRITERION_REQUIRED_FIELDS),
-            "acceptance_criterion_optional_fields": sorted(CRITERION_OPTIONAL_FIELDS),
-            "regression_required_fields": sorted(REGRESSION_REQUIRED_FIELDS),
-            "regression_optional_fields": sorted(REGRESSION_OPTIONAL_FIELDS),
-            "regression_receipt_fields": sorted(REGRESSION_RECEIPT_FIELDS),
-            "regression_command_receipt_fields": sorted(REGRESSION_COMMAND_RECEIPT_FIELDS),
-            "regression_failure_fields": sorted(REGRESSION_FAILURE_FIELDS),
-            "regression_scopes": sorted(VALID_REGRESSION_SCOPES),
-            "acceptance_required_fields": sorted(ACCEPTANCE_REQUIRED_FIELDS),
-            "acceptance_optional_fields": sorted(ACCEPTANCE_OPTIONAL_FIELDS),
-            "acceptance_phases": sorted(ACCEPTANCE_PHASES),
-            "acceptance_outcomes": sorted(ACCEPTANCE_OUTCOMES),
-            "design_required_fields": sorted(DESIGN_REQUIRED_FIELDS),
-            "design_symbol_kinds": sorted(SYMBOL_KINDS),
-            "design_symbol_operations": sorted(SYMBOL_OPERATIONS),
-            "design_decision_fields": sorted(DECISION_FIELDS),
-            "statuses": list(STATUS_ORDER),
-            "roles": sorted(VALID_NODE_ROLES),
-            "reserved_tags": sorted(RESERVED_NODE_TAGS),
-            "difficulties": sorted(VALID_DIFFICULTIES),
-            "verification_profiles": sorted(VALID_VERIFICATION_PROFILES),
-            "platforms": sorted(VALID_PLATFORMS),
-            "requirement_label_pattern": REQUIREMENT_LABEL_PATTERN.pattern,
-            "template": NODE_TEMPLATE,
-        }
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    payloads: dict[str, Any] = {
+        "manifest": MANIFEST_TEMPLATE,
+        "plan": PLAN_TEMPLATE,
+        "task": task_template(),
+        "question": question_template(),
+        "checkpoints": {
+            "schema": CHECKPOINTS_SCHEMA,
+            "plan": "PLAN-001",
+            "revision": 1,
+            "semantic_digest": "SHA256",
+            "delivery_status": "pending",
+            "tasks": [],
+        },
+    }
+    print(json.dumps(payloads[args.kind], indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Better Plan manifest utility")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    register_capability_commands(subparsers)
+def tree_command(args: argparse.Namespace) -> int:
+    root = workspace_root(Path(args.root))
+    entries = load_manifest(root).get("plans", [])
+    if args.plan:
+        entries = [
+            entry
+            for entry in entries
+            if args.plan in {entry.get("code"), entry.get("title"), entry.get("directory")}
+        ]
+    if not entries:
+        raise ToolError("no matching Plan")
+    rendered: list[str] = []
+    for entry in entries:
+        _, plan, paths = load_plan(root, str(entry.get("code")))
+        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
+        rendered.append(render_plan_tree(plan, checkpoints, details=args.details))
+    print("\n\n".join(rendered))
+    return 0
 
-    validate = subparsers.add_parser("validate", help=f"validate a workspace {MANIFEST_NAME} and its referenced {CHECKPOINTS_NAME} files")
-    validate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root, manifest file, or checkpoints file")
-    validate.add_argument("--plan", help="scope validation to one plan by id, directory, or title (plus the shared manifest index)")
-    validate.add_argument("--check-sources", action="store_true", help="verify that plan source_files entries resolve to existing files or directories")
-    validate.add_argument("--quiet", action="store_true", help="only print validation errors")
-    validate.add_argument("--json", action="store_true", help="print machine-readable validation results")
-    validate.add_argument("--no-git", action="store_true", help="skip comparing state files against their git HEAD versions")
+
+def status_command(args: argparse.Namespace) -> int:
+    root = workspace_root(Path(args.root))
+    values = []
+    for entry in load_manifest(root).get("plans", []):
+        _, plan, paths = load_plan(root, str(entry.get("code")))
+        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
+        values.append(status_payload(plan, checkpoints))
+    if args.json:
+        print(json.dumps({"plans": values}))
+    else:
+        for value in values:
+            print("%(code)s [%(phase)s] tasks=%(task_counts)s" % value)
+    return 0
+
+
+def _add_plan(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("root", nargs="?", default=".")
+    parser.add_argument("--plan", required=True)
+
+
+def _add_host(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--native-host", choices=("codex",))
+    parser.add_argument("--codex-home", help=argparse.SUPPRESS)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Better Plan v3 utility")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    validate = subparsers.add_parser("validate", help="validate one v3 workspace")
+    validate.add_argument("root", nargs="?", default=".")
+    validate.add_argument("--quiet", action="store_true")
+    validate.add_argument("--json", action="store_true")
     validate.set_defaults(func=validate_command)
 
-    discover = subparsers.add_parser("discover", help=f"discover existing Better Plan workspaces by {MANIFEST_NAME}/{CHECKPOINTS_NAME} structure")
-    discover.add_argument("root", nargs="?", default=".", help="project root or manifest file to search")
-    discover.set_defaults(func=discover_command)
-
-    uuid_parser = subparsers.add_parser("uuid", help="generate task IDs")
-    uuid_parser.add_argument("--count", type=int, default=1, help="number of IDs to print")
-    uuid_parser.set_defaults(func=uuid_command)
-
-    platform_parser = subparsers.add_parser("platform", help="print the normalized current runtime platform")
-    platform_parser.add_argument("--json", action="store_true", help="print a machine-readable platform object")
-    platform_parser.set_defaults(func=platform_command)
-
-    transition = subparsers.add_parser("transition", help="check whether one workflow status can transition to another")
-    transition.add_argument("current", help="current status")
-    transition.add_argument("target", help="target status")
-    transition.add_argument("--quiet", action="store_true", help="only print transition errors")
-    transition.set_defaults(func=transition_command)
-
-    next_action_parser = subparsers.add_parser(
-        "next-action",
-        help="derive the deterministic next action for an automated delivery node without mutating state",
-    )
-    next_action_parser.add_argument("node_id", help="node UUID")
-    next_action_parser.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    next_action_parser.add_argument("--native-host", choices=("codex",), help="resolve the current host's native role selector")
-    next_action_parser.add_argument("--codex-home", help=argparse.SUPPRESS)
-    next_action_parser.set_defaults(func=next_action_command)
-
-    dispatch = subparsers.add_parser(
-        "dispatch",
-        help="record one idempotent Designer, Worker, Visual Verifier, or Reviewer dispatch",
-    )
-    dispatch.add_argument("node_id", help="node UUID")
-    dispatch.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    dispatch.add_argument(
-        "--role",
-        required=True,
-        choices=("designer", "worker", "visual-verifier", "reviewer"),
-        help="fresh leaf-agent role",
-    )
-    dispatch.add_argument("--native-host", choices=("codex",), help="freeze the current host's native role selector")
-    dispatch.add_argument("--codex-home", help=argparse.SUPPRESS)
-    dispatch.set_defaults(func=dispatch_command)
-
-    bind = subparsers.add_parser(
-        "bind-agent",
-        help="bind the opaque host agent identity returned by a real native spawn",
-    )
-    bind.add_argument("node_id", help="node UUID")
-    bind.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    bind.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
-    bind.add_argument("--agent-id", required=True, help="bounded opaque host agent id")
-    bind.set_defaults(func=bind_agent_command)
-
-    delegation_failed = subparsers.add_parser(
-        "delegation-failed",
-        help="record one conclusive child delegation failure and bound retries",
-    )
-    delegation_failed.add_argument("node_id", help="node UUID")
-    delegation_failed.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    delegation_failed.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
-    failure_kind = delegation_failed.add_mutually_exclusive_group()
-    failure_kind.add_argument(
-        "--terminal-failed-agent-id",
-        help="exact host id from an unambiguous terminal-failed host notification",
-    )
-    failure_kind.add_argument("--spawn-refused", action="store_true", help="host refused the spawn before returning a child id")
-    failure_kind.add_argument("--unavailable", action="store_true", help="host conclusively reports that delegation is unavailable")
-    delegation_failed.set_defaults(func=delegation_failed_command)
-
-    main_complete = subparsers.add_parser(
-        "main-complete",
-        help="complete one role in the native main after bounded delegation failures",
-    )
-    main_complete.add_argument("node_id", help="node UUID")
-    main_complete.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    main_complete.add_argument("--dispatch-id", required=True, help="outstanding Better Plan dispatch id")
-    main_complete.add_argument("--role", required=True, choices=("designer", "worker", "visual-verifier", "reviewer"), help="role completed by the native main")
-    main_complete.set_defaults(func=main_complete_command)
-
-    complete_agent = subparsers.add_parser(
-        "agent-complete",
-        help="consume one exact final host-agent callback",
-    )
-    complete_agent.add_argument("node_id", help="node UUID")
-    complete_agent.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    complete_agent.add_argument("--agent-id", required=True, help="bounded opaque host agent id")
-    complete_agent.add_argument("--dispatch-id", help="optional bounded Better Plan dispatch id from the host callback")
-    complete_agent.add_argument("--final", action="store_true", help="mark this callback as an unambiguous final completion")
-    complete_agent.set_defaults(func=agent_complete_command)
-
-    advance = subparsers.add_parser(
-        "advance",
-        help="submit one correlated Reviewer or repair event",
-    )
-    advance.add_argument("node_id", help="node UUID")
-    advance.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    advance.add_argument(
-        "--event",
-        required=True,
-        choices=(
-            "reviewer-finished",
-            "repair-registered",
-            "repair-completed",
-        ),
-        help="correlated acceptance event",
-    )
-    advance.add_argument("--dispatch-id", help="completed Reviewer dispatch id for reviewer-finished")
-    advance.add_argument("--repair-node", help="UUID4 repair Node id for repair handoff events")
-    advance.set_defaults(func=_advance_command)
-
-    check_readiness = subparsers.add_parser("check-plan-readiness", help="configure and run host-repository readiness checks before delivery")
-    check_readiness.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    check_readiness.add_argument("--plan", required=True, help="target plan id, directory, or title")
-    check_readiness.add_argument("--command", action="append", required=True, help="host readiness command; repeatable")
-    check_readiness.add_argument("--path", action="append", required=True, help="repository-relative readiness input; repeatable")
-    check_readiness.set_defaults(func=check_plan_readiness_command)
-
-    preflight_regression = subparsers.add_parser("preflight-regression", help="validate a frozen regression contract before role dispatch")
-    preflight_regression.add_argument("node_id", help="delivery node UUID")
-    preflight_regression.add_argument("root", nargs="?", default=".")
-    preflight_regression.add_argument("--probe", action="append", help="non-mutating host-specific command/package probe; repeatable")
-    preflight_regression.set_defaults(func=preflight_regression_command)
-
-    start = subparsers.add_parser("start", help="mark a node in_progress after enforcing transitions and snapshot rules")
-    start.add_argument("node_id", help="node UUID")
-    start.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    start.set_defaults(func=start_command)
-
-    regress = subparsers.add_parser("regress", help="run an in-progress node's declared regression contract and record a passing receipt")
-    regress.add_argument("node_id", help="node UUID")
-    regress.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    regress.set_defaults(func=regress_command)
-
-    complete = subparsers.add_parser("complete", help="mark a node completed after enforcing transitions and snapshot rules")
-    complete.add_argument("node_id", help="node UUID")
-    complete.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    complete.add_argument("--delivered", help="record the delivering commit sha in commit.delivered")
-    complete.set_defaults(func=complete_command)
-
-    block = subparsers.add_parser("block", help="mark a node blocked and record the reason in status_reason")
-    block.add_argument("node_id", help="node UUID")
-    block.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    block.add_argument("--reason", required=True, help="why the node is blocked and what would unblock it")
-    block.set_defaults(func=block_command)
-
-    skip = subparsers.add_parser("skip", help="mark a node skipped and record the reason in status_reason")
-    skip.add_argument("node_id", help="node UUID")
-    skip.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    skip.add_argument("--reason", required=True, help="why the node is waived or not applicable")
-    skip.set_defaults(func=skip_command)
-
-    defer = subparsers.add_parser("defer", help="park a promised node as visible non-executable future work")
-    defer.add_argument("node_id", help="node UUID")
-    defer.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    defer.add_argument("--reason", required=True, help="why the node is deferred and what should reactivate it")
-    defer.set_defaults(func=defer_command)
-
-    activate = subparsers.add_parser("activate", help="return an explicitly deferred node to pending")
-    activate.add_argument("node_id", help="node UUID")
-    activate.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    activate.set_defaults(func=activate_command)
-
-    pause = subparsers.add_parser("pause", help="return an in_progress node to pending so another node can start; progress notes stay in status_reason")
-    pause.add_argument("node_id", help="node UUID")
-    pause.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    pause.add_argument("--reason", help="why the node yields and what remains when it resumes")
-    pause.set_defaults(func=pause_command)
-
-    check = subparsers.add_parser("check", help="mark one acceptance criterion checked, optionally recording evidence")
-    check.add_argument("node_id", help="node UUID")
-    check.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    check.add_argument("--criterion", type=int, required=True, help="zero-based acceptance criterion index")
-    check.add_argument("--evidence", help="what verification proved this criterion")
-    check.add_argument("--evidence-file", action="append", help="record a file evidence reference (path plus sha256); repeatable")
-    check.add_argument("--evidence-cmd", action="append", help="run a verification command and record it as evidence; the command must exit 0; repeatable")
-    check.set_defaults(func=check_command)
-
-    add_node = subparsers.add_parser("add-node", help="insert a new pending node into a plan's checkpoints with validated wiring")
-    add_node.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    add_node.add_argument("--plan", required=True, help="target plan id, directory, or title")
-    add_node.add_argument("--goal", required=True, help="one-sentence node goal")
-    add_node.add_argument(
-        "--description",
-        required=True,
-        help=(
-            "structured task design brief (implementation Scope begins with exactly one Closure: "
-            "capability|module|scenario - target; then Context/Target/Design Considerations/Design Value/Constraints & Risks)"
-        ),
-    )
-    add_node.add_argument("--role", default="implementation", choices=sorted(VALID_NODE_ROLES), help="delivery role; defaults to implementation")
-    add_node.add_argument(
-        "--difficulty",
-        default="standard",
-        choices=sorted(VALID_DIFFICULTIES),
-        help="task difficulty; defaults to standard",
-    )
-    add_node.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS), help="platform; defaults to any")
-    add_node.add_argument("--verification-profile", default="code", choices=sorted(VALID_VERIFICATION_PROFILES), help="required verification capability; defaults to code")
-    add_node.add_argument(
-        "--requirements",
-        help="comma-separated canonical labels that begin with REQ, such as REQ-001,REQ-002",
-    )
-    add_node.add_argument(
-        "--design-json",
-        help="complete machine-readable design object as JSON; required for delivery roles",
-    )
-    add_node.add_argument("--criterion", action="append", required=True, help="acceptance criterion text; repeatable, at least one")
-    add_node.add_argument("--commit-message", required=True, help="suggested commit message")
-    add_node.add_argument("--commit-target", required=True, help="where the work should be committed or delivered")
-    add_node.add_argument("--commit-repository", default=".git", help="target repository .git entry; defaults to .git")
-    add_node.add_argument("--regression-scope", choices=sorted(VALID_REGRESSION_SCOPES), help="regression scope; implementation defaults to focused and final_validation to full")
-    add_node.add_argument("--regression-command", action="append", help="regression command run from the project root; repeatable")
-    add_node.add_argument("--regression-command-path", action="append", help="comma-separated input paths for the matching regression command; repeat once per command")
-    add_node.add_argument("--regression-path", action="append", help="repository-relative file or directory fingerprinted before and after regression; repeatable")
-    add_node.add_argument("--regression-criterion", action="append", type=int, help="zero-based acceptance criterion checked by the complete command set; repeatable")
-    add_node.add_argument("--after", help="insert the new node directly after this node id")
-    add_node.add_argument("--before", help="insert the new node directly before this node id")
-    add_node.add_argument("--prerequisites", help="comma-separated prerequisite node ids")
-    add_node.add_argument("--next", help="comma-separated follow-up node ids")
-    add_node.add_argument("--splice", action="store_true", help="with --after: inherit the anchor's next edges, make the anchor point to the new node, and rewire those downstream prerequisites")
-    add_node.add_argument("--id", help="explicit UUID4 node id; generated when omitted")
-    add_node.set_defaults(func=add_node_command)
-
-    repair_plan = subparsers.add_parser("repair-plan", help="atomically create, wire, and register a repair after failed final regression")
-    repair_plan.add_argument("final_node_id", help="failed final-validation node UUID")
-    repair_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    repair_plan.add_argument("--goal", required=True)
-    repair_plan.add_argument("--description", required=True)
-    repair_plan.add_argument("--design-json", required=True)
-    repair_plan.add_argument("--criterion", action="append", required=True)
-    repair_plan.add_argument("--regression-command", action="append", required=True)
-    repair_plan.add_argument("--regression-path", action="append", required=True)
-    repair_plan.add_argument("--regression-criterion", action="append", type=int, required=True)
-    repair_plan.add_argument("--difficulty", default="standard", choices=sorted(VALID_DIFFICULTIES))
-    repair_plan.add_argument("--verification-profile", default="code", choices=sorted(VALID_VERIFICATION_PROFILES))
-    repair_plan.add_argument("--platform", default="any", choices=sorted(VALID_PLATFORMS))
-    repair_plan.add_argument("--requirements")
-    repair_plan.add_argument("--commit-message", required=True)
-    repair_plan.add_argument("--commit-target", required=True)
-    repair_plan.add_argument("--commit-repository", default=".git")
-    repair_plan.add_argument("--id")
-    repair_plan.set_defaults(func=repair_plan_command)
-
-    rewire = subparsers.add_parser("rewire", help="replace or incrementally edit a node's prerequisites and next edges with validation")
-    rewire.add_argument("node_id", help="node UUID")
-    rewire.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    rewire.add_argument("--prerequisites", help="replace prerequisites with this comma-separated id list; pass '' to clear")
-    rewire.add_argument("--next", help="replace next with this comma-separated id list; pass '' to clear")
-    rewire.add_argument("--add-prerequisite", action="append", help="append one prerequisite id; repeatable")
-    rewire.add_argument("--remove-prerequisite", action="append", help="remove one prerequisite id; repeatable")
-    rewire.add_argument("--add-next", action="append", help="append one next id; repeatable")
-    rewire.add_argument("--remove-next", action="append", help="remove one next id; repeatable")
-    rewire.set_defaults(func=rewire_command)
-
-    edit_node = subparsers.add_parser("edit-node", help="edit node fields through validation; terminal nodes only accept requirements-label corrections")
-    edit_node.add_argument("node_id", help="node UUID")
-    edit_node.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    edit_node.add_argument("--goal", help="replace the node goal")
-    edit_node.add_argument("--description", help="replace the node description")
-    edit_node.add_argument("--difficulty", choices=sorted(VALID_DIFFICULTIES), help="replace the node difficulty")
-    edit_node.add_argument("--platform", choices=sorted(VALID_PLATFORMS), help="replace the node platform")
-    edit_node.add_argument("--verification-profile", choices=sorted(VALID_VERIFICATION_PROFILES), help="replace the node verification capability")
-    edit_node.add_argument(
-        "--requirements",
-        help="replace requirement labels with a comma-separated canonical REQ-... list; pass '' to clear",
-    )
-    edit_node.add_argument(
-        "--add-requirement",
-        action="append",
-        help="append one canonical REQ-... requirement label; repeatable",
-    )
-    edit_node.add_argument("--remove-requirement", action="append", help="remove one requirement label; repeatable")
-    edit_node.add_argument(
-        "--criterion",
-        action="append",
-        help="replace the complete acceptance-criterion set with the repeated values",
-    )
-    edit_node.add_argument("--commit-message", help="replace commit.message")
-    edit_node.add_argument("--commit-target", help="replace commit.target")
-    edit_node.add_argument("--commit-repository", help="replace commit.repository")
-    edit_node.add_argument("--regression-scope", choices=sorted(VALID_REGRESSION_SCOPES), help="replace regression.scope")
-    edit_node.add_argument("--regression-command", action="append", help="replace regression.commands with the repeated values")
-    edit_node.add_argument("--regression-command-path", action="append", help="replace regression.command_paths; one comma-separated path set per command")
-    edit_node.add_argument("--regression-path", action="append", help="replace regression.paths with the repeated values")
-    edit_node.add_argument("--regression-criterion", action="append", type=int, help="replace regression.criteria with the repeated indexes")
-    edit_node.set_defaults(func=edit_node_command)
-
-    check_labels = subparsers.add_parser("check-labels", help="cross-check requirement labels between plan documents and checkpoint nodes")
-    check_labels.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    check_labels.add_argument("--plan", help="scope the cross-check to one plan by id, directory, or title")
-    check_labels.add_argument("--json", action="store_true", help="print machine-readable results")
-    check_labels.set_defaults(func=check_labels_command)
-
-    sync_plan = subparsers.add_parser("sync-plan", help="re-derive every plan status from its checkpoint nodes")
-    sync_plan.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    sync_plan.set_defaults(func=sync_plan_command)
-
-    record_decision = subparsers.add_parser("record-decision", help="record one Reviewer-raised developer choice on a task group")
-    record_decision.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    record_decision.add_argument("--plan", required=True, help="task-group plan id, directory, or title")
-    record_decision.add_argument("--urgency", required=True, choices=sorted(VALID_DECISION_URGENCIES))
-    record_decision.add_argument("--question", required=True, help="bounded decision question")
-    record_decision.add_argument("--context", required=True, help="why autonomous choice is inappropriate")
-    record_decision.add_argument("--option", required=True, action="append", help="one viable choice; repeat at least twice")
-    record_decision.set_defaults(func=record_decision_command)
-
-    open_decisions = subparsers.add_parser("open-decision-session", help="open one batch of sequential user decisions")
-    open_decisions.add_argument("root", nargs="?", default=".")
-    open_decisions.add_argument("--plan", required=True)
-    open_decisions.add_argument("--title", required=True)
-    open_decisions.set_defaults(func=open_decision_session_command)
-
-    close_decisions = subparsers.add_parser("close-decision-session", help="flush projections once and close a decision batch")
-    close_decisions.add_argument("root", nargs="?", default=".")
-    close_decisions.add_argument("--plan", required=True)
-    close_decisions.add_argument("--projection-command", action="append")
-    close_decisions.set_defaults(func=close_decision_session_command)
-
-    resolve_decision = subparsers.add_parser(
-        "resolve-decision",
-        help="record the developer's resolution of one task-group decision",
-    )
-    resolve_decision.add_argument("decision_id", help="decision UUID4")
-    resolve_decision.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    resolve_decision.add_argument("--plan", required=True, help="task-group plan id, directory, or title")
-    resolve_decision.add_argument("--resolution", required=True, help="bounded resolution summary")
-    resolve_decision.set_defaults(func=resolve_decision_command)
-
-    tree = subparsers.add_parser(
-        "tree",
-        help="render the canonical Plan hierarchy and Node state as an ASCII tree",
-    )
-    tree.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    tree.add_argument(
-        "--plan",
-        help="render only one Plan and its descendants by id, directory, or title",
-    )
-    tree.add_argument(
-        "--details",
-        action="store_true",
-        help="render the complete Emoji-annotated canonical audit projection",
-    )
-    tree.set_defaults(func=tree_command)
-
-    status = subparsers.add_parser(
-        "status",
-        help="report per-plan progress plus in_progress, blocked, and deferred nodes",
-    )
-    status.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    status.add_argument("--json", action="store_true", help="print machine-readable status")
-    status.set_defaults(func=status_command)
-
-    next_parser = subparsers.add_parser("next", help="list active nodes and every safely eligible pending node per plan")
-    next_parser.add_argument("root", nargs="?", default=".", help="Better Plan workspace root")
-    next_parser.add_argument("--json", action="store_true", help="print machine-readable candidates")
-    next_parser.set_defaults(func=next_command)
-
-    schema = subparsers.add_parser("schema", help="print the canonical Plan or Node schema and template")
-    schema.add_argument("kind", choices=("capability", "plan", "node"), help="which schema to print")
+    schema = subparsers.add_parser("schema", help="print one canonical shape")
+    schema.add_argument("kind", choices=("manifest", "plan", "task", "question", "checkpoints"))
     schema.set_defaults(func=schema_command)
 
+    init = subparsers.add_parser("init-plan", help="create one draft Delivery Plan")
+    init.add_argument("root", nargs="?", default=".")
+    init.add_argument("--code", required=True)
+    init.add_argument("--title", required=True)
+    init.add_argument("--directory", required=True)
+    init.add_argument("--goal", required=True)
+    init.add_argument("--scope-in", action="append", required=True)
+    init.add_argument("--scope-out", action="append", required=True)
+    init.add_argument("--success", action="append", required=True)
+    init.add_argument("--risk-boundary", action="append", required=True)
+    init.set_defaults(func=workflow.init_plan)
+
+    build = subparsers.add_parser("build-dossier", help="load the single Decision Dossier")
+    _add_plan(build)
+    build.add_argument("--input", required=True)
+    build.set_defaults(func=workflow.build_dossier)
+
+    resolve = subparsers.add_parser("resolve-dossier", help="apply selections and defaults once")
+    _add_plan(resolve)
+    resolve.add_argument("--input", required=True)
+    resolve.set_defaults(func=workflow.resolve_dossier)
+
+    open_designer = subparsers.add_parser("open-designer-session", help="dispatch the sole Designer")
+    _add_plan(open_designer)
+    _add_host(open_designer)
+    open_designer.set_defaults(func=workflow.open_designer_session)
+
+    close_designer = subparsers.add_parser("close-designer-session", help="close the sole Designer")
+    _add_plan(close_designer)
+    close_designer.add_argument("--dispatch-id", required=True)
+    close_designer.set_defaults(func=workflow.close_designer_session)
+
+    readiness = subparsers.add_parser("check-readiness", help="list every remaining readiness issue")
+    _add_plan(readiness)
+    readiness.set_defaults(func=workflow.check_readiness)
+
+    authorize = subparsers.add_parser("authorize-plan", help="gate readiness, seal, and start execution")
+    _add_plan(authorize)
+    authorize.add_argument(
+        "--source",
+        required=True,
+        choices=("explicit", "inherited_host_plan", "inherited_implementation_request"),
+    )
+    authorize.add_argument("--reference", required=True)
+    authorize.add_argument("--risk-reason", action="append")
+    authorize.add_argument("--verify-command", action="append")
+    authorize.add_argument("--verify-path", action="append")
+    authorize.set_defaults(func=workflow.authorize_plan)
+
+    begin = subparsers.add_parser("begin-continuation", help="revise unstarted in-scope work")
+    _add_plan(begin)
+    begin.add_argument("--reason", required=True)
+    begin.set_defaults(func=workflow.begin_continuation)
+
+    close = subparsers.add_parser("close-continuation", help="reseal an inherited continuation")
+    _add_plan(close)
+    close.add_argument("--continuation-id", required=True)
+    close.set_defaults(func=workflow.close_continuation)
+
+    next_action = subparsers.add_parser("next-action", help="name the next delivery action")
+    _add_plan(next_action)
+    next_action.set_defaults(func=workflow.next_action)
+
+    dispatch = subparsers.add_parser("dispatch-task", help="dispatch or re-dispatch one Worker")
+    dispatch.add_argument("task")
+    _add_plan(dispatch)
+    _add_host(dispatch)
+    dispatch.set_defaults(func=workflow.dispatch_task)
+
+    bind = subparsers.add_parser("bind-agent", help="bind one host agent id to one dispatch")
+    bind.add_argument("target")
+    _add_plan(bind)
+    bind.add_argument("--dispatch-id", required=True)
+    bind.add_argument("--agent-id", required=True)
+    bind.set_defaults(func=workflow.bind_agent)
+
+    failed = subparsers.add_parser("delegation-failed", help="record a conclusive delegation failure")
+    failed.add_argument("target")
+    _add_plan(failed)
+    failed.add_argument("--dispatch-id", required=True)
+    failed.add_argument("--reason", required=True)
+    failed.set_defaults(func=workflow.delegation_failed)
+
+    complete = subparsers.add_parser("agent-complete", help="consume one exact final callback")
+    _add_plan(complete)
+    complete.add_argument("--agent-id", required=True)
+    complete.add_argument("--final", action="store_true")
+    complete.set_defaults(func=workflow.agent_complete)
+
+    main_complete = subparsers.add_parser("main-complete", help="record native-main fallback completion")
+    main_complete.add_argument("target")
+    _add_plan(main_complete)
+    main_complete.add_argument("--dispatch-id", required=True)
+    main_complete.set_defaults(func=workflow.main_complete)
+
+    accept = subparsers.add_parser("accept-task", help="run focused regression and complete one Task")
+    accept.add_argument("task")
+    _add_plan(accept)
+    accept.set_defaults(func=workflow.accept_task)
+
+    block = subparsers.add_parser("block-task", help="record a hard Task blocker")
+    block.add_argument("task")
+    _add_plan(block)
+    block.add_argument("--kind", required=True, choices=("authority", "environment"))
+    block.add_argument("--reason", required=True)
+    block.set_defaults(func=workflow.block_task)
+
+    open_reviewer = subparsers.add_parser("open-reviewer-session", help="dispatch the sole Reviewer")
+    _add_plan(open_reviewer)
+    _add_host(open_reviewer)
+    open_reviewer.set_defaults(func=workflow.open_reviewer_session)
+
+    close_reviewer = subparsers.add_parser("close-reviewer-session", help="close after full regression")
+    _add_plan(close_reviewer)
+    close_reviewer.add_argument("--dispatch-id", required=True)
+    close_reviewer.add_argument("--blocked-reason")
+    close_reviewer.set_defaults(func=workflow.close_reviewer_session)
+
+    tree = subparsers.add_parser("tree", help="render live Plan structure and status")
+    tree.add_argument("root", nargs="?", default=".")
+    tree.add_argument("--plan")
+    tree.add_argument("--details", action="store_true")
+    tree.set_defaults(func=tree_command)
+
+    status = subparsers.add_parser("status", help="summarize every Delivery Plan")
+    status.add_argument("root", nargs="?", default=".")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(func=status_command)
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if getattr(args, "count", 1) < 1:
-        parser.error("--count must be at least 1")
     try:
         return args.func(args)
     except ToolError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print("error: %s" % exc, file=sys.stderr)
         return 1
-    except Exception:
-        print("error: operation could not be completed safely", file=sys.stderr)
+    except Exception as exc:
+        # Name the defect without leaking a traceback path: an autonomous loop
+        # must be able to tell a repairable state error from a crash.
+        print(
+            "error: operation could not be completed safely (%s: %s)" % (type(exc).__name__, exc),
+            file=sys.stderr,
+        )
         return 1

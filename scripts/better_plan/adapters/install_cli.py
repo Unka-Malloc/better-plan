@@ -10,7 +10,6 @@ from pathlib import Path
 from ..installation import doctor as _doctor
 from ..installation import service as _service
 from ..installation import skills as _skills
-from ..installation import targets as _targets
 from ..installation.models import AGENTS, InstallError as _InstallError, InstallPaths as _InstallPaths
 
 

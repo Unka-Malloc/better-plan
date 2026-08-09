@@ -62,9 +62,11 @@ class PythonCompatibilityContractTests(unittest.TestCase):
             }.issubset(jobs)
         )
         self.assertIn("python -m unittest discover -s tests -v", workflow)
-        self.assertIn("python scripts/manifest_tool.py schema capability", workflow)
-        self.assertIn("python scripts/manifest_tool.py schema plan", workflow)
-        self.assertIn("python scripts/manifest_tool.py schema node", workflow)
+        for kind in ("manifest", "plan", "task", "question", "checkpoints"):
+            self.assertIn("python scripts/manifest_tool.py schema %s" % kind, workflow)
+        # Removed verbs must never reappear in the smoke test.
+        for verb in ("uuid", "transition", "schema capability", "schema gate"):
+            self.assertNotIn("manifest_tool.py %s" % verb, workflow)
 
     def test_running_interpreter_is_within_the_supported_range(self) -> None:
         self.assertGreaterEqual(sys.version_info[:2], (3, 8))

@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
-  short_description: "Lightweight design-first orchestration"
-  default_prompt: "Use the native workflow when maintaining the Better Plan source repository; do not require $better-plan. For planning, coding, or explicit implementation elsewhere, use $better-plan to reuse existing Plans and progressively disclose only the capability path being touched. Otherwise, follow the user's instructions."
+  short_description: "Complete-delivery planning with one Designer and one Reviewer"
+  default_prompt: "Use the native workflow when maintaining the Better Plan source repository. Elsewhere, use $better-plan only for large, high-risk, migration, or real multi-Task delivery: consolidate user decisions once, run one direct-write Designer, authorize once, then execute without mid-delivery questions and close through one writable Reviewer."
