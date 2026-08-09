@@ -106,6 +106,29 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("rendered evidence", reviewer)
         self.assertIn("browser and vision", reviewer)
 
+    def test_general_design_principles_preserve_progressive_role_disclosure(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        principles = (ROOT / "references" / "design-principles.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(principles.lower().split())
+
+        self.assertIn("references/design-principles.md", CURRENT_SKILL_FILES)
+        self.assertIn("references/design-principles.md", skill)
+        self.assertIn("only when maintaining or auditing better plan itself", skill.lower())
+        self.assertIn("simple, clear, efficient, and economical", normalized)
+        self.assertIn("strictly reject labyrinthine state machines", normalized)
+        self.assertIn("use progressive disclosure", normalized)
+        self.assertIn("smallest complete context", normalized)
+        self.assertIn("do not inject this general reference into every leaf role", normalized)
+
+        for role in ("designer", "worker", "reviewer"):
+            relative = "references/%s.md" % role
+            with self.subTest(role=role):
+                self.assertIn(relative, CURRENT_SKILL_FILES)
+                self.assertIn(relative, skill)
+                self.assertTrue((ROOT / relative).is_file())
+
     def test_local_pattern_catalog_stays_complete_and_on_demand(self) -> None:
         catalog = (ROOT / "references" / "design-patterns.md").read_text(encoding="utf-8")
         numbered_headings = [

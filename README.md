@@ -74,7 +74,8 @@ python3 scripts/manifest_tool.py open-reviewer-session ...
 python3 scripts/manifest_tool.py close-reviewer-session ...
 ```
 
-See [SKILL.md](SKILL.md) and the [state protocol](references/state.md) for the complete contract.
+See [SKILL.md](SKILL.md), the [general design principles](references/design-principles.md), and the
+[state protocol](references/state.md) for the complete contract and its rationale.
 
 ## Installation
 
