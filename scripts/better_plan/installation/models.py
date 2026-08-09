@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "0.9.0"
+VERSION = "3.0.0"
 AGENTS = (
     "codex",
     "claude",
@@ -31,7 +31,7 @@ OPTIONAL_CLIENT_CLI_COMMANDS = {
     "copilot": (("copilot", "--version"),),
     "kimi": (("kimi", "--version"),),
 }
-DESCRIPTION = "Design-first Better Plan orchestration with deterministic acceptance and regression."
+DESCRIPTION = "Decision-complete Better Plan v3 orchestration with one design session, uninterrupted delivery, and one writable review session."
 # This is the minimum executable payload, not a compatibility inventory. Removed
 # top-level implementations must never reappear here.
 CURRENT_SKILL_FILES = (
@@ -39,14 +39,11 @@ CURRENT_SKILL_FILES = (
     "SKILL.md",
     "agents/openai.yaml",
     "references/host-configuration.md",
-    "references/state-files.md",
-    "references/orchestration-main.md",
+    "references/state.md",
     "references/designer.md",
     "references/design-patterns.md",
     "references/worker.md",
-    "references/visual-verifier.md",
     "references/reviewer.md",
-    "references/visual-reviewer.md",
     "scripts/__init__.py",
     "scripts/manifest_tool.py",
     "scripts/hook_tool.py",
@@ -54,27 +51,19 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/__init__.py",
     "scripts/better_plan/domain/__init__.py",
     "scripts/better_plan/domain/models.py",
-    "scripts/better_plan/domain/capabilities.py",
     "scripts/better_plan/domain/tree.py",
     "scripts/better_plan/domain/validation.py",
-    "scripts/better_plan/domain/design.py",
-    "scripts/better_plan/domain/transitions.py",
-    "scripts/better_plan/domain/roles.py",
     "scripts/better_plan/domain/model_catalog.json",
-    "scripts/better_plan/domain/webdev_model_catalog.json",
-    "scripts/better_plan/domain/webdev_routing.py",
     "scripts/better_plan/domain/coding_agent_catalog.json",
     "scripts/better_plan/domain/model_routing.py",
     "scripts/better_plan/infrastructure/__init__.py",
     "scripts/better_plan/infrastructure/workspace.py",
-    "scripts/better_plan/infrastructure/regression.py",
-    "scripts/better_plan/infrastructure/readiness.py",
+    "scripts/better_plan/infrastructure/plan_render.py",
     "scripts/better_plan/infrastructure/native_roles.py",
     "scripts/better_plan/application/__init__.py",
     "scripts/better_plan/application/agent_completion.py",
     "scripts/better_plan/application/workflow.py",
     "scripts/better_plan/adapters/__init__.py",
-    "scripts/better_plan/adapters/capability_cli.py",
     "scripts/better_plan/adapters/manifest_cli.py",
     "scripts/better_plan/adapters/install_cli.py",
     "scripts/better_plan/hooks/__init__.py",
@@ -91,39 +80,23 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/installation/doctor.py",
     "scripts/better_plan/installation/service.py",
     "agents/codex/designer.toml",
-    "agents/codex/worker-routine.toml",
     "agents/codex/worker-standard.toml",
     "agents/codex/worker-complex.toml",
-    "agents/codex/worker-critical.toml",
-    "agents/codex/visual-verifier.toml",
     "agents/codex/reviewer.toml",
-    "agents/codex/visual-reviewer.toml",
     "agents/codex/finder.toml",
     "agents/codex/fallback_finder.toml",
     "agents/claude-code/designer.md",
-    "agents/claude-code/worker-routine.md",
     "agents/claude-code/worker-standard.md",
     "agents/claude-code/worker-complex.md",
-    "agents/claude-code/worker-critical.md",
-    "agents/claude-code/visual-verifier.md",
     "agents/claude-code/reviewer.md",
-    "agents/claude-code/visual-reviewer.md",
     "agents/opencode/designer.md",
-    "agents/opencode/worker-routine.md",
     "agents/opencode/worker-standard.md",
     "agents/opencode/worker-complex.md",
-    "agents/opencode/worker-critical.md",
-    "agents/opencode/visual-verifier.md",
     "agents/opencode/reviewer.md",
-    "agents/opencode/visual-reviewer.md",
     "agents/cursor/designer.md",
-    "agents/cursor/worker-routine.md",
     "agents/cursor/worker-standard.md",
     "agents/cursor/worker-complex.md",
-    "agents/cursor/worker-critical.md",
-    "agents/cursor/visual-verifier.md",
     "agents/cursor/reviewer.md",
-    "agents/cursor/visual-reviewer.md",
 )
 
 

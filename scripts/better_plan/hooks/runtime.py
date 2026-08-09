@@ -99,12 +99,12 @@ def handle_agent_complete(agent: str, payload: dict[str, Any]) -> dict[str, Any]
     final = payload.get("final")
     if not nonempty_string(agent_id) or type(final) is not bool or final is not True:
         return {}
-    # Native hosts are not consistent about exposing the Better Plan Node.
+    # Native hosts are not consistent about exposing the Better Plan target.
     # When present, carry it through as a hard correlation constraint; when
     # absent, the reducer finds one uniquely bound active dispatch by child ID.
-    expected_node_id = payload.get("node_id") if "node_id" in payload else None
+    expected_target_id = payload.get("target_id") if "target_id" in payload else None
     expected_dispatch_id = payload.get("dispatch_id") if "dispatch_id" in payload else None
-    if "node_id" in payload and not nonempty_string(expected_node_id):
+    if "target_id" in payload and not nonempty_string(expected_target_id):
         return {}
     if "dispatch_id" in payload and not nonempty_string(expected_dispatch_id):
         return {}
@@ -112,13 +112,13 @@ def handle_agent_complete(agent: str, payload: dict[str, Any]) -> dict[str, Any]
         manifest,
         agent_id=str(agent_id),
         final=final,
-        node_id=str(expected_node_id) if expected_node_id is not None else None,
+        target_id=str(expected_target_id) if expected_target_id is not None else None,
         dispatch_id=str(expected_dispatch_id) if expected_dispatch_id is not None else None,
     )
     if directive is None:
         return {}
     value = context.agent_completion_context(
-        directive.node_id,
+        directive.target,
         directive.phase,
         directive.action,
     )

@@ -40,18 +40,13 @@ class RoleRoutingTests(unittest.TestCase):
         catalog = load_coding_agent_catalog()
         self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["usage"], "worker_routing_reference")
-        self.assertEqual(
-            dict(catalog.difficulty_floors),
-            {"routine": 25, "standard": 42, "complex": 55, "critical": 64},
-        )
+        self.assertEqual(dict(catalog.difficulty_floors), {"standard": 42, "complex": 55})
         self.assertEqual(catalog.variant_count, 52)
 
     def test_codex_worker_uses_cheapest_measured_agent_above_each_floor(self) -> None:
         expected = {
-            "routine": ("codex-gpt-5-6-luna-low", 25, 0.04),
             "standard": ("codex-gpt-5-6-luna-medium", 42, 0.09),
             "complex": ("codex-gpt-5-6-luna-xhigh", 55, 0.25),
-            "critical": ("codex-gpt-5-6-sol-high", 64, 4.14),
         }
         for difficulty, values in expected.items():
             with self.subTest(difficulty=difficulty):
@@ -74,7 +69,7 @@ class RoleRoutingTests(unittest.TestCase):
         self.assertEqual(selected.variant_id, "claude-code-opus-4-6-medium")
         with self.assertRaises(ToolError):
             select_worker_agent(
-                "critical",
+                "complex",
                 harness="cursor-cli",
                 available_variant_ids={"cursor-cli-composer-2-5"},
             )
@@ -85,14 +80,20 @@ class RoleRoutingTests(unittest.TestCase):
         self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5", 61))
         self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5", 61))
 
-    def test_removed_verifier_is_not_an_intelligence_role(self) -> None:
-        with self.assertRaises(ToolError):
-            select_intelligence_model("verifier")
+    def test_only_designer_and_reviewer_are_intelligence_roles(self) -> None:
+        for role in ("verifier", "visual-reviewer", "worker"):
+            with self.subTest(role=role), self.assertRaises(ToolError):
+                select_intelligence_model(role)
+
+    def test_removed_worker_tiers_are_not_routable(self) -> None:
+        for difficulty in ("routine", "critical"):
+            with self.subTest(difficulty=difficulty), self.assertRaises(ToolError):
+                select_worker_agent(difficulty, harness="codex")
 
     def test_catalog_validation_fails_closed(self) -> None:
         payload = json.loads(AGENT_PATH.read_text(encoding="utf-8"))
         broken = copy.deepcopy(payload)
-        broken["difficulty_floors"]["critical"] = 42
+        broken["difficulty_floors"]["complex"] = 42
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "catalog.json"
             path.write_text(json.dumps(broken), encoding="utf-8")

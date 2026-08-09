@@ -17,6 +17,7 @@ from scripts.better_plan.installation import doctor as install_doctor
 from scripts.better_plan.installation import models as install_models
 from scripts.better_plan.installation import service as install_service
 from scripts.better_plan.installation import targets as install_targets
+from tests.v3_fixtures import complete_plan, write_workspace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -304,25 +305,7 @@ class InstallToolTests(unittest.TestCase):
             (active / ".git").mkdir()
             plan_workspace = active / "docs" / "plan"
             plan_workspace.mkdir(parents=True)
-            (plan_workspace / "Manifest.json").write_text(
-                json.dumps([
-                    {
-                        "id": "11111111-1111-4a5d-9a11-111111111111",
-                        "status": "in_progress",
-                        "title": "SessionStart fixture",
-                        "directory": "main-plan",
-                        "source_files": [],
-                        "purpose": "Exercise installed SessionStart context generation.",
-                        "goal": "Test session-start context generation.",
-                        "description": "Controlled hook invocation fixture.",
-                        "checkpoints": "main-plan/Checkpoints.json",
-                    }
-                ],),
-                encoding="utf-8",
-            )
-            main_plan = plan_workspace / "main-plan"
-            main_plan.mkdir()
-            (main_plan / "Checkpoints.json").write_text("[]", encoding="utf-8")
+            write_workspace(plan_workspace, complete_plan("main-plan"))
 
             session_commands = {
                 "codex": codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
@@ -400,12 +383,12 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any(check.target == "cursor hooks" for check in checks), checks)
             self.assertTrue(any(check.target == "cursor hooks" and check.status == "OK" for check in checks), checks)
 
-    def test_doctor_rejects_tampered_visual_role_matrix(self) -> None:
+    def test_doctor_rejects_tampered_role_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             install_service.install_agents(paths, ["codex"], dry_run=False)
-            visual_role = native_role_directory(paths, "codex") / "visual-verifier.toml"
-            visual_role.write_text("tampered\n", encoding="utf-8")
+            tampered_role = native_role_directory(paths, "codex") / "worker-complex.toml"
+            tampered_role.write_text("tampered\n", encoding="utf-8")
 
             check = install_doctor.check_native_roles(paths, "codex")
 

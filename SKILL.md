@@ -1,159 +1,170 @@
 ---
 name: better-plan
-description: Design-first native-main orchestration for large refactors, complete migrations, and high-risk multi-Node delivery. Small tasks use the native main's ordinary repository workflow. Do not activate it inside an already-dispatched native leaf whose installed role contract and task brief are complete, or merely to maintain the Better Plan source repository itself.
+description: Complete-delivery planning for large refactors, migrations, high-risk changes, and real multi-Task handoffs. It consolidates user decisions once, lets one Designer directly finish the Plan, then executes without mid-delivery questions and closes through one write-capable Reviewer.
 ---
 
 # Better Plan
 
-Better Plan maps only the repository detail needed by the latest authorized request, then delivers
-one cohesive capability through deterministic task-group state and native role agents. The latest
-user request is always authoritative; stored state never authorizes work by itself.
+Better Plan is a complete-delivery protocol. It freezes the whole authorized outcome before any
+Worker starts, then advances independent Tasks through explicit handoffs and executable evidence.
+The latest user request is always authoritative; stored state never grants work by itself.
 
-## Activation gate and fast path
+## Activation and source-repository exemption
 
-Better Plan is for large refactors, complete migrations, cross-module delivery, parallel
-implementation, and work with consequential state or security boundaries. The native main decides
-whether the latest request actually needs that machinery before reading Plan state.
+Use the native main's ordinary workflow for one small closure that can be understood, implemented,
+and verified directly. Activate Better Plan only for at least one of:
 
-Use the ordinary repository workflow when the native main can directly understand, implement, and
-verify one small closure. Typical fast-path work includes copy or style changes, a local logic fix,
-one-file maintenance, an explicit test addition, and other bounded changes without a real
-cross-Node handoff. On the fast path the native main may reason and close the task in the simplest
-safe way: do not discover, create, or mutate Better Plan state and do not dispatch Better Plan
-roles. An existing Better Plan workspace, multiple touched files, or a prior Better Plan turn is
-never sufficient reason to activate the workflow.
+- multiple independently acceptable Tasks with a real handoff or parallel frontier;
+- a complete migration or refactor that removes an old generation;
+- coordinated schema, data, protocol, state, concurrency, security, privacy, or release work; or
+- a long delivery whose result must remain executable after context loss.
 
-Activate Better Plan only when the request has at least one concrete large-delivery pressure:
+Maintaining the Better Plan source repository itself uses the ordinary native repository workflow.
+Do not create a repository-local Better Plan workspace merely to edit this package.
 
-- multiple independently acceptable implementation Nodes with a real handoff or parallel frontier;
-- a complete migration or refactor that must remove an old generation without compatibility residue;
-- coordinated cross-module, schema, data, protocol, or behavioral sequencing; or
-- a high-risk security, state, concurrency, release, or visual boundary needing independent review.
+## Non-negotiable protocol
 
-When activation is not obvious, prefer the fast path. When activating, state the concrete pressure
-briefly; never justify activation by file count alone.
+- Keep secrets, personal or machine identity, absolute local paths, runtime endpoints, and backend
+  runtime data out of state, prompts, evidence, and reports.
+- `Plan.json` is the sole semantic source; `Manifest.json` indexes Plans; `Checkpoints.json` holds
+  execution state only; `Plan.md` is a render-only projection that is never parsed back.
+- `prerequisites` is the sole execution graph. Every Task-to-Task edge declares one matching input
+  `{from, output, guarantee}`.
+- A Task is one independently acceptable observable outcome. File lists, development phases,
+  generic investigation, design, approval, and final review are not Tasks.
+- Present at most one Decision Dossier per Delivery Plan and resolve it exactly once. Never ask a
+  sequence of granular questions that one coherent choice can close.
+- Dispatch exactly one Designer. During its exclusive session the Designer directly edits the
+  complete `Plan.json`; it is not a patch-only or read-only adviser.
+- Dispatch exactly one Reviewer. It directly repairs code, tests, documentation, and generated
+  artifacts, obtains rendered evidence when the Plan requires it, and stays in that same session
+  through final regression.
+- After authorization, never ask the user another question. Apply the frozen decision precedence,
+  revise unstarted in-scope work autonomously, continue independent branches, and report hard
+  authority or environment blockers only at final handoff.
+- Started Task contracts and evidence are frozen. A continuation may add or replace unstarted work
+  but cannot expand goal, scope, user decisions, elevated risk, or irreversible authority.
+- Run one focused regression per Task. Run the complete regression inside the sole Reviewer session
+  after all repairs are integrated. A failed full run is repaired and repeated inside that same
+  session, never through a second Reviewer.
 
-## Non-negotiable rules
+## Delivery sequence
 
-- Maintain the Better Plan source repository with its ordinary native workflow. Do not create or
-  mutate repository-local Plan state except in an explicit product-behavior test.
-- Keep secrets, personal or machine identity, backend runtime data, and absolute local paths out of
-  Plan state, delegated prompts, evidence, and responses.
-- The native main owns scope, authorization, Plan mutations, child correlation, decisions, and user
-  communication. Leaves never mutate Plan state, criteria, receipts, or decision history.
-- `Capabilities.json`, `Manifest.json`, and branch `Checkpoints.json` are canonical. Supporting
-  documents are projections. `prerequisites` is the sole execution graph.
-- Disclose only the selected root-to-leaf capability path. Record encountered siblings as
-  `known/untouched`; never pre-model or inspect the whole repository.
-- Treat observed mature architecture as established fact. Use a Designer only for new delivery
-  design, not retrospective approval of observed ancestors.
-- Never infer implementation authority from an existing Plan, pending Node, completion event, or
-  adjacent finding.
-- Progressive disclosure is an information-relevance rule, never a Token, word, character, or line
-  quota. Tell each role every material fact, constraint, uncertainty, dependency, risk, and
-  acceptance condition honestly. Omit only information that is irrelevant or redundant for that
-  role; never hide useful context merely to shorten a prompt. A role may inspect any accessible
-  skill, reference, repository file, or other local guidance it believes useful.
-- Preserve every independent ready frontier. Reuse must not create artificial serialization.
-- Run one focused regression per implementation Node and one full regression per task group. Extra
-  runs require failure evidence, release policy, or an explicit user request.
-- Pre-existing host files are immutable unless the user explicitly names the exact file and
-  mutation. Receipts own only artifacts Better Plan created.
-- A user request to converge quickly narrows exploration and repair to the accepted capability and
-  known failure evidence. Aggregate related failures into the smallest repair batch, isolate
-  unrelated pre-existing failures, and do not add reassurance checks or speculative Nodes.
+### 1. Explore before asking
 
-## Progressive-disclosure router
+Inspect the affected capability, its current contracts, tests, schemas, interfaces, state owners,
+failure behavior, and delivery tooling. Record source-grounded facts in `ledger.observed`. Do not
+ask questions whose answers exist in the repository.
 
-Read this file completely. Start with the references required by the current action, and follow
-additional references whenever they may resolve a real uncertainty or improve the work. Avoid
-proactively loading unrelated or redundant material, but never block useful self-directed reading.
+### 2. Ask once
 
-| Current action | Required reference |
-|---|---|
-| First role dispatch, role visibility, native configuration, install/update/Doctor, selector diagnosis | `references/host-configuration.md` |
-| Discover, create, validate, inspect, or repair capability/Plan/Node state | `references/state-files.md` |
-| Group planning, dispatch, correlation, recovery, Worker continuation, decisions, or regression closure | `references/orchestration-main.md` |
-| Author a leaf brief | The matching primary role contract: `references/designer.md`, `references/worker.md`, `references/visual-verifier.md`, `references/reviewer.md`, or `references/visual-reviewer.md` |
-| Designer pattern decision | `references/design-patterns.md`, supplied to Designer as explicit action-specific knowledge |
+Bundle only materially outcome-changing preferences that remain undiscoverable. Each question
+carries context, the `DEC-*` decisions it closes, two to six mutually exclusive options whose
+`effects` state exactly what the option freezes, plus a recommended and a default option.
 
-Before the first actual role dispatch in a conversation, read `host-configuration.md` and show its
-complete role visibility table. Read-only analysis, history audits, workspace discovery, and state
-inspection do not trigger this table. A valid installed matrix is runtime authority; never
-ask the user to choose it over package recommendations. Any requested native role change must pass
-the reference's fresh reconfirmation gate before edits.
+Present every question together. `build-dossier` may be rebuilt while unresolved; one
+`resolve-dossier` call applies explicit selections, adopts declared defaults for omissions, and
+closes the Dossier permanently.
 
-After the activation gate selects Better Plan, for repositories other than Better Plan itself, run
-`scripts/manifest_tool.py discover <project-root>`. If no unique valid workspace exists, continue
-with ordinary handling.
+### 3. Draft and design once
 
-## Planning kernel
+Draft the authorized goal, in/out scope, success conditions, risk boundary, requirements, and the
+initial Task closures. Then open exactly one Designer session with the whole Plan, repository
+access, and write access to `Plan.json`. It may add, remove, split, merge, reorder, or redesign
+Tasks; change prerequisites, interfaces, schemas, algorithms, state, ownership, risk handling, and
+acceptance; and run the validators.
 
-Freeze a source-grounded intent spine before reading state: ownership, Purpose, Goal, Description,
-status, real prerequisites, explicit non-dependencies, observable acceptance, and non-goals. Reuse
-the stable capability key and matching nonterminal Plan before creating another.
+The Designer must preserve goal, selected options, global scope, and authority. It completes and
+self-corrects the Plan in the same session. Never dispatch it again. `close-designer-session`
+verifies correlation only and restores any authorized field the Designer touched, so a design session
+can always be closed; any remaining gap is listed by `check-readiness` and repaired by the native
+main.
 
-An executable task group binds one examined in-scope `capability_key` and contains, in order:
+### 4. Authorize once
 
-1. exactly one `group_design` Node;
-2. one or more `implementation` Nodes; and
-3. exactly one Critical `final_validation` Node.
+`authorize-plan` is the single gate. It proves decision completeness, graph validity, handoff
+mapping, ownership independence, acceptance coverage, and regression contracts; optionally proves
+the host harness with `--verify-command` without mutating declared inputs; then seals the revision,
+records authorization, and creates `Checkpoints.json`.
 
-Every implementation directly depends on group design. Final validation directly depends on every
-non-skipped implementation. Add other edges only for real artifact, data, schema, migration, or
-behavioral handoffs. Independent Nodes own disjoint paths, consume stable interfaces, and run
-concurrently.
+Host Plan Mode approval may be inherited only when the approved artifact binds this exact semantic
+specification.
 
-## Delivery kernel
+### 5. Execute without interruption
 
-- Designer runs once for the whole ordered group and selected capability scope. It reads the local
-  pattern catalog and freezes cross-Node handoffs and executable acceptance; it never implements.
-- Each Worker turn owns one Node. Every code-profile Worker completion runs focused regression
-  directly, including Critical code Nodes. Only `visual` or `hybrid` Critical implementation Nodes
-  dispatch one Visual Verifier, which directly repairs visual defects before focused regression; it
-  is never redispatched for a regression contract error.
-- Express exceptional independent security review as an explicit implementation Node with its own
-  ownership and acceptance, executed by a Worker. Never restore a universal verification role or
-  mechanically attach security review to every Critical Node.
-- After a Node reaches `accepted`, prefer the same idle Worker for the next eligible dispatch with
-  the same `worker_continuation_key`. Each continuation keeps an independent dispatch, callback,
-  regression, and acceptance boundary. On Codex use `followup_task`. Spawn only when no compatible
-  idle Worker exists, continuation fails, or the Worker cannot safely perform the next task.
-- Reviewer runs exactly once after all implementations. It repairs autonomous findings and reports
-  genuine trade-offs as `decision_issues`. After decisions, run full regression once. A failure may
-  create a bounded repair Node and rerun regression, never a second Reviewer.
-- `visual` and `hybrid` Critical verification and final review require real browser, vision, and
-  rendered evidence. Source, DOM text, snapshots, or build success are not substitutes.
+Read `next-action` and dispatch the full eligible frontier. Serialize only the short state writes;
+native Workers may run concurrently. Each Worker receives one compiled brief containing the exact
+Task, relevant decisions, direct upstream outputs, and execution policy — never an opaque ID.
 
-## Delegation and recovery kernel
+Bind every returned host ID to its dispatch, and never bind one host ID to two live dispatches.
+Spawn return is not completion. Silence, elapsed time, or context compaction is not failure; record
+`delegation-failed` only for a conclusive refusal, unavailability, terminal failure, or a
+host-confirmed terminated child with no final callback. At the retry ceiling `next-action` reports
+`complete_in_main` and the native main completes that same role contract.
 
-For a new leaf, spawn the dispatched native `agent_type` with `fork_turns: "none"`, the payload's
-explicit selector, and a compact task-specific brief authored by the native main. Bind the real
-opaque child ID, then wait for the exact final turn callback. Spawn or continuation return is not
-completion; mismatched, early, unrelated, and replayed callbacks are no-ops.
+After a Worker returns, run `accept-task`. If focused regression fails the Task enters
+`worker_correction`: repair it in the native main and rerun `accept-task`, or run `dispatch-task`
+again to send exactly one correction Worker. Keep ordinary compile, type, test, integration, and
+implementation defects inside the same Task.
 
-Silence, elapsed time, missing artifacts, context compaction, or a wait timeout is not failure.
-Never interrupt or cancel a bound child to accelerate delivery. A main-initiated `interrupted` or
-`cancelled` status cannot consume an attempt. Record failure only for spawn refusal, confirmed
-unavailability, or an independent terminal-failed host notification for the exact bound child.
+When implementation reveals a plan defect, resolve it in this order:
 
-One dispatch permits at most three delegation attempts: pinned role, same-role retry, then one
-capability-equivalent temporary selector. At the ceiling, the native main performs the exact role
-from the bounded payload and records `main-complete`. Delegation failure alone never blocks an
-authorized task.
+1. selected decision options;
+2. authorized goal, scope, and risk boundary;
+3. existing public repository contracts;
+4. the safest reversible compatible behavior; and
+5. the simplest implementation that meets the Plan.
 
-Keep a conversation-scoped availability circuit breaker for exact host/provider/model failures.
-After the host conclusively reports a selector unavailable, do not attempt that same selector for
-later Nodes in the conversation; resolve each dispatch normally, then immediately take its allowed
-main-thread or capability-equivalent fallback. The breaker never persists to Plan state and never
-changes the installed role matrix.
+For an in-scope change, open a continuation, revise only unstarted work, reseal, and continue
+without Designer or user interaction. If it requires new scope, credentials, irreversible action, or
+unavailable infrastructure, mark only that Task `blocked_by_authority` or
+`blocked_by_environment`, continue independent Tasks, and report it once at final handoff.
+
+### 6. Review once and finish
+
+After every Task reaches a terminal state and no continuation is open, open the sole Reviewer
+session. It receives the full Plan, all changes, tests, evidence, impacted shared paths, and the list
+of Tasks that require rendered evidence. It reviews end to end, directly repairs every in-scope
+defect, strengthens tests, exercises the real interface when required, and finishes with the complete
+regression.
+
+If that regression fails, repair inside this same session and run `close-reviewer-session` again;
+the session stays open and closable. Never dispatch a second Reviewer. Once the session closes, no
+production code may change.
+
+## Task contract
+
+Every Task freezes a stable `TASK-*` code, title, outcome, in/out scope, prerequisites, inputs,
+`OUT-*` outputs with guarantees, write ownership and exclusive shared resources, tier
+(`standard` or `complex`), verification (`code`, `visual`, or `hybrid`), requirements, risk tags,
+design decisions, `AC-*` Given/When/Then acceptance with an exact oracle and evidence, and focused
+regression commands with fingerprint paths.
+
+Record only the design dimensions a Worker actually needs. Every requirement and output the Task
+owns must be covered by executable acceptance. An elevated risk tag requires the `complex` tier.
+Independent Tasks may run concurrently only when graph reachability, write ownership, and exclusive
+resources prove that concurrency safe.
 
 ## Command entry points
 
-- Discovery/state: `discover`, `validate`, `tree`, `capability-tree`, `status`
-- Selection: `next-action <node-id> [workspace] [--native-host codex]`
-- Delivery: `check-plan-readiness`, `preflight-regression`, `dispatch`, `bind-agent`, `agent-complete`, `delegation-failed`, `main-complete`
-- Closure/decisions: `advance`, `repair-plan`, `open-decision-session`, `record-decision`, `resolve-decision`, `close-decision-session`
+All commands use `scripts/manifest_tool.py`.
 
-All commands run through `scripts/manifest_tool.py`. Use the exact syntax and state invariants from
-the routed reference; never hand-edit lifecycle state.
+- Authoring: `init-plan`, `build-dossier`, `resolve-dossier`.
+- Design and authorization: `open-designer-session`, `close-designer-session`, `check-readiness`,
+  `authorize-plan`.
+- Continuation: `begin-continuation`, `close-continuation`.
+- Delivery: `next-action`, `dispatch-task`, `bind-agent`, `agent-complete`, `delegation-failed`,
+  `main-complete`, `accept-task`, `block-task`.
+- Closure: `open-reviewer-session`, `close-reviewer-session`.
+- Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints`.
+
+Removed v1 and v2 commands — Node, Gate, capability, rewire, repair-plan, decision-session,
+seal-plan, render-plan, import-plan-edits, check-host-readiness, visual-verifier, and generic
+dispatch — do not exist. Their absence is part of the v3 contract.
+
+## Progressive references
+
+- State formats, lifecycle, and command contracts: `references/state.md`
+- Leaf contracts: `references/designer.md`, `references/worker.md`, `references/reviewer.md`
+- Designer pattern decisions, when a structural choice is non-trivial: `references/design-patterns.md`
+- Host roles, installation, and Doctor: `references/host-configuration.md`

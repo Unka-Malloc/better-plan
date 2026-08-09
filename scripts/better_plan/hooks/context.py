@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 MAX_CONTEXT_LENGTH = 2048
-VISUAL_VERIFIER_REFERENCE = "references/visual-verifier.md"
 INTENT_GUIDANCE = (
-    "Understand the user's request. Handle simple tasks directly; only enter the Better Plan "
-    "workspace for complex tasks, large migrations, or long-term planning."
+    "Understand the user's request and inspect repository facts first. Use Better Plan only for "
+    "large delivery. Before authorization, consolidate every non-discoverable choice into one "
+    "Decision Dossier and resolve it once. After authorization, never ask the user another "
+    "question: continue safe in-scope work and report hard authority or environment blockers only "
+    "at final handoff. Run `next-action` when the delivery state is unclear; it always names one "
+    "next step."
 )
 
 
@@ -18,34 +21,27 @@ def prompt_context() -> str:
     return INTENT_GUIDANCE
 
 
-def agent_completion_context(node_id: str, phase: str, action: str) -> str:
+def agent_completion_context(target: str, phase: str, action: str) -> str:
     """Return one bounded parent directive after an Agent tool completes."""
-    if action == "dispatch_visual_verifier":
+
+    if action == "close_designer_session":
         duty = (
-            "The Worker returned. Dispatch the one write-capable Visual Verifier using "
-            f"{VISUAL_VERIFIER_REFERENCE}; it obtains rendered evidence and repairs this Node before the state tool runs "
-            "the Node's one focused regression."
+            "The sole Designer returned after directly editing Plan.json. Close that same session, "
+            "then use check-readiness to list any remaining issue; never dispatch another Designer."
         )
-    elif action == "main_correction_decision":
+    elif action == "accept_task":
         duty = (
-            "Focused regression failed. The native main must classify the evidence: keep an "
-            "ordinary implementation defect inside the same Node and prefer the same compatible "
-            "idle Worker for correction. Escalate to group redesign "
-            "only for a real cross-node design or product-semantics error. Do not redispatch "
-            "automatically."
+            "The Worker returned. Run this Task's focused acceptance. If it fails, repair it in the "
+            "native main and rerun accept-task, or dispatch-task once more for a correction Worker."
         )
-    elif action == "main_reviewer_decision":
+    elif action == "close_reviewer_session":
         duty = (
-            "The task group's one Reviewer returned after reviewing and repairing the whole "
-            "group. Record every non-autonomous choice in the Plan: report immediate items to "
-            "the user now, resolve and apply them before continuing, and retain deferred items "
-            "for final handoff. Then submit the exact reviewer-finished event so full regression "
-            "verifies the Reviewer's changes."
+            "The sole write-capable Reviewer returned. Run the final regression inside this same "
+            "Reviewer session; never dispatch a second Reviewer."
         )
     else:
         duty = "Read next-action and handle the current state in the native main."
     return (
-        f"Better Plan agent-complete event: Node {node_id}, phase {phase}, action {action}. "
-        f"{duty} A completed turn is not a failed child lifetime: a successfully completed Worker "
-        "may remain idle for a later compatible continuation after its Node reaches acceptance."
+        f"Better Plan agent-complete event: target {target}, phase {phase}, action {action}. "
+        f"{duty} Do not turn an implementation detail into a mid-execution user question."
     )[:MAX_CONTEXT_LENGTH]

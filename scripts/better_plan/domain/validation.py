@@ -1,849 +1,938 @@
-"""Validation layer for Better Plan workflow state."""
+"""Semantic and structural validation for the Better Plan v3 protocol.
+
+The validator enforces only the guarantees that keep a delivery executable after
+context loss: an honest dependency graph, provably safe parallelism, executable
+acceptance for every requirement and handoff, immutable authorization bindings,
+and a hard privacy boundary. Bookkeeping that an agent would otherwise spend its
+attention satisfying is deliberately absent.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
 from pathlib import Path
-from .design import independent_ownership_issues, normalize_design_path, paths_overlap, validate_design_contract as _validate_design_contract
-from .models import ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS, ACCEPTANCE_DISPATCH_REQUIRED_FIELDS, ACCEPTANCE_FAILURE_OUTCOMES, ACCEPTANCE_OPTIONAL_FIELDS, ACCEPTANCE_OUTCOMES, ACCEPTANCE_PHASES, ACCEPTANCE_PREPARATION_FIELDS, ACCEPTANCE_REQUIRED_FIELDS, ACCEPTANCE_REVIEW_FIELDS, ACCEPTANCE_STABLE_PREPARATION_FIELDS, AUTOMATED_NODE_ROLES, COMMIT_OPTIONAL_FIELDS, COMMIT_REQUIRED_FIELDS, COMPLEX_OR_CRITICAL_REQUIRED_ROLES, CRITERION_OPTIONAL_FIELDS, CRITERION_REQUIRED_FIELDS, DESIGNER_DISPATCH_REQUIRED_FIELDS, DESIGN_NODE_ROLES, EVIDENCE_REF_FIELDS, EVIDENCE_REF_TYPES, FOUNDATION_ROLE_ORDER, GATE_LEAF_TAG, GIT_SHA_PATTERN, Issue, MAX_DELEGATION_FAILURES, MILESTONE_GATE_LEAF_REQUIRED_STATUSES, MILESTONE_GATE_ROLE, OPAQUE_EVENT_ID_PATTERN, REGRESSION_COMMAND_RECEIPT_FIELDS, REGRESSION_FAILURE_FIELDS, REGRESSION_NODE_ROLES, REGRESSION_OPTIONAL_FIELDS, REGRESSION_RECEIPT_FIELDS, REGRESSION_REQUIRED_FIELDS, SHA256_PATTERN, TASK_OPTIONAL_FIELDS, TASK_REQUIRED_FIELDS, UUID4_PATTERN, VALID_DIFFICULTIES, VALID_NODE_ROLES, VALID_PLATFORMS, VALID_REGRESSION_SCOPES, VALID_VERIFICATION_PROFILES, WORKFLOW_STATE_MACHINE, expected_regression_scope, has_same_plan_gate_leaf_prerequisite, is_git_entry_path, is_manifest_id, is_relative_workspace_path, is_requirement_label, is_string_list, node_has_tag, normalize_workspace_path, safe_summary_issue
+from typing import Any, Mapping, Sequence
+
+from .models import (
+    ABSOLUTE_PATH_PATTERN,
+    AUTHORIZED_PHASES,
+    CHECKPOINTS_SCHEMA,
+    DELIVERY_STATUSES,
+    DISPATCH_PHASES,
+    ELEVATED_RISKS,
+    MANIFEST_SCHEMA,
+    NETWORK_ENDPOINT_PATTERN,
+    OPTION_ID_PATTERN,
+    PLAN_PHASES,
+    PLAN_SCHEMA,
+    SENSITIVE_TOKEN_PATTERN,
+    SHA256_PATTERN,
+    TASK_STATUSES,
+    VALID_AUTHORIZATION_SOURCES,
+    VALID_DIFFICULTIES,
+    VALID_RISKS,
+    VALID_VERIFICATIONS,
+    Issue,
+    is_code,
+    is_relative_workspace_path,
+    normalize_workspace_path,
+    safe_summary_issue,
+    semantic_digest,
+)
 
 
-def readable_summary_issue(value: Any) -> str | None:
-    """Return the bounded safety issue for a tree-visible source summary."""
-    issue = safe_summary_issue(value)
-    if issue is not None:
-        return issue
-    if "<-" in str(value).strip():
-        return "must not contain the execution dependency marker"
+TASK_REQUIRED_FIELDS = {
+    "code",
+    "title",
+    "outcome",
+    "scope",
+    "prerequisites",
+    "ownership",
+    "difficulty",
+    "verification",
+    "requirements",
+    "risks",
+}
+TASK_DESIGN_FIELDS = {"inputs", "outputs", "design", "acceptance", "focused_regression"}
+TASK_ALLOWED_FIELDS = TASK_REQUIRED_FIELDS | TASK_DESIGN_FIELDS
+LIFECYCLE_REQUIRED_FIELDS = {
+    "sealed",
+    "designer_session",
+    "reviewer_session",
+    "authorization",
+    "continuation_receipts",
+}
+LIFECYCLE_OPTIONAL_FIELDS = {"continuation_session", "verification"}
+
+
+def _issue(path: Path, prefix: str, message: str) -> Issue:
+    return Issue(path, "%s: %s" % (prefix, message))
+
+
+def _mapping(value: Any) -> bool:
+    return isinstance(value, Mapping)
+
+
+def _string_list(value: Any, allow_empty: bool = True) -> bool:
+    return (
+        isinstance(value, list)
+        and (allow_empty or bool(value))
+        and all(isinstance(item, str) and bool(item.strip()) for item in value)
+    )
+
+
+def _safe_lines(value: Any, allow_empty: bool = False) -> bool:
+    return _string_list(value, allow_empty) and all(
+        safe_summary_issue(item) is None for item in value
+    )
+
+
+def _relative_paths(value: Any, allow_empty: bool = True) -> bool:
+    return isinstance(value, list) and (allow_empty or bool(value)) and all(
+        is_relative_workspace_path(item) for item in value
+    )
+
+
+def _unknown_fields(path: Path, prefix: str, value: Mapping[str, Any], allowed: set[str]) -> list[Issue]:
+    unknown = set(value) - allowed
+    return [_issue(path, prefix, "unknown fields %s" % ", ".join(sorted(unknown)))] if unknown else []
+
+
+def _privacy_issues(path: Path, value: Any, prefix: str = "plan") -> list[Issue]:
+    """Reject absolute local paths, runtime endpoints, and secret-shaped text."""
+
+    issues: list[Issue] = []
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            issues.extend(_privacy_issues(path, child, "%s.%s" % (prefix, key)))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            issues.extend(_privacy_issues(path, child, "%s[%d]" % (prefix, index)))
+    elif isinstance(value, str):
+        if ABSOLUTE_PATH_PATTERN.search(value):
+            issues.append(_issue(path, prefix, "must not expose an absolute local path"))
+        if NETWORK_ENDPOINT_PATTERN.search(value):
+            issues.append(_issue(path, prefix, "must not expose a runtime endpoint"))
+        if SENSITIVE_TOKEN_PATTERN.search(value):
+            issues.append(_issue(path, prefix, "must not contain secret-shaped data"))
+    return issues
+
+
+def dependency_cycle(graph: Mapping[str, Sequence[str]]) -> list[str] | None:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    stack: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        if node in visiting:
+            return stack[stack.index(node):] + [node]
+        if node in visited:
+            return None
+        visiting.add(node)
+        stack.append(node)
+        for prerequisite in graph.get(node, []):
+            found = visit(prerequisite)
+            if found is not None:
+                return found
+        stack.pop()
+        visiting.discard(node)
+        visited.add(node)
+        return None
+
+    for node in graph:
+        found = visit(node)
+        if found is not None:
+            return found
     return None
 
 
-def validate_readable_string_list(
-    path: Path,
-    prefix: str,
-    value: Any,
-) -> list[Issue]:
-    """Validate a list whose members may be printed by the readable tree."""
-    if not is_string_list(value):
-        return [Issue(path, f"{prefix}: must be an array of strings")]
+def _reachable(graph: Mapping[str, Sequence[str]], start: str, target: str) -> bool:
+    pending = list(graph.get(start, []))
+    seen: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == target:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(graph.get(current, []))
+    return False
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    a = normalize_workspace_path(left).rstrip("/")
+    b = normalize_workspace_path(right).rstrip("/")
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def validate_manifest_document(path: Path, data: Any) -> list[Issue]:
     issues: list[Issue] = []
-    for index, item in enumerate(value):
-        item_issue = readable_summary_issue(item)
-        if item_issue is not None:
-            issues.append(Issue(path, f"{prefix}[{index}]: {item_issue}"))
+    if not _mapping(data):
+        return [_issue(path, "manifest", "top-level value must be an object")]
+    if data.get("schema") != MANIFEST_SCHEMA:
+        issues.append(_issue(path, "manifest.schema", "unsupported generation"))
+    issues.extend(_unknown_fields(path, "manifest", data, {"schema", "plans"}))
+    plans = data.get("plans")
+    if not isinstance(plans, list):
+        return issues + [_issue(path, "manifest.plans", "must be an array")]
+    codes: set[str] = set()
+    directories: set[str] = set()
+    for index, entry in enumerate(plans):
+        prefix = "plans[%d]" % index
+        if not _mapping(entry):
+            issues.append(_issue(path, prefix, "must be an object"))
+            continue
+        required = {"code", "title", "directory", "plan"}
+        missing = required - set(entry)
+        if missing:
+            issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))
+            continue
+        issues.extend(_unknown_fields(path, prefix, entry, required | {"checkpoints"}))
+        code = entry.get("code")
+        directory = entry.get("directory")
+        if not is_code(code, "PLAN") or code in codes:
+            issues.append(_issue(path, prefix + ".code", "must be a unique PLAN-* code"))
+        else:
+            codes.add(str(code))
+        if safe_summary_issue(entry.get("title")) is not None:
+            issues.append(_issue(path, prefix + ".title", "must be a concrete safe summary"))
+        if not is_relative_workspace_path(directory) or directory in directories:
+            issues.append(_issue(path, prefix + ".directory", "must be a unique safe relative path"))
+        else:
+            directories.add(str(directory))
+        if entry.get("plan") != "%s/Plan.json" % directory:
+            issues.append(_issue(path, prefix + ".plan", "must equal %s/Plan.json" % directory))
+        checkpoints = entry.get("checkpoints")
+        if checkpoints is not None and checkpoints != "%s/Checkpoints.json" % directory:
+            issues.append(_issue(path, prefix + ".checkpoints", "must use the plan directory"))
     return issues
 
 
-def validate_regression_contract(
-    path: Path,
-    prefix: str,
-    node: dict[str, Any],
-    criterion_count: int,
-) -> list[Issue]:
+def _validate_dossier(path: Path, dossier: Any) -> list[Issue]:
     issues: list[Issue] = []
-    role = node.get("role")
-    status = node.get("status")
-    regression = node.get("regression")
-    required_scope = expected_regression_scope(role)
-
-    if regression is None:
-        if required_scope is not None and status == "in_progress":
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.regression: in-progress {role!r} nodes must declare a {required_scope!r} regression contract",
-                )
-            )
-        return issues
-    if not isinstance(regression, dict):
-        return [Issue(path, f"{prefix}.regression: must be an object")]
-
-    for field in sorted(REGRESSION_REQUIRED_FIELDS - set(regression)):
-        issues.append(Issue(path, f"{prefix}.regression.{field}: missing required field"))
-    for field in sorted(set(regression) - REGRESSION_REQUIRED_FIELDS - REGRESSION_OPTIONAL_FIELDS):
-        issues.append(Issue(path, f"{prefix}.regression.{field}: unknown field"))
-
-    scope = regression.get("scope")
-    if scope not in VALID_REGRESSION_SCOPES:
-        values = ", ".join(sorted(VALID_REGRESSION_SCOPES))
-        issues.append(Issue(path, f"{prefix}.regression.scope: must be one of {values}"))
-    elif required_scope is not None and scope != required_scope:
-        issues.append(Issue(path, f"{prefix}.regression.scope: role {role!r} must use {required_scope!r}"))
-
-    commands = regression.get("commands")
-    if not is_string_list(commands) or not commands:
-        issues.append(Issue(path, f"{prefix}.regression.commands: must be a non-empty array of command strings"))
-    else:
-        seen_commands: set[str] = set()
-        for index, command in enumerate(commands):
-            normalized = command.strip()
-            if not normalized:
-                issues.append(Issue(path, f"{prefix}.regression.commands[{index}]: must be a non-empty command"))
-            elif normalized in seen_commands:
-                issues.append(Issue(path, f"{prefix}.regression.commands[{index}]: duplicate command"))
-            else:
-                seen_commands.add(normalized)
-
-    command_paths = regression.get("command_paths")
-    if command_paths is not None:
-        if not isinstance(command_paths, list) or not isinstance(commands, list) or len(command_paths) != len(commands):
-            issues.append(Issue(path, f"{prefix}.regression.command_paths: must align one path array with every command"))
+    if not _mapping(dossier):
+        return [_issue(path, "dossier", "must be an object")]
+    issues.extend(_unknown_fields(path, "dossier", dossier, {"status", "questions"}))
+    status = dossier.get("status")
+    if status not in {"not_required", "draft", "resolved"}:
+        issues.append(_issue(path, "dossier.status", "invalid status"))
+    questions = dossier.get("questions")
+    if not isinstance(questions, list):
+        return issues + [_issue(path, "dossier.questions", "must be an array")]
+    if status == "not_required" and questions:
+        issues.append(_issue(path, "dossier", "a not_required Dossier must be empty"))
+    seen: set[str] = set()
+    for index, question in enumerate(questions):
+        prefix = "dossier.questions[%d]" % index
+        if not _mapping(question):
+            issues.append(_issue(path, prefix, "must be an object"))
+            continue
+        required = {"code", "question", "context", "resolves", "options", "recommended", "default"}
+        missing = required - set(question)
+        if missing:
+            issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))
+            continue
+        issues.extend(_unknown_fields(path, prefix, question, required | {"selected"}))
+        code = question.get("code")
+        if not is_code(code, "Q") or code in seen:
+            issues.append(_issue(path, prefix + ".code", "must be a unique Q-* code"))
         else:
-            for command_index, path_set in enumerate(command_paths):
-                if not is_string_list(path_set) or not path_set:
-                    issues.append(Issue(path, f"{prefix}.regression.command_paths[{command_index}]: must be a non-empty path array"))
-                    continue
-                for path_index, value in enumerate(path_set):
-                    if not is_relative_workspace_path(value):
-                        issues.append(Issue(path, f"{prefix}.regression.command_paths[{command_index}][{path_index}]: must be a safe repository-relative path"))
-
-    criteria = regression.get("criteria")
-    if not isinstance(criteria, list) or not criteria:
-        issues.append(Issue(path, f"{prefix}.regression.criteria: must be a non-empty array of criterion indexes"))
-    else:
-        seen_criteria: set[int] = set()
-        for index, criterion_index in enumerate(criteria):
-            if type(criterion_index) is not int:
-                issues.append(Issue(path, f"{prefix}.regression.criteria[{index}]: must be an integer"))
-            elif criterion_index < 0 or criterion_index >= criterion_count:
+            seen.add(str(code))
+        for field in ("question", "context"):
+            if safe_summary_issue(question.get(field)) is not None:
+                issues.append(_issue(path, prefix + "." + field, "must be a concrete safe summary"))
+        resolves = question.get("resolves")
+        if not isinstance(resolves, list) or not resolves or any(
+            not is_code(item, "DEC") for item in resolves
+        ):
+            issues.append(_issue(path, prefix + ".resolves", "must name the DEC-* decisions it closes"))
+        options = question.get("options")
+        if not isinstance(options, list) or not 2 <= len(options) <= 6:
+            issues.append(_issue(path, prefix + ".options", "must contain 2 through 6 options"))
+            continue
+        option_ids: set[str] = set()
+        for option_index, option in enumerate(options):
+            option_prefix = "%s.options[%d]" % (prefix, option_index)
+            if not _mapping(option):
+                issues.append(_issue(path, option_prefix, "must be an object"))
+                continue
+            issues.extend(_unknown_fields(path, option_prefix, option, {"id", "label", "effects"}))
+            option_id = option.get("id")
+            if not isinstance(option_id, str) or OPTION_ID_PATTERN.fullmatch(option_id) is None or option_id in option_ids:
+                issues.append(_issue(path, option_prefix + ".id", "must be a unique lowercase option id"))
+            else:
+                option_ids.add(option_id)
+            if safe_summary_issue(option.get("label")) is not None:
+                issues.append(_issue(path, option_prefix + ".label", "must be a concrete safe summary"))
+            if not _safe_lines(option.get("effects")):
                 issues.append(
-                    Issue(
+                    _issue(path, option_prefix + ".effects", "must state what this option freezes")
+                )
+        for field in ("recommended", "default"):
+            if question.get(field) not in option_ids:
+                issues.append(_issue(path, prefix + "." + field, "must reference an option"))
+        selected = question.get("selected")
+        if selected is not None and selected not in option_ids:
+            issues.append(_issue(path, prefix + ".selected", "must reference an option"))
+        if status == "resolved" and selected is None:
+            issues.append(_issue(path, prefix + ".selected", "a resolved Dossier requires a selection or applied default"))
+    return issues
+
+
+def _validate_ledger(path: Path, ledger: Any, dossier: Any) -> list[Issue]:
+    issues: list[Issue] = []
+    if not _mapping(ledger) or any(
+        not isinstance(ledger.get(key), list)
+        for key in ("observed", "user_decided", "defaulted", "unresolved")
+    ):
+        return [_issue(path, "plan.ledger", "must contain four ledger arrays")]
+    issues.extend(
+        _unknown_fields(path, "plan.ledger", ledger, {"observed", "user_decided", "defaulted", "unresolved"})
+    )
+    for index, fact in enumerate(ledger.get("observed", [])):
+        prefix = "ledger.observed[%d]" % index
+        if not _mapping(fact) or any(
+            safe_summary_issue(fact.get(field)) is not None for field in ("fact", "source")
+        ):
+            issues.append(_issue(path, prefix, "requires a safe fact and its repository source"))
+        else:
+            issues.extend(_unknown_fields(path, prefix, fact, {"fact", "source"}))
+    question_codes = {
+        str(item.get("code"))
+        for item in (dossier.get("questions", []) if _mapping(dossier) else [])
+        if _mapping(item)
+    }
+    sources: set[str] = set()
+    for name in ("user_decided", "defaulted"):
+        for index, record in enumerate(ledger.get(name, [])):
+            prefix = "ledger.%s[%d]" % (name, index)
+            if (
+                not _mapping(record)
+                or not is_code(record.get("source"), "Q")
+                or not isinstance(record.get("option"), str)
+                or not record.get("option")
+                or not isinstance(record.get("resolves"), list)
+                or not record.get("resolves")
+                or not _safe_lines(record.get("effects"))
+            ):
+                issues.append(_issue(path, prefix, "requires a Q-* source, chosen option, resolved decisions, and effects"))
+                continue
+            issues.extend(_unknown_fields(path, prefix, record, {"source", "option", "resolves", "effects"}))
+            source = str(record.get("source"))
+            if source in sources:
+                issues.append(_issue(path, prefix + ".source", "duplicate decision record"))
+            sources.add(source)
+            if question_codes and source not in question_codes:
+                issues.append(_issue(path, prefix + ".source", "must originate from this Dossier"))
+    unresolved: set[str] = set()
+    for index, item in enumerate(ledger.get("unresolved", [])):
+        prefix = "ledger.unresolved[%d]" % index
+        if not _mapping(item) or not is_code(item.get("code"), "DEC") or any(
+            safe_summary_issue(item.get(field)) is not None for field in ("statement", "impact")
+        ):
+            issues.append(_issue(path, prefix, "requires a DEC-* code, statement, and impact"))
+            continue
+        issues.extend(_unknown_fields(path, prefix, item, {"code", "statement", "impact"}))
+        if item.get("code") in unresolved:
+            issues.append(_issue(path, prefix + ".code", "duplicate unresolved decision"))
+        unresolved.add(str(item.get("code")))
+    return issues
+
+
+def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> list[Issue]:
+    prefix = "spec.tasks[%d]" % index
+    if not _mapping(task):
+        return [_issue(path, prefix, "must be an object")]
+    issues: list[Issue] = []
+    required = TASK_REQUIRED_FIELDS | (TASK_DESIGN_FIELDS if require_design else set())
+    missing = required - set(task)
+    if missing:
+        return [_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing)))]
+    issues.extend(_unknown_fields(path, prefix, task, TASK_ALLOWED_FIELDS))
+    label = task.get("code") if is_code(task.get("code"), "TASK") else prefix
+    if not is_code(task.get("code"), "TASK"):
+        issues.append(_issue(path, prefix + ".code", "must be a TASK-* code"))
+    for field in ("title", "outcome"):
+        if safe_summary_issue(task.get(field)) is not None:
+            issues.append(_issue(path, "%s.%s" % (label, field), "must be a concrete safe summary"))
+    scope = task.get("scope")
+    if not _mapping(scope) or not _safe_lines(scope.get("in")) or not _safe_lines(scope.get("out")):
+        issues.append(_issue(path, "%s.scope" % label, "must contain non-empty in/out arrays"))
+    else:
+        issues.extend(_unknown_fields(path, "%s.scope" % label, scope, {"in", "out"}))
+        if set(scope.get("in", [])) & set(scope.get("out", [])):
+            issues.append(_issue(path, "%s.scope" % label, "in/out boundaries must not overlap"))
+    if not isinstance(task.get("prerequisites"), list) or any(
+        not is_code(item, "TASK") for item in task.get("prerequisites", [])
+    ):
+        issues.append(_issue(path, "%s.prerequisites" % label, "must contain TASK-* codes"))
+    if not isinstance(task.get("requirements"), list) or any(
+        not is_code(item, "REQ") for item in task.get("requirements", [])
+    ):
+        issues.append(_issue(path, "%s.requirements" % label, "must contain REQ-* codes"))
+    risks = task.get("risks")
+    if not isinstance(risks, list) or any(item not in VALID_RISKS for item in risks):
+        issues.append(_issue(path, "%s.risks" % label, "must contain known risk tags"))
+    elif len(set(risks)) != len(risks):
+        issues.append(_issue(path, "%s.risks" % label, "must not repeat a risk tag"))
+    if task.get("difficulty") not in VALID_DIFFICULTIES:
+        issues.append(_issue(path, "%s.difficulty" % label, "must be standard or complex"))
+    elif isinstance(risks, list) and set(risks) & ELEVATED_RISKS and task.get("difficulty") != "complex":
+        issues.append(_issue(path, "%s.difficulty" % label, "an elevated risk tag requires the complex tier"))
+    if task.get("verification") not in VALID_VERIFICATIONS:
+        issues.append(_issue(path, "%s.verification" % label, "must be code, visual, or hybrid"))
+    ownership = task.get("ownership")
+    if not _mapping(ownership):
+        issues.append(_issue(path, "%s.ownership" % label, "must be an object"))
+    else:
+        issues.extend(_unknown_fields(path, "%s.ownership" % label, ownership, {"write_paths", "shared_exclusive"}))
+        if not _relative_paths(ownership.get("write_paths"), allow_empty=False):
+            issues.append(_issue(path, "%s.ownership.write_paths" % label, "must contain safe relative paths"))
+        shared = ownership.get("shared_exclusive")
+        if not _safe_lines(shared, allow_empty=True):
+            issues.append(_issue(path, "%s.ownership.shared_exclusive" % label, "must contain safe resource names"))
+        elif isinstance(shared, list) and len(set(shared)) != len(shared):
+            issues.append(_issue(path, "%s.ownership.shared_exclusive" % label, "must not repeat a resource"))
+    design = task.get("design")
+    if design is not None:
+        if not _mapping(design) or not design:
+            issues.append(_issue(path, "%s.design" % label, "must be a non-empty object of design decisions"))
+        else:
+            for key, value in design.items():
+                if not isinstance(key, str) or OPTION_ID_PATTERN.fullmatch(key) is None:
+                    issues.append(_issue(path, "%s.design" % label, "design keys must be lowercase slugs"))
+                elif not _safe_lines(value):
+                    issues.append(_issue(path, "%s.design.%s" % (label, key), "must be a non-empty array of concrete safe decisions"))
+    outputs = task.get("outputs")
+    if outputs is not None:
+        if not isinstance(outputs, list):
+            issues.append(_issue(path, "%s.outputs" % label, "must be an array"))
+        else:
+            owned_paths = (
+                ownership.get("write_paths", []) or [] if _mapping(ownership) else []
+            )
+            for output_index, output in enumerate(outputs):
+                output_prefix = "%s.outputs[%d]" % (label, output_index)
+                if not _mapping(output) or not is_code(output.get("code"), "OUT"):
+                    issues.append(_issue(path, output_prefix, "must contain an OUT-* code"))
+                    continue
+                issues.extend(_unknown_fields(path, output_prefix, output, {"code", "title", "artifact", "guarantee"}))
+                artifact = output.get("artifact")
+                if (
+                    safe_summary_issue(output.get("title")) is not None
+                    or not is_relative_workspace_path(artifact)
+                    or safe_summary_issue(output.get("guarantee")) is not None
+                ):
+                    issues.append(_issue(path, output_prefix, "requires a title, relative artifact, and guarantee"))
+                elif owned_paths and not any(
+                    isinstance(owned, str) and _paths_overlap(str(artifact), owned)
+                    for owned in owned_paths
+                ):
+                    issues.append(
+                        _issue(path, output_prefix, "artifact must fall inside this Task's write ownership")
+                    )
+    inputs = task.get("inputs")
+    if inputs is not None and not isinstance(inputs, list):
+        issues.append(_issue(path, "%s.inputs" % label, "must be an array"))
+    elif isinstance(inputs, list):
+        for input_index, item in enumerate(inputs):
+            input_prefix = "%s.inputs[%d]" % (label, input_index)
+            if (
+                not _mapping(item)
+                or not is_code(item.get("from"), "TASK")
+                or not is_code(item.get("output"), "OUT")
+                or safe_summary_issue(item.get("guarantee")) is not None
+            ):
+                issues.append(_issue(path, input_prefix, "requires from, output, and guarantee"))
+            else:
+                issues.extend(_unknown_fields(path, input_prefix, item, {"from", "output", "guarantee"}))
+    acceptance = task.get("acceptance")
+    if acceptance is not None:
+        if not isinstance(acceptance, list) or (require_design and not acceptance):
+            issues.append(_issue(path, "%s.acceptance" % label, "must be a non-empty array"))
+        elif isinstance(acceptance, list):
+            for criterion_index, criterion in enumerate(acceptance):
+                criterion_prefix = "%s.acceptance[%d]" % (label, criterion_index)
+                if not _mapping(criterion) or not is_code(criterion.get("code"), "AC"):
+                    issues.append(_issue(path, criterion_prefix, "must contain an AC-* code"))
+                    continue
+                issues.extend(
+                    _unknown_fields(
                         path,
-                        f"{prefix}.regression.criteria[{index}]: must be between 0 and {max(criterion_count - 1, 0)}",
+                        criterion_prefix,
+                        criterion,
+                        {"code", "covers", "given", "when", "then", "oracle", "evidence"},
                     )
                 )
-            elif criterion_index in seen_criteria:
-                issues.append(Issue(path, f"{prefix}.regression.criteria[{index}]: duplicate criterion index"))
-            else:
-                seen_criteria.add(criterion_index)
+                if any(
+                    safe_summary_issue(criterion.get(field)) is not None
+                    for field in ("given", "when", "then", "oracle")
+                ):
+                    issues.append(_issue(path, criterion_prefix, "requires safe Given/When/Then and an exact oracle"))
+                if not _safe_lines(criterion.get("covers")):
+                    issues.append(_issue(path, criterion_prefix + ".covers", "must name what it proves"))
+                evidence = criterion.get("evidence")
+                if not _mapping(evidence) or any(
+                    safe_summary_issue(evidence.get(field)) is not None for field in ("type", "source")
+                ):
+                    issues.append(_issue(path, criterion_prefix + ".evidence", "requires a concrete type and source"))
+                else:
+                    issues.extend(_unknown_fields(path, criterion_prefix + ".evidence", evidence, {"type", "source"}))
+    for field in ("focused_regression",):
+        regression = task.get(field)
+        if regression is None:
+            continue
+        if not _mapping(regression) or not _string_list(regression.get("commands"), False) or not _relative_paths(regression.get("paths"), False):
+            issues.append(_issue(path, "%s.%s" % (label, field), "must contain non-empty commands and relative paths"))
+        else:
+            issues.extend(_unknown_fields(path, "%s.%s" % (label, field), regression, {"commands", "paths"}))
+    return issues
 
-        automated = role in REGRESSION_NODE_ROLES and (
-            status not in WORKFLOW_STATE_MACHINE.terminal_statuses or "acceptance" in node
+
+def validate_plan_document(path: Path, plan: Any) -> list[Issue]:
+    """Validate the structural contract that every write must satisfy."""
+
+    issues: list[Issue] = []
+    if not _mapping(plan):
+        return [_issue(path, "plan", "top-level value must be an object")]
+    issues.extend(_privacy_issues(path, plan))
+    if plan.get("schema") != PLAN_SCHEMA:
+        issues.append(_issue(path, "plan.schema", "unsupported generation"))
+    required = {"schema", "code", "title", "directory", "phase", "intent", "ledger", "dossier", "spec", "lifecycle"}
+    missing = required - set(plan)
+    if missing:
+        return issues + [_issue(path, "plan", "missing fields %s" % ", ".join(sorted(missing)))]
+    issues.extend(_unknown_fields(path, "plan", plan, required))
+    if not is_code(plan.get("code"), "PLAN"):
+        issues.append(_issue(path, "plan.code", "must be a PLAN-* code"))
+    if safe_summary_issue(plan.get("title")) is not None:
+        issues.append(_issue(path, "plan.title", "must be a concrete safe summary"))
+    if not is_relative_workspace_path(plan.get("directory")):
+        issues.append(_issue(path, "plan.directory", "must be a safe relative path"))
+    phase = plan.get("phase")
+    if phase not in PLAN_PHASES:
+        issues.append(_issue(path, "plan.phase", "invalid lifecycle phase"))
+    issues.extend(_validate_intent(path, plan.get("intent")))
+    issues.extend(_validate_ledger(path, plan.get("ledger"), plan.get("dossier")))
+    issues.extend(_validate_dossier(path, plan.get("dossier")))
+    spec = plan.get("spec")
+    if not _mapping(spec):
+        return issues + [_issue(path, "plan.spec", "must be an object")]
+    issues.extend(
+        _unknown_fields(path, "plan.spec", spec, {"requirements", "architecture", "tasks", "full_regression"})
+    )
+    tasks = spec.get("tasks") if isinstance(spec.get("tasks"), list) else None
+    if tasks is None:
+        issues.append(_issue(path, "spec.tasks", "must be an array"))
+        tasks = []
+    require_design = phase in AUTHORIZED_PHASES
+    for index, task in enumerate(tasks):
+        issues.extend(_validate_task(path, task, index, require_design))
+    issues.extend(_validate_graph(path, tasks))
+    issues.extend(_validate_coverage(path, tasks))
+    issues.extend(_validate_lifecycle(path, plan))
+    return issues
+
+
+def _validate_intent(path: Path, intent: Any) -> list[Issue]:
+    if not _mapping(intent) or not _mapping(intent.get("scope")) or not _mapping(intent.get("autonomy")):
+        return [_issue(path, "plan.intent", "must contain scope and autonomy")]
+    issues = _unknown_fields(path, "plan.intent", intent, {"goal", "scope", "success", "risk_boundary", "autonomy"})
+    issues.extend(_unknown_fields(path, "plan.intent.scope", intent["scope"], {"in", "out"}))
+    issues.extend(
+        _unknown_fields(
+            path,
+            "plan.intent.autonomy",
+            intent["autonomy"],
+            {"allow_in_scope_revision", "allow_reviewer_repairs", "forbid_mid_execution_questions", "blocked_branch_policy"},
         )
-        if automated and seen_criteria != set(range(criterion_count)):
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.regression.criteria: automated delivery nodes must map every acceptance criterion exactly once",
-                )
-            )
-
-    paths = regression.get("paths")
-    if not is_string_list(paths) or not paths:
-        issues.append(Issue(path, f"{prefix}.regression.paths: must be a non-empty array of repository-relative paths"))
-    else:
-        normalized_paths: list[str] = []
-        for index, value in enumerate(paths):
-            if not is_relative_workspace_path(value):
-                issues.append(Issue(path, f"{prefix}.regression.paths[{index}]: must be a safe repository-relative path"))
-                continue
-            normalized = normalize_workspace_path(value)
-            if normalized in normalized_paths:
-                issues.append(Issue(path, f"{prefix}.regression.paths[{index}]: duplicate path {normalized!r}"))
-                continue
-            overlap = next(
-                (
-                    other
-                    for other in normalized_paths
-                    if normalized.startswith(f"{other}/") or other.startswith(f"{normalized}/")
-                ),
-                None,
-            )
-            if overlap is not None:
-                issues.append(
-                    Issue(
-                        path,
-                        f"{prefix}.regression.paths[{index}]: overlaps declared path {overlap!r}; keep one smallest path root",
-                    )
-                )
-            normalized_paths.append(normalized)
-
-    if "last_pass" in regression:
-        receipt = regression.get("last_pass")
-        if not isinstance(receipt, dict):
-            issues.append(Issue(path, f"{prefix}.regression.last_pass: must be an object"))
-        else:
-            for field in sorted(REGRESSION_RECEIPT_FIELDS - set(receipt)):
-                issues.append(Issue(path, f"{prefix}.regression.last_pass.{field}: missing required field"))
-            for field in sorted(set(receipt) - REGRESSION_RECEIPT_FIELDS):
-                issues.append(Issue(path, f"{prefix}.regression.last_pass.{field}: unknown field"))
-            recorded_at = receipt.get("recorded_at")
-            if not isinstance(recorded_at, str) or not recorded_at.strip():
-                issues.append(Issue(path, f"{prefix}.regression.last_pass.recorded_at: must be a non-empty timestamp"))
-            for field in ("contract_digest", "content_fingerprint"):
-                value = receipt.get(field)
-                if not isinstance(value, str) or not SHA256_PATTERN.fullmatch(value):
-                    issues.append(Issue(path, f"{prefix}.regression.last_pass.{field}: must be a lowercase sha256 digest"))
-
-    command_receipts = regression.get("command_receipts")
-    if command_receipts is not None:
-        if not isinstance(command_receipts, list):
-            issues.append(Issue(path, f"{prefix}.regression.command_receipts: must be an array"))
-        else:
-            for index, receipt in enumerate(command_receipts):
-                if not isinstance(receipt, dict) or set(receipt) != REGRESSION_COMMAND_RECEIPT_FIELDS:
-                    issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}]: invalid receipt shape"))
-                    continue
-                for field in ("command_sha256", "input_fingerprint"):
-                    if not isinstance(receipt.get(field), str) or not SHA256_PATTERN.fullmatch(receipt[field]):
-                        issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}].{field}: must be a lowercase sha256 digest"))
-                if not isinstance(receipt.get("recorded_at"), str) or not receipt["recorded_at"].strip():
-                    issues.append(Issue(path, f"{prefix}.regression.command_receipts[{index}].recorded_at: must be a non-empty timestamp"))
-
-    last_failure = regression.get("last_failure")
-    if last_failure is not None:
-        if not isinstance(last_failure, list) or not last_failure:
-            issues.append(Issue(path, f"{prefix}.regression.last_failure: must be a non-empty array"))
-        else:
-            for index, failure in enumerate(last_failure):
-                if not isinstance(failure, dict) or set(failure) != REGRESSION_FAILURE_FIELDS:
-                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}]: invalid failure shape"))
-                    continue
-                if type(failure.get("command_index")) is not int or failure["command_index"] < 0:
-                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].command_index: must be a non-negative integer"))
-                if failure.get("kind") not in {"exit", "timeout", "unavailable"}:
-                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].kind: invalid failure kind"))
-                summary_issue = safe_summary_issue(failure.get("summary"))
-                if summary_issue:
-                    issues.append(Issue(path, f"{prefix}.regression.last_failure[{index}].summary: {summary_issue}"))
-
+    )
+    if safe_summary_issue(intent.get("goal")) is not None:
+        issues.append(_issue(path, "plan.intent.goal", "must be a concrete safe summary"))
+    for field in ("success", "risk_boundary"):
+        if not _safe_lines(intent.get(field)):
+            issues.append(_issue(path, "plan.intent." + field, "must be a non-empty array of concrete safe summaries"))
+    scope_in = intent["scope"].get("in")
+    scope_out = intent["scope"].get("out")
+    if not _safe_lines(scope_in) or not _safe_lines(scope_out) or set(scope_in or []) & set(scope_out or []):
+        issues.append(_issue(path, "plan.intent.scope", "must contain disjoint non-empty in/out arrays"))
+    autonomy = intent["autonomy"]
+    for field in ("allow_in_scope_revision", "allow_reviewer_repairs", "forbid_mid_execution_questions"):
+        if autonomy.get(field) is not True:
+            issues.append(_issue(path, "plan.intent.autonomy." + field, "must be true"))
+    if autonomy.get("blocked_branch_policy") != "continue_independent_work":
+        issues.append(_issue(path, "plan.intent.autonomy.blocked_branch_policy", "must continue independent work"))
     return issues
 
 
-def validate_node_design_contract(path: Path, prefix: str, node: dict[str, Any]) -> list[Issue]:
-    """Validate the pure machine-readable design boundary for delivery Nodes."""
-    role = node.get("role")
-    status = node.get("status")
-    design = node.get("design")
-    requires_design = role in DESIGN_NODE_ROLES and status not in WORKFLOW_STATE_MACHINE.terminal_statuses
-    if design is None:
-        return [Issue(path, f"{prefix}.design: nonterminal delivery nodes require a design contract")] if requires_design else []
-    if not isinstance(design, dict):
-        return [Issue(path, f"{prefix}.design: must be an object")]
+def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
+    """Prerequisites are the sole graph and every edge carries a real handoff."""
 
-    issues = [Issue(path, f"{prefix}.design: {message}") for message in _validate_design_contract(design)]
+    issues: list[Issue] = []
+    valid = [task for task in tasks if _mapping(task) and is_code(task.get("code"), "TASK")]
+    codes = [str(task.get("code")) for task in valid]
+    if len(codes) != len(set(codes)):
+        issues.append(_issue(path, "spec.tasks", "Task codes must be unique"))
+    by_code = {str(task.get("code")): task for task in valid}
+    output_owner: dict[str, str] = {}
+    for code, task in by_code.items():
+        for output in task.get("outputs", []) or []:
+            if _mapping(output) and is_code(output.get("code"), "OUT"):
+                output_code = str(output.get("code"))
+                if output_code in output_owner:
+                    issues.append(_issue(path, "%s.outputs" % code, "output code %s is not unique" % output_code))
+                output_owner[output_code] = code
+    graph: dict[str, list[str]] = {}
+    for code, task in by_code.items():
+        prerequisites = [
+            str(item) for item in task.get("prerequisites", []) or [] if isinstance(item, str)
+        ]
+        graph[code] = prerequisites
+        for prerequisite in prerequisites:
+            if prerequisite == code:
+                issues.append(_issue(path, "%s.prerequisites" % code, "self dependency"))
+            elif prerequisite not in by_code:
+                issues.append(_issue(path, "%s.prerequisites" % code, "unknown dependency %s" % prerequisite))
+    cycle = dependency_cycle(graph)
+    if cycle is not None:
+        issues.append(_issue(path, "spec.graph", "dependency cycle %s" % " -> ".join(cycle)))
+        return issues
+    for code, task in by_code.items():
+        mapped: set[str] = set()
+        for item in task.get("inputs", []) or []:
+            if not _mapping(item):
+                continue
+            source = str(item.get("from"))
+            output_code = str(item.get("output"))
+            if source not in by_code or output_owner.get(output_code) != source:
+                issues.append(_issue(path, "%s.inputs" % code, "input must name an upstream Task output"))
+            elif source not in graph.get(code, []):
+                issues.append(_issue(path, "%s.inputs" % code, "%s must be a direct prerequisite" % source))
+            else:
+                mapped.add(source)
+        unmapped = {value for value in graph.get(code, []) if value in by_code} - mapped
+        if unmapped and task.get("inputs") is not None:
+            issues.append(
+                _issue(
+                    path,
+                    "%s.inputs" % code,
+                    "every prerequisite must map at least one input: %s" % ", ".join(sorted(unmapped)),
+                )
+            )
+    ordered = sorted(by_code)
+    for left_index, left_code in enumerate(ordered):
+        for right_code in ordered[left_index + 1:]:
+            if _reachable(graph, left_code, right_code) or _reachable(graph, right_code, left_code):
+                continue
+            left = by_code[left_code].get("ownership", {})
+            right = by_code[right_code].get("ownership", {})
+            if not _mapping(left) or not _mapping(right):
+                continue
+            left_paths = left.get("write_paths", []) or []
+            right_paths = right.get("write_paths", []) or []
+            if any(
+                isinstance(a, str) and isinstance(b, str) and _paths_overlap(a, b)
+                for a in left_paths
+                for b in right_paths
+            ):
+                issues.append(
+                    _issue(
+                        path,
+                        "spec.parallel",
+                        "%s and %s have overlapping write ownership without a dependency" % (left_code, right_code),
+                    )
+                )
+            shared = {item for item in left.get("shared_exclusive", []) or []} & {
+                item for item in right.get("shared_exclusive", []) or []
+            }
+            if shared:
+                issues.append(
+                    _issue(
+                        path,
+                        "spec.parallel",
+                        "%s and %s share exclusive resources %s" % (left_code, right_code, ", ".join(sorted(shared))),
+                    )
+                )
+    return issues
+
+
+def _validate_coverage(path: Path, tasks: Sequence[Any]) -> list[Issue]:
+    """Every owned requirement and output needs executable acceptance."""
+
+    issues: list[Issue] = []
+    seen_criteria: set[str] = set()
+    for task in tasks:
+        if not _mapping(task) or not is_code(task.get("code"), "TASK"):
+            continue
+        code = str(task.get("code"))
+        acceptance = task.get("acceptance")
+        if acceptance is None:
+            continue
+        owned = {str(item) for item in task.get("requirements", []) or [] if is_code(item, "REQ")}
+        owned.update(
+            str(item.get("code"))
+            for item in task.get("outputs", []) or []
+            if _mapping(item) and is_code(item.get("code"), "OUT")
+        )
+        covered: set[str] = set()
+        for criterion in acceptance if isinstance(acceptance, list) else []:
+            if not _mapping(criterion):
+                continue
+            criterion_code = criterion.get("code")
+            if is_code(criterion_code, "AC"):
+                if criterion_code in seen_criteria:
+                    issues.append(_issue(path, "%s.acceptance" % code, "criterion code %s is not unique" % criterion_code))
+                seen_criteria.add(str(criterion_code))
+            for item in criterion.get("covers", []) or []:
+                if isinstance(item, str):
+                    covered.add(item)
+        unknown = {item for item in covered if is_code(item, "REQ") or is_code(item, "OUT")} - owned
+        if unknown:
+            issues.append(
+                _issue(path, "%s.acceptance" % code, "covers unowned contracts %s" % ", ".join(sorted(unknown)))
+            )
+        uncovered = owned - covered
+        if uncovered:
+            issues.append(
+                _issue(path, "%s.acceptance" % code, "coverage missing %s" % ", ".join(sorted(uncovered)))
+            )
+    return issues
+
+
+def _validate_session(path: Path, name: str, session: Any) -> list[Issue]:
+    if session is None:
+        return []
+    if not _mapping(session):
+        return [_issue(path, "lifecycle." + name, "must be an object")]
+    issues: list[Issue] = []
+    if session.get("count") != 1:
+        issues.append(_issue(path, "lifecycle.%s.count" % name, "must equal one"))
+    if session.get("status") not in {"active", "completed", "blocked"}:
+        issues.append(_issue(path, "lifecycle.%s.status" % name, "invalid session status"))
+    return issues
+
+
+def _validate_lifecycle(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
+    lifecycle = plan.get("lifecycle")
+    if not _mapping(lifecycle):
+        return [_issue(path, "plan.lifecycle", "must be an object")]
+    issues: list[Issue] = []
+    missing = LIFECYCLE_REQUIRED_FIELDS - set(lifecycle)
+    if missing:
+        issues.append(_issue(path, "plan.lifecycle", "missing fields %s" % ", ".join(sorted(missing))))
+    issues.extend(
+        _unknown_fields(path, "plan.lifecycle", lifecycle, LIFECYCLE_REQUIRED_FIELDS | LIFECYCLE_OPTIONAL_FIELDS)
+    )
+    designer = lifecycle.get("designer_session")
+    reviewer = lifecycle.get("reviewer_session")
+    issues.extend(_validate_session(path, "designer_session", designer))
+    issues.extend(_validate_session(path, "reviewer_session", reviewer))
+    phase = plan.get("phase")
+    sealed = lifecycle.get("sealed")
+    authorization = lifecycle.get("authorization")
+    if phase == "designing" and (not _mapping(designer) or designer.get("status") != "active"):
+        issues.append(_issue(path, "lifecycle.designer_session", "designing requires the sole active Designer session"))
+    if phase == "revising" and not _mapping(lifecycle.get("continuation_session")):
+        issues.append(_issue(path, "lifecycle.continuation_session", "revising requires its continuation receipt"))
+    if phase != "revising" and lifecycle.get("continuation_session") is not None:
+        issues.append(_issue(path, "lifecycle.continuation_session", "only a revising Plan holds an open continuation"))
+    # Receipts only move forward. A sealed revision can never coexist with a
+    # pre-authorization phase, so no edit can silently rewind a live delivery.
+    if phase in AUTHORIZED_PHASES and not _mapping(sealed):
+        issues.append(_issue(path, "lifecycle.sealed", "phase requires a sealed revision"))
+    if phase not in AUTHORIZED_PHASES and _mapping(sealed):
+        issues.append(_issue(path, "plan.phase", "a sealed revision cannot return to %s" % phase))
+    if _mapping(sealed) and not _mapping(designer):
+        issues.append(_issue(path, "lifecycle.designer_session", "a sealed revision requires its Designer receipt"))
+    if _mapping(sealed):
+        issues.extend(_unknown_fields(path, "lifecycle.sealed", sealed, {"revision", "semantic_digest", "sealed_at"}))
+        if (
+            type(sealed.get("revision")) is not int
+            or sealed.get("revision") < 1
+            or SHA256_PATTERN.fullmatch(str(sealed.get("semantic_digest", ""))) is None
+        ):
+            issues.append(_issue(path, "lifecycle.sealed", "invalid revision or digest receipt"))
+        elif phase in {"authorized", "completed", "blocked"} and sealed.get("semantic_digest") != semantic_digest(plan):
+            issues.append(_issue(path, "lifecycle.sealed.semantic_digest", "stale semantic binding"))
+    if phase in AUTHORIZED_PHASES and not _mapping(authorization):
+        issues.append(_issue(path, "lifecycle.authorization", "phase requires authorization"))
+    if authorization is not None:
+        if not _mapping(authorization) or authorization.get("source") not in VALID_AUTHORIZATION_SOURCES:
+            issues.append(_issue(path, "lifecycle.authorization", "invalid authorization receipt"))
+        elif phase in {"authorized", "completed", "blocked"} and authorization.get("semantic_digest") != semantic_digest(plan):
+            issues.append(_issue(path, "lifecycle.authorization", "stale authorization binding"))
+    if phase == "completed" and (not _mapping(reviewer) or reviewer.get("status") != "completed"):
+        issues.append(_issue(path, "lifecycle.reviewer_session", "completed phase requires the sole completed Reviewer"))
+    if phase == "blocked" and (not _mapping(reviewer) or reviewer.get("status") != "blocked"):
+        issues.append(_issue(path, "lifecycle.reviewer_session", "blocked phase requires the sole Reviewer blocker conclusion"))
+    if not isinstance(lifecycle.get("continuation_receipts"), list):
+        issues.append(_issue(path, "lifecycle.continuation_receipts", "must be an array"))
+    return issues
+
+
+def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
+    """The single semantic gate: prove the Plan can start and finish execution."""
+
+    issues = validate_plan_document(path, plan)
     if issues:
         return issues
-
-    owned_paths = [normalize_design_path(value) for value in design["owned_paths"]]
-    acceptance_paths = [normalize_design_path(value) for value in design["acceptance_paths"]]
-    for acceptance_path in acceptance_paths:
-        if any(paths_overlap(acceptance_path, owned_path) for owned_path in owned_paths):
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.design.acceptance_paths: acceptance ownership must not overlap worker ownership",
-                )
-            )
-            break
-    return issues
-
-
-def validate_acceptance_snapshot(path: Path, prefix: str, node: dict[str, Any]) -> list[Issue]:
-    """Validate bounded automated-delivery state without runtime data."""
-
-    if "acceptance" not in node:
-        return []
-    acceptance = node.get("acceptance")
-    if not isinstance(acceptance, dict):
-        return [Issue(path, f"{prefix}.acceptance: must be an object")]
-
-    issues: list[Issue] = []
-    for field in sorted(ACCEPTANCE_REQUIRED_FIELDS - set(acceptance)):
-        issues.append(Issue(path, f"{prefix}.acceptance.{field}: missing required field"))
-    for field in sorted(set(acceptance) - ACCEPTANCE_REQUIRED_FIELDS - ACCEPTANCE_OPTIONAL_FIELDS):
-        issues.append(Issue(path, f"{prefix}.acceptance.{field}: unknown field"))
-
-    role = node.get("role")
-    status = node.get("status")
-    phase = acceptance.get("phase")
-    attempt = acceptance.get("attempt")
-    outcome = acceptance.get("outcome")
-    if role not in AUTOMATED_NODE_ROLES:
-        issues.append(Issue(path, f"{prefix}.acceptance: only automated delivery nodes may be enrolled"))
-    if phase not in ACCEPTANCE_PHASES:
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: must be one of {', '.join(sorted(ACCEPTANCE_PHASES))}"))
-    if type(attempt) is not int or attempt < 0:
-        issues.append(Issue(path, f"{prefix}.acceptance.attempt: must be a non-negative integer"))
-    if outcome not in ACCEPTANCE_OUTCOMES:
-        issues.append(Issue(path, f"{prefix}.acceptance.outcome: must be one of {', '.join(sorted(ACCEPTANCE_OUTCOMES))}"))
-
-    valid_phases = {
-        "group_design": {"awaiting_designer", "designer_running", "accepted"},
-        "implementation": {"awaiting_worker", "worker_running", "correction_required", "awaiting_visual_verifier", "visual_verifier_running", "accepted"},
-        "final_validation": {"awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair", "accepted"},
+    dossier = plan.get("dossier", {})
+    if dossier.get("status") not in {"not_required", "resolved"}:
+        issues.append(_issue(path, "dossier.status", "every question must be resolved before authorization"))
+    ledger = plan.get("ledger", {})
+    if ledger.get("unresolved"):
+        issues.append(_issue(path, "ledger.unresolved", "execution-relevant decisions must be resolved or defaulted"))
+    records = {
+        str(record.get("source"))
+        for name in ("user_decided", "defaulted")
+        for record in ledger.get(name, [])
+        if _mapping(record)
     }
-    if role in valid_phases and phase not in valid_phases[str(role)]:
-        issues.append(Issue(path, f"{prefix}.acceptance.phase: phase {phase!r} is not valid for {role!r}"))
-    if role == "implementation" and phase in {"awaiting_visual_verifier", "visual_verifier_running"}:
-        if node.get("difficulty") != "critical" or node.get("verification_profile") not in {"visual", "hybrid"}:
-            issues.append(Issue(path, f"{prefix}.acceptance.phase: only visual or hybrid critical implementation nodes may enter Visual Verifier phases"))
-
-    pending_phases = {"awaiting_designer", "awaiting_worker", "awaiting_reviewer", "repair_plan_required", "awaiting_repair"}
-    if phase == "accepted" and status != "completed":
-        issues.append(Issue(path, f"{prefix}.status: an accepted node must be completed"))
-    elif phase in pending_phases and status not in {"pending", "blocked", "deferred"}:
-        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires pending, blocked, or deferred"))
-    elif phase == "reviewer_complete" and status not in {"pending", "blocked", "deferred", "in_progress"}:
-        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires an active or resumable status"))
-    elif phase not in pending_phases | {"reviewer_complete", "accepted"} and status != "in_progress":
-        issues.append(Issue(path, f"{prefix}.status: phase {phase!r} requires in_progress"))
-
-    expected_outcomes: dict[str, set[str]] = {
-        "awaiting_designer": {"none"},
-        "designer_running": {"none"},
-        "awaiting_worker": {"none"},
-        "worker_running": {"none"},
-        "correction_required": ACCEPTANCE_FAILURE_OUTCOMES,
-        "awaiting_visual_verifier": {"none"},
-        "visual_verifier_running": {"none"},
-        "awaiting_reviewer": {"none"},
-        "reviewer_running": {"none"},
-        "reviewer_complete": {"none"},
-        "repair_plan_required": ACCEPTANCE_FAILURE_OUTCOMES,
-        "awaiting_repair": ACCEPTANCE_FAILURE_OUTCOMES,
-        "accepted": {"accepted"},
-    }
-    if phase in expected_outcomes and outcome not in expected_outcomes[phase]:
-        issues.append(Issue(path, f"{prefix}.acceptance.outcome: phase {phase!r} requires one of {', '.join(sorted(expected_outcomes[phase]))}"))
-
-    repair_node_id = acceptance.get("repair_node_id")
-    if phase == "awaiting_repair":
-        if not isinstance(repair_node_id, str) or not UUID4_PATTERN.fullmatch(repair_node_id):
-            issues.append(Issue(path, f"{prefix}.acceptance.repair_node_id: awaiting_repair requires a UUID4 node id"))
-    elif "repair_node_id" in acceptance:
-        issues.append(Issue(path, f"{prefix}.acceptance.repair_node_id: only awaiting_repair may bind a repair node"))
-
-    dispatch = acceptance.get("dispatch")
-    dispatch_roles = {
-        "designer_running": "designer",
-        "worker_running": "worker",
-        "visual_verifier_running": "visual-verifier",
-        "reviewer_running": "reviewer",
-    }
-    expected_role = dispatch_roles.get(str(phase))
-    if expected_role is not None and not isinstance(dispatch, dict):
-        issues.append(Issue(path, f"{prefix}.acceptance.dispatch: phase {phase!r} requires an outstanding dispatch"))
-    elif expected_role is None and "dispatch" in acceptance:
-        issues.append(Issue(path, f"{prefix}.acceptance.dispatch: only running agent phases may retain a dispatch"))
-    elif isinstance(dispatch, dict):
-        required = DESIGNER_DISPATCH_REQUIRED_FIELDS if expected_role == "designer" else ACCEPTANCE_DISPATCH_REQUIRED_FIELDS
-        for field in sorted(required - set(dispatch)):
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: missing required field"))
-        allowed = ACCEPTANCE_DISPATCH_REQUIRED_FIELDS | ACCEPTANCE_DISPATCH_OPTIONAL_FIELDS
-        for field in sorted(set(dispatch) - allowed):
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{field}: unknown field"))
-        if not isinstance(dispatch.get("id"), str) or not UUID4_PATTERN.fullmatch(str(dispatch.get("id"))):
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.id: must be an opaque UUID4 correlation id"))
-        if dispatch.get("role") != expected_role:
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.role: phase {phase!r} requires role {expected_role!r}"))
-        host_agent_id = dispatch.get("host_agent_id")
-        if "host_agent_id" in dispatch and (not isinstance(host_agent_id, str) or not OPAQUE_EVENT_ID_PATTERN.fullmatch(host_agent_id)):
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.host_agent_id: must be a bounded opaque host id"))
-        delegation_failures = dispatch.get("delegation_failures")
-        if "delegation_failures" in dispatch and (
-            isinstance(delegation_failures, bool)
-            or not isinstance(delegation_failures, int)
-            or not 1 <= delegation_failures <= MAX_DELEGATION_FAILURES
-        ):
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.delegation_failures: must be an integer from 1 through {MAX_DELEGATION_FAILURES}"))
-        for selector_field in ("model", "model_provider", "reasoning_effort", "selector_source"):
-            selector_value = dispatch.get(selector_field)
-            if selector_field in dispatch and (
-                not isinstance(selector_value, str)
-                or not selector_value
-                or len(selector_value) > 128
-                or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/+-" for character in selector_value)
-            ):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.{selector_field}: must be a bounded public selector value"))
-        if any(field in dispatch for field in ("model_provider", "reasoning_effort", "selector_source")) and "model" not in dispatch:
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.model: selector metadata requires a model"))
-        if expected_role == "designer":
-            digest = dispatch.get("design_digest")
-            if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
-                issues.append(Issue(path, f"{prefix}.acceptance.dispatch.design_digest: must bind the current design digest"))
-        elif "design_digest" in dispatch:
-            issues.append(Issue(path, f"{prefix}.acceptance.dispatch.design_digest: only designer dispatches bind design"))
-
-    for field in ACCEPTANCE_PREPARATION_FIELDS:
-        if field in acceptance and (not isinstance(acceptance.get(field), str) or not SHA256_PATTERN.fullmatch(str(acceptance.get(field)))):
-            issues.append(Issue(path, f"{prefix}.acceptance.{field}: must be a lowercase sha256 digest"))
-    required_preparation: tuple[str, ...] = ()
-    if role == "implementation" and phase not in {"awaiting_worker"}:
-        required_preparation = ACCEPTANCE_STABLE_PREPARATION_FIELDS
-    elif role == "final_validation" and phase not in {"awaiting_reviewer", "reviewer_complete"}:
-        required_preparation = ACCEPTANCE_PREPARATION_FIELDS
-    for field in required_preparation:
-        if field not in acceptance:
-            issues.append(Issue(path, f"{prefix}.acceptance.{field}: phase {phase!r} requires current preparation"))
-
-    review = acceptance.get("review")
-    review_phases = {"reviewer_complete", "repair_plan_required", "awaiting_repair", "accepted"}
-    if role == "final_validation" and phase in review_phases and not isinstance(review, dict):
-        issues.append(Issue(path, f"{prefix}.acceptance.review: phase {phase!r} requires the one group Reviewer receipt"))
-    elif (role != "final_validation" or phase not in review_phases) and "review" in acceptance:
-        issues.append(Issue(path, f"{prefix}.acceptance.review: review is valid only after the group Reviewer returns"))
-    elif isinstance(review, dict):
-        for field in sorted(ACCEPTANCE_REVIEW_FIELDS - set(review)):
-            issues.append(Issue(path, f"{prefix}.acceptance.review.{field}: missing required field"))
-        for field in sorted(set(review) - ACCEPTANCE_REVIEW_FIELDS):
-            issues.append(Issue(path, f"{prefix}.acceptance.review.{field}: unknown field"))
-        if not isinstance(review.get("recorded_at"), str) or not str(review.get("recorded_at")).strip():
-            issues.append(Issue(path, f"{prefix}.acceptance.review.recorded_at: must be a non-empty timestamp"))
-        if not isinstance(review.get("dispatch_id"), str) or not UUID4_PATTERN.fullmatch(str(review.get("dispatch_id"))):
-            issues.append(Issue(path, f"{prefix}.acceptance.review.dispatch_id: must be the completed Reviewer dispatch UUID4"))
-
-    regression = node.get("regression")
-    last_pass = regression.get("last_pass") if isinstance(regression, dict) else None
-    must_have_pass = phase == "accepted" and role in REGRESSION_NODE_ROLES
-    if must_have_pass and not isinstance(last_pass, dict):
-        issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} requires a passing regression receipt"))
-    obsolete_pass_phases = {"awaiting_worker", "worker_running", "correction_required", "awaiting_visual_verifier", "visual_verifier_running", "awaiting_reviewer", "reviewer_running", "reviewer_complete", "repair_plan_required", "awaiting_repair"}
-    if phase in obsolete_pass_phases and isinstance(last_pass, dict):
-        issues.append(Issue(path, f"{prefix}.regression.last_pass: phase {phase!r} must not retain an obsolete receipt"))
-    return issues
-
-
-def validate_milestone_gate_contract(
-    path: Path,
-    data: list[Any],
-) -> list[Issue]:
-    """Validate same-Plan leaf ownership for non-delivery milestone gates."""
-    issues: list[Issue] = []
-    for index, node in enumerate(data):
-        if not isinstance(node, dict) or node.get("role") != MILESTONE_GATE_ROLE:
+    for question in dossier.get("questions", []):
+        if not _mapping(question):
             continue
-        prefix = f"node[{index}]"
-        if node_has_tag(node, GATE_LEAF_TAG):
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.tags: {GATE_LEAF_TAG} may be used only on non-{MILESTONE_GATE_ROLE} nodes",
-                )
-            )
-        status = node.get("status")
+        if str(question.get("code")) not in records:
+            issues.append(_issue(path, "dossier", "%s has no ledger decision record" % question.get("code")))
+    designer = plan.get("lifecycle", {}).get("designer_session")
+    if not _mapping(designer) or designer.get("status") != "completed":
+        issues.append(_issue(path, "lifecycle.designer_session", "readiness requires the sole Designer session completed"))
+    spec = plan.get("spec", {})
+    requirements = spec.get("requirements")
+    tasks = spec.get("tasks") or []
+    if not isinstance(requirements, list) or not requirements:
+        issues.append(_issue(path, "spec.requirements", "must be non-empty"))
+        requirements = []
+    if not tasks:
+        issues.append(_issue(path, "spec.tasks", "must be non-empty"))
+    requirement_codes: set[str] = set()
+    for index, requirement in enumerate(requirements):
+        prefix = "spec.requirements[%d]" % index
         if (
-            status in MILESTONE_GATE_LEAF_REQUIRED_STATUSES
-            and not has_same_plan_gate_leaf_prerequisite(node, data)
+            not _mapping(requirement)
+            or not is_code(requirement.get("code"), "REQ")
+            or safe_summary_issue(requirement.get("statement")) is not None
+            or not _safe_lines(requirement.get("source_refs"))
         ):
-            issues.append(
-                Issue(
-                    path,
-                    f"{prefix}.prerequisites: {MILESTONE_GATE_ROLE} in status {status!r} "
-                    f"must directly reference at least one same-Plan {GATE_LEAF_TAG} node",
-                )
-            )
-    return issues
-
-
-def validate_checkpoints_data(path: Path, data: list[Any]) -> tuple[int, list[Issue]]:
-    issues: list[Issue] = []
-    seen: set[str] = set()
-
-    for index, node in enumerate(data):
-        prefix = f"node[{index}]"
-        if not isinstance(node, dict):
-            issues.append(Issue(path, f"{prefix}: must be an object"))
+            issues.append(_issue(path, prefix, "requires a REQ-* code, statement, and source_refs"))
             continue
-
-        missing = sorted(TASK_REQUIRED_FIELDS - set(node))
-        for field in missing:
-            issues.append(Issue(path, f"{prefix}.{field}: missing required field"))
-
-        extra = sorted(set(node) - TASK_REQUIRED_FIELDS - TASK_OPTIONAL_FIELDS)
-        for field in extra:
-            issues.append(Issue(path, f"{prefix}.{field}: unknown field"))
-
-        node_id = node.get("id")
-        if not isinstance(node_id, str) or not node_id.strip():
-            issues.append(Issue(path, f"{prefix}.id: must be a non-empty string"))
-        else:
-            if not is_manifest_id(node_id):
-                issues.append(Issue(path, f"{prefix}.id: must be a UUID4 value; generate ids with the manifest tool's uuid command"))
-            if node_id in seen:
-                issues.append(Issue(path, f"{prefix}.id: duplicate id {node_id!r}"))
-            else:
-                seen.add(node_id)
-
-        status_issue = WORKFLOW_STATE_MACHINE.status_issue(path, prefix, node.get("status"))
-        if status_issue is not None:
-            issues.append(status_issue)
-
-        difficulty = node.get("difficulty")
-        if difficulty not in VALID_DIFFICULTIES:
-            values = ", ".join(sorted(VALID_DIFFICULTIES))
-            issues.append(Issue(path, f"{prefix}.difficulty: must be one of {values}"))
-
-        verification_profile = node.get("verification_profile")
-        if verification_profile not in VALID_VERIFICATION_PROFILES:
-            values = ", ".join(sorted(VALID_VERIFICATION_PROFILES))
-            issues.append(Issue(path, f"{prefix}.verification_profile: must be one of {values}"))
-
-        role = node.get("role")
-        if role not in VALID_NODE_ROLES:
-            values = ", ".join(sorted(VALID_NODE_ROLES))
-            issues.append(Issue(path, f"{prefix}.role: must be one of {values}"))
-
-        for field in ("prerequisites", "next"):
-            if not is_string_list(node.get(field)):
-                issues.append(Issue(path, f"{prefix}.{field}: must be an array of strings"))
-
-        if "requirements" in node:
-            requirements = node.get("requirements")
-            if not is_string_list(requirements):
-                issues.append(Issue(path, f"{prefix}.requirements: must be an array of requirement label strings"))
-            else:
-                seen_labels: set[str] = set()
-                for label_index, label in enumerate(requirements):
-                    if not is_requirement_label(label):
-                        issues.append(
-                            Issue(
-                                path,
-                                f"{prefix}.requirements[{label_index}]: must use the canonical format 'REQ-...' "
-                                "with REQ first and hyphen-delimited alphanumeric segments, such as 'REQ-001'",
-                            )
-                        )
-                    elif label in seen_labels:
-                        issues.append(Issue(path, f"{prefix}.requirements[{label_index}]: duplicate label {label!r}"))
-                    else:
-                        seen_labels.add(label)
-
-        if "status_reason" in node:
-            status_reason = node.get("status_reason")
-            reason_issue = safe_summary_issue(status_reason)
-            if reason_issue is not None:
-                issues.append(Issue(path, f"{prefix}.status_reason: {reason_issue}"))
-
-        for field in ("code", "title"):
-            if field not in node:
-                continue
-            field_issue = readable_summary_issue(node.get(field))
-            if field_issue is not None:
-                issues.append(Issue(path, f"{prefix}.{field}: {field_issue}"))
-
-        for field in ("tags", "conditions"):
-            if field in node:
-                issues.extend(
-                    validate_readable_string_list(
-                        path,
-                        f"{prefix}.{field}",
-                        node.get(field),
-                    )
-                )
-
-        acceptance_criteria = node.get("acceptance_criteria")
-        if not isinstance(acceptance_criteria, list):
-            issues.append(Issue(path, f"{prefix}.acceptance_criteria: must be a non-empty array of checkbox objects"))
-        elif not acceptance_criteria:
-            issues.append(Issue(path, f"{prefix}.acceptance_criteria: must not be empty"))
-        else:
-            for criterion_index, criterion in enumerate(acceptance_criteria):
-                criterion_prefix = f"{prefix}.acceptance_criteria[{criterion_index}]"
-                if not isinstance(criterion, dict):
-                    issues.append(Issue(path, f"{criterion_prefix}: must be an object"))
-                    continue
-                missing_criterion_fields = sorted(CRITERION_REQUIRED_FIELDS - set(criterion))
-                for field in missing_criterion_fields:
-                    issues.append(Issue(path, f"{criterion_prefix}.{field}: missing required field"))
-                extra_criterion_fields = sorted(set(criterion) - CRITERION_REQUIRED_FIELDS - CRITERION_OPTIONAL_FIELDS)
-                for field in extra_criterion_fields:
-                    issues.append(Issue(path, f"{criterion_prefix}.{field}: unknown field"))
-                if type(criterion.get("checked")) is not bool:
-                    issues.append(Issue(path, f"{criterion_prefix}.checked: must be a boolean"))
-                if not isinstance(criterion.get("text"), str) or not criterion.get("text", "").strip():
-                    issues.append(Issue(path, f"{criterion_prefix}.text: must be a non-empty string"))
-                if "evidence" in criterion:
-                    evidence = criterion.get("evidence")
-                    evidence_issue = safe_summary_issue(evidence)
-                    if evidence_issue is not None:
-                        issues.append(Issue(path, f"{criterion_prefix}.evidence: {evidence_issue}"))
-                if "evidence_refs" in criterion:
-                    issues.extend(validate_evidence_refs(path, criterion_prefix, criterion.get("evidence_refs")))
-
-        criterion_count = len(acceptance_criteria) if isinstance(acceptance_criteria, list) else 0
-        issues.extend(validate_node_design_contract(path, prefix, node))
-        issues.extend(validate_regression_contract(path, prefix, node, criterion_count))
-        issues.extend(validate_acceptance_snapshot(path, prefix, node))
-
-        platform = node.get("platform")
-        if platform not in VALID_PLATFORMS:
-            values = ", ".join(sorted(VALID_PLATFORMS))
-            issues.append(Issue(path, f"{prefix}.platform: must be one of {values}"))
-
-        for field in ("goal", "description"):
-            if not isinstance(node.get(field), str) or not node.get(field, "").strip():
-                issues.append(Issue(path, f"{prefix}.{field}: must be a non-empty string"))
-
-        commit = node.get("commit")
-        if not isinstance(commit, dict):
-            issues.append(Issue(path, f"{prefix}.commit: must be an object"))
-        else:
-            for field in ("repository", "message", "target"):
-                value = commit.get(field)
-                if not isinstance(value, str) or not value.strip():
-                    issues.append(Issue(path, f"{prefix}.commit.{field}: must be a non-empty string"))
-            if not is_git_entry_path(commit.get("repository")):
-                issues.append(Issue(path, f"{prefix}.commit.repository: must point to a .git filesystem entry"))
-            if "delivered" in commit:
-                delivered = commit.get("delivered")
-                if not isinstance(delivered, str) or not GIT_SHA_PATTERN.fullmatch(delivered):
-                    issues.append(Issue(path, f"{prefix}.commit.delivered: must be a lowercase hex commit sha (7-40 characters) when present"))
-            extra_commit_fields = sorted(set(commit) - COMMIT_REQUIRED_FIELDS - COMMIT_OPTIONAL_FIELDS)
-            for field in extra_commit_fields:
-                issues.append(Issue(path, f"{prefix}.commit.{field}: unknown field"))
-
-    for index, node in enumerate(data):
-        if not isinstance(node, dict):
+        issues.extend(_unknown_fields(path, prefix, requirement, {"code", "statement", "source_refs"}))
+        if requirement.get("code") in requirement_codes:
+            issues.append(_issue(path, prefix + ".code", "duplicate requirement code"))
+        requirement_codes.add(str(requirement.get("code")))
+    architecture = spec.get("architecture")
+    if not _mapping(architecture) or safe_summary_issue(architecture.get("summary")) is not None or not _safe_lines(architecture.get("notes")):
+        issues.append(_issue(path, "spec.architecture", "requires a summary and concrete notes"))
+    else:
+        issues.extend(_unknown_fields(path, "spec.architecture", architecture, {"summary", "notes"}))
+    implemented: set[str] = set()
+    for task in tasks:
+        if not _mapping(task):
             continue
-        for field in ("prerequisites", "next"):
-            refs = node.get(field)
-            if isinstance(refs, list):
-                for ref in refs:
-                    if not isinstance(ref, str):
-                        continue
-                    if not is_manifest_id(ref):
-                        issues.append(
-                            Issue(path, f"node[{index}].{field}: must contain UUID4 node ids")
-                        )
-
-    issues.extend(validate_independent_design_ownership(path, data))
-    issues.extend(validate_delivery_roles(path, data))
-    issues.extend(validate_requirement_traceability(path, data))
-    issues.extend(validate_milestone_gate_contract(path, data))
-    issues.extend(WORKFLOW_STATE_MACHINE.checkpoint_snapshot_issues(path, data))
-    return len(data), issues
-
-
-def dependency_cycle_path(
-    graph: Mapping[str, Sequence[str]],
-) -> list[str] | None:
-    """Return one exact closed cycle path using iterative O(V + E) traversal."""
-    white = 0
-    gray = 1
-    black = 2
-    color: dict[str, int] = {}
-    active_path: list[str] = []
-    active_positions: dict[str, int] = {}
-
-    for root in graph:
-        if color.get(root, white) != white:
-            continue
-
-        color[root] = gray
-        active_positions[root] = len(active_path)
-        active_path.append(root)
-        frames: list[tuple[str, int]] = [(root, 0)]
-
-        while frames:
-            node_id, offset = frames[-1]
-            dependencies = graph.get(node_id, ())
-            if offset >= len(dependencies):
-                frames.pop()
-                color[node_id] = black
-                active_positions.pop(node_id, None)
-                active_path.pop()
-                continue
-
-            dependency = dependencies[offset]
-            frames[-1] = (node_id, offset + 1)
-            if dependency not in graph:
-                continue
-
-            dependency_color = color.get(dependency, white)
-            if dependency_color == white:
-                color[dependency] = gray
-                active_positions[dependency] = len(active_path)
-                active_path.append(dependency)
-                frames.append((dependency, 0))
-                continue
-            if dependency_color == gray:
-                start = active_positions[dependency]
-                return [*active_path[start:], dependency]
-
-    return None
-
-
-def validate_evidence_refs(path: Path, prefix: str, refs: Any) -> list[Issue]:
-    issues: list[Issue] = []
-    if not isinstance(refs, list) or not refs:
-        issues.append(Issue(path, f"{prefix}.evidence_refs: must be a non-empty array of evidence reference objects"))
-        return issues
-
-    for ref_index, ref in enumerate(refs):
-        ref_prefix = f"{prefix}.evidence_refs[{ref_index}]"
-        if not isinstance(ref, dict):
-            issues.append(Issue(path, f"{ref_prefix}: must be an object"))
-            continue
-        ref_type = ref.get("type")
-        if ref_type not in EVIDENCE_REF_TYPES:
-            values = ", ".join(sorted(EVIDENCE_REF_TYPES))
-            issues.append(Issue(path, f"{ref_prefix}.type: must be one of {values}"))
-            continue
-        expected_fields = EVIDENCE_REF_FIELDS[str(ref_type)]
-        for field in sorted(expected_fields - set(ref)):
-            issues.append(Issue(path, f"{ref_prefix}.{field}: missing required field"))
-        for field in sorted(set(ref) - expected_fields):
-            issues.append(Issue(path, f"{ref_prefix}.{field}: unknown field"))
-        recorded_at = ref.get("recorded_at")
-        if "recorded_at" in ref and (not isinstance(recorded_at, str) or not recorded_at.strip()):
-            issues.append(Issue(path, f"{ref_prefix}.recorded_at: must be a non-empty timestamp string"))
-        if ref_type == "file":
-            if "path" in ref and not is_relative_workspace_path(ref.get("path")):
-                issues.append(Issue(path, f"{ref_prefix}.path: must be a safe repository-relative path"))
-            sha256 = ref.get("sha256")
-            if "sha256" in ref and (not isinstance(sha256, str) or not SHA256_PATTERN.fullmatch(sha256)):
-                issues.append(Issue(path, f"{ref_prefix}.sha256: must be a 64-character lowercase hex digest"))
-        else:
-            command_sha256 = ref.get("command_sha256")
-            if "command_sha256" in ref and (
-                not isinstance(command_sha256, str) or not SHA256_PATTERN.fullmatch(command_sha256)
-            ):
-                issues.append(Issue(path, f"{ref_prefix}.command_sha256: must be a 64-character lowercase hex digest"))
-            exit_code = ref.get("exit_code")
-            if "exit_code" in ref and (type(exit_code) is not int or exit_code != 0):
-                issues.append(Issue(path, f"{ref_prefix}.exit_code: must be the integer 0; command evidence must record a passing run"))
-
-    return issues
-
-
-def validate_independent_design_ownership(path: Path, data: Any) -> list[Issue]:
-    if not isinstance(data, list):
-        return []
-
-    graph: dict[str, tuple[str, ...]] = {}
-    designed_nodes: list[dict[str, Any]] = []
-    for node in data:
-        if not isinstance(node, dict) or node.get("role") not in REGRESSION_NODE_ROLES:
-            continue
-        node_id = node.get("id")
-        prerequisites = node.get("prerequisites")
-        design = node.get("design")
-        if not isinstance(node_id, str) or not is_string_list(prerequisites) or not isinstance(design, dict):
-            continue
-        if _validate_design_contract(design):
-            continue
-        graph[node_id] = tuple(prerequisites)
-        designed_nodes.append({"id": node_id, "owned_paths": list(design["owned_paths"])})
-
-    reachability_cache: dict[tuple[str, str], bool] = {}
-
-    def reachable(source: str, target: str) -> bool:
-        key = (source, target)
-        if key in reachability_cache:
-            return reachability_cache[key]
-        stack = list(graph.get(source, ()))
-        visited: set[str] = set()
-        while stack:
-            current = stack.pop()
-            if current == target:
-                reachability_cache[key] = True
-                return True
-            if current in visited:
-                continue
-            visited.add(current)
-            stack.extend(graph.get(current, ()))
-        reachability_cache[key] = False
-        return False
-
-    return [
-        Issue(path, f"delivery design: {message}")
-        for message in independent_ownership_issues(designed_nodes, reachable)
-    ]
-
-
-def validate_delivery_roles(path: Path, data: Any) -> list[Issue]:
-    if not isinstance(data, list):
-        return []
-
-    issues: list[Issue] = []
-    role_indexes: dict[str, list[int]] = {}
-
-    for index, node in enumerate(data):
-        if not isinstance(node, dict):
-            continue
-        role = node.get("role")
-        if isinstance(role, str) and role in VALID_NODE_ROLES:
-            role_indexes.setdefault(role, []).append(index)
-            difficulty = node.get("difficulty")
-            if role in COMPLEX_OR_CRITICAL_REQUIRED_ROLES and difficulty not in {"complex", "critical"}:
-                issues.append(
-                    Issue(
-                        path,
-                        f"node[{index}].difficulty: role {role!r} must use 'complex' or 'critical'",
-                    )
-                )
-
-    first_indexes = {role: indexes[0] for role, indexes in role_indexes.items()}
-    for before, after in zip(FOUNDATION_ROLE_ORDER, FOUNDATION_ROLE_ORDER[1:]):
-        if before in first_indexes and after in first_indexes and first_indexes[before] > first_indexes[after]:
-            issues.append(Issue(path, f"delivery roles: {before!r} must appear before {after!r}"))
-
-    validation_index = first_indexes.get("validation_matrix")
-    for role in ("architecture_scaffold", "implementation"):
-        if validation_index is not None and role in first_indexes and first_indexes[role] < validation_index:
-            issues.append(Issue(path, f"delivery roles: {role!r} must not appear before 'validation_matrix'"))
-
-    implementation_indexes = role_indexes.get("implementation", [])
-    final_validation_indexes = role_indexes.get("final_validation", [])
-    if implementation_indexes and final_validation_indexes:
-        last_implementation = max(implementation_indexes)
-        first_final_validation = min(final_validation_indexes)
-        if first_final_validation < last_implementation:
-            issues.append(Issue(path, "delivery roles: 'final_validation' must appear after implementation nodes"))
-
-    return issues
-
-
-def validate_requirement_traceability(path: Path, data: Any) -> list[Issue]:
-    if not isinstance(data, list):
-        return []
-
-    issues: list[Issue] = []
-    covered: set[str] = set()
-    required: set[str] = set()
-    active_final_validation = False
-
-    for index, node in enumerate(data):
-        if not isinstance(node, dict):
-            continue
-        role = node.get("role")
-        if role not in VALID_NODE_ROLES:
-            continue
-        requirements = node.get("requirements")
-        labels = (
-            {label for label in requirements if is_requirement_label(label)}
-            if is_string_list(requirements)
-            else set()
-        )
-        skipped = node.get("status") == "skipped"
-
-        if role == "final_validation":
-            if not labels:
-                issues.append(Issue(path, f"node[{index}].requirements: final_validation nodes must list the requirement labels they prove"))
-            if not skipped:
-                active_final_validation = True
-                covered |= labels
-            continue
-
-        if role == "implementation":
-            if not labels:
-                description = node.get("description")
-                text = description.lower() if isinstance(description, str) else ""
-                if "enabling" not in text:
-                    issues.append(
-                        Issue(
-                            path,
-                            f"node[{index}].requirements: implementation nodes must list at least one requirement label "
-                            "or describe enabling work in description",
-                        )
-                    )
-            if not skipped:
-                required |= labels
-
-    if active_final_validation:
-        missing = sorted(required - covered)
+        unknown = {str(item) for item in task.get("requirements", []) or []} - requirement_codes
+        if unknown:
+            issues.append(_issue(path, "%s.requirements" % task.get("code"), "unknown requirements %s" % ", ".join(sorted(unknown))))
+        implemented.update(str(item) for item in task.get("requirements", []) or [])
+        missing = TASK_DESIGN_FIELDS - set(task)
         if missing:
-            values = ", ".join(missing)
-            issues.append(Issue(path, f"delivery roles: final_validation must cover requirement label(s): {values}"))
+            issues.append(_issue(path, "%s" % task.get("code"), "readiness requires %s" % ", ".join(sorted(missing))))
+    uncovered = requirement_codes - implemented
+    if uncovered:
+        issues.append(_issue(path, "spec.requirements", "requirements lack implementing Tasks: %s" % ", ".join(sorted(uncovered))))
+    regression = spec.get("full_regression")
+    if not _mapping(regression) or not _string_list(regression.get("commands"), False) or not _relative_paths(regression.get("paths"), False):
+        issues.append(_issue(path, "spec.full_regression", "must contain non-empty commands and relative paths"))
+    else:
+        issues.extend(_unknown_fields(path, "spec.full_regression", regression, {"commands", "paths"}))
+    return issues
 
+
+def validate_checkpoints_document(path: Path, checkpoints: Any, plan: Mapping[str, Any] | None = None) -> list[Issue]:
+    if not _mapping(checkpoints):
+        return [_issue(path, "checkpoints", "top-level value must be an object")]
+    issues = _privacy_issues(path, checkpoints, "checkpoints")
+    if checkpoints.get("schema") != CHECKPOINTS_SCHEMA:
+        issues.append(_issue(path, "checkpoints.schema", "unsupported generation"))
+    issues.extend(
+        _unknown_fields(
+            path,
+            "checkpoints",
+            checkpoints,
+            {"schema", "plan", "revision", "semantic_digest", "delivery_status", "tasks"},
+        )
+    )
+    if not is_code(checkpoints.get("plan"), "PLAN"):
+        issues.append(_issue(path, "checkpoints.plan", "must be a PLAN-* code"))
+    if type(checkpoints.get("revision")) is not int or checkpoints.get("revision") < 1:
+        issues.append(_issue(path, "checkpoints.revision", "must be a positive integer"))
+    if SHA256_PATTERN.fullmatch(str(checkpoints.get("semantic_digest", ""))) is None:
+        issues.append(_issue(path, "checkpoints.semantic_digest", "must be sha256"))
+    if checkpoints.get("delivery_status") not in DELIVERY_STATUSES:
+        issues.append(_issue(path, "checkpoints.delivery_status", "invalid status"))
+    entries = checkpoints.get("tasks")
+    if not isinstance(entries, list):
+        issues.append(_issue(path, "checkpoints.tasks", "must be an array"))
+        entries = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        prefix = "checkpoints.tasks[%d]" % index
+        if not _mapping(entry) or not is_code(entry.get("code"), "TASK") or entry.get("status") not in TASK_STATUSES:
+            issues.append(_issue(path, prefix, "invalid execution state"))
+            continue
+        issues.extend(
+            _unknown_fields(path, prefix, entry, {"code", "status", "dispatch", "evidence", "status_reason"})
+        )
+        missing = {"code", "status", "dispatch", "evidence"} - set(entry)
+        if missing:
+            issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))
+        if entry.get("code") in seen:
+            issues.append(_issue(path, prefix + ".code", "duplicate Task state"))
+        seen.add(str(entry.get("code")))
+        dispatch = entry.get("dispatch")
+        if dispatch is not None and (not _mapping(dispatch) or dispatch.get("phase") not in DISPATCH_PHASES):
+            issues.append(_issue(path, prefix + ".dispatch", "invalid dispatch phase"))
+    if plan is not None:
+        if checkpoints.get("plan") != plan.get("code"):
+            issues.append(_issue(path, "checkpoints.plan", "does not match Plan"))
+        if checkpoints.get("semantic_digest") != semantic_digest(plan):
+            issues.append(_issue(path, "checkpoints.semantic_digest", "stale Plan binding"))
+        sealed = plan.get("lifecycle", {}).get("sealed")
+        if _mapping(sealed) and checkpoints.get("revision") != sealed.get("revision"):
+            issues.append(_issue(path, "checkpoints.revision", "stale Plan binding"))
+        expected = {
+            str(task.get("code")) for task in plan.get("spec", {}).get("tasks", []) if _mapping(task)
+        }
+        if expected != seen:
+            issues.append(_issue(path, "checkpoints.tasks", "must project every Task exactly once"))
+    return issues
+
+
+def authority_expansion_issues(path: Path, prior: Mapping[str, Any], updated: Mapping[str, Any]) -> list[Issue]:
+    """Return changes that cannot inherit an existing authorization."""
+
+    issues: list[Issue] = []
+    for field in ("goal", "scope", "success", "risk_boundary", "autonomy"):
+        if prior.get("intent", {}).get(field) != updated.get("intent", {}).get(field):
+            issues.append(_issue(path, "intent." + field, "continuation may not expand or replace authorized intent"))
+    for name in ("user_decided", "defaulted"):
+        if prior.get("ledger", {}).get(name) != updated.get("ledger", {}).get(name):
+            issues.append(_issue(path, "ledger." + name, "continuation may not alter resolved decisions"))
+    if prior.get("dossier") != updated.get("dossier"):
+        issues.append(_issue(path, "dossier", "continuation may not reopen the Decision Dossier"))
+    prior_risks = {
+        risk
+        for task in prior.get("spec", {}).get("tasks", [])
+        if _mapping(task)
+        for risk in task.get("risks", []) or []
+    }
+    updated_risks = {
+        risk
+        for task in updated.get("spec", {}).get("tasks", [])
+        if _mapping(task)
+        for risk in task.get("risks", []) or []
+    }
+    introduced = (updated_risks - prior_risks) & ELEVATED_RISKS
+    if introduced:
+        issues.append(
+            _issue(path, "spec.tasks", "continuation introduces elevated risks %s" % ", ".join(sorted(introduced)))
+        )
     return issues

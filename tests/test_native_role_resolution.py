@@ -15,12 +15,12 @@ class NativeRoleResolutionTests(unittest.TestCase):
             home = Path(tmpdir)
             agents = home / "agents"
             agents.mkdir()
-            (agents / "worker-critical.toml").write_text(
-                'name = "worker-critical"\nmodel = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"\n',
+            (agents / "worker-complex.toml").write_text(
+                'name = "worker-complex"\nmodel = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"\n',
                 encoding="utf-8",
             )
 
-            selector = resolve_codex_role("worker-critical", home)
+            selector = resolve_codex_role("worker-complex", home)
 
         self.assertIsNotNone(selector)
         assert selector is not None
@@ -32,13 +32,13 @@ class NativeRoleResolutionTests(unittest.TestCase):
             home = Path(tmpdir)
             agents = home / "agents"
             agents.mkdir()
-            (agents / "worker-critical.toml").write_text('name = "worker-critical"\n', encoding="utf-8")
+            (agents / "worker-complex.toml").write_text('name = "worker-complex"\n', encoding="utf-8")
 
-            selector = resolve_codex_role("worker-critical", home)
+            selector = resolve_codex_role("worker-complex", home)
 
         self.assertIsNotNone(selector)
         assert selector is not None
-        self.assertEqual((selector.model, selector.reasoning_effort), ("gpt-5.6-luna", "max"))
+        self.assertEqual((selector.model, selector.reasoning_effort), ("gpt-5.6-sol", "high"))
         self.assertEqual(selector.source, "project-recommendation")
 
     def test_unknown_role_has_no_implicit_selector(self) -> None:
@@ -48,7 +48,7 @@ class NativeRoleResolutionTests(unittest.TestCase):
     def test_missing_installed_and_packaged_roles_return_control_to_main(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            self.assertIsNone(resolve_codex_role("worker-critical", root / "codex", root / "package"))
+            self.assertIsNone(resolve_codex_role("worker-complex", root / "codex", root / "package"))
 
 
 if __name__ == "__main__":

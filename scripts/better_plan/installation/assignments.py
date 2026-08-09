@@ -19,11 +19,6 @@ from ..domain.model_routing import (
     select_worker_agent_from_catalog,
 )
 from ..domain.models import ToolError
-from ..domain.webdev_routing import (
-    WebDevCatalog,
-    load_webdev_catalog,
-    select_webdev_model_from_catalog,
-)
 from .models import InstallPaths as _InstallPaths
 
 
@@ -33,22 +28,17 @@ HOST_HARNESSES = {
     "opencode": "opencode",
     "cursor": "cursor-cli",
 }
-DIFFICULTIES = ("routine", "standard", "complex", "critical")
+DIFFICULTIES = ("standard", "complex")
 INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
     {"designer": "designer", "reviewer": "reviewer"}
 )
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
-VISUAL_ROLES = ("visual-verifier", "visual-reviewer")
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
-        "worker-routine": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
         "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "worker-complex": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "worker-critical": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "visual-verifier": ("visual-verifier", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
+        "worker-complex": ("worker", "gpt-5.6-sol", "high", "codex-gpt-5-6-sol-high"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
-        "visual-reviewer": ("visual-reviewer", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
     }
 )
 CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -59,10 +49,8 @@ CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
 )
 CURSOR_DEFAULT_WORKER_MATRIX: Final[Mapping[str, tuple[str, str, str]]] = MappingProxyType(
     {
-        "worker-routine": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
         "worker-standard": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
         "worker-complex": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
-        "worker-critical": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
     }
 )
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/+-]{1,128}$")
@@ -70,8 +58,6 @@ _TOML_MODEL = re.compile(r'(?m)^model\s*=\s*"([A-Za-z0-9._:/+-]{1,128})"\s*$')
 _TOML_EFFORT = re.compile(r'(?m)^model_reasoning_effort\s*=\s*"([A-Za-z0-9._+-]{1,64})"\s*$')
 _YAML_MODEL = re.compile(r"(?m)^model:\s*['\"]?([A-Za-z0-9._:/+-]{1,128})['\"]?\s*$")
 _YAML_EFFORT = re.compile(r"(?m)^(?:reasoning_effort|model_reasoning_effort):\s*['\"]?([A-Za-z0-9._+-]{1,64})['\"]?\s*$")
-_TOML_SCOPE = re.compile(r'(?m)^better_plan_scope\s*=\s*"(all|visual)"\s*$')
-_YAML_SCOPE = re.compile(r"(?m)^better_plan_scope:\s*['\"]?(all|visual)['\"]?\s*$")
 _EFFORT_SUFFIXES = ("non-reasoning", "minimal", "medium", "xhigh", "high", "low", "max")
 _MODEL_SELECTOR_ALIASES: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
@@ -84,7 +70,6 @@ _MODEL_SELECTOR_ALIASES: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType
 class LocalModel:
     model: str
     reasoning_effort: str | None
-    better_plan_scope: str = "all"
 
 
 @dataclass(frozen=True)
@@ -104,7 +89,6 @@ class RoleAssignment:
 def _codex_default_delivery_assignments(
     agent_catalog: CodingAgentCatalog,
     model_catalog: ModelCatalog,
-    webdev_catalog: WebDevCatalog,
 ) -> dict[str, RoleAssignment]:
     """Resolve Codex defaults against the role-specific packaged benchmarks."""
 
@@ -118,13 +102,6 @@ def _codex_default_delivery_assignments(
                 raise ToolError("the Codex default Worker benchmark is unavailable")
             index_score = benchmark.index_score
             cost_per_task_usd = benchmark.cost_per_task_usd
-        elif role.startswith("visual-"):
-            benchmark = select_webdev_model_from_catalog(
-                webdev_catalog,
-                available_model_ids={benchmark_id},
-            )
-            index_score = round(benchmark.score)
-            cost_per_task_usd = None
         else:
             benchmark = models.get(benchmark_id)
             if benchmark is None:
@@ -139,11 +116,7 @@ def _codex_default_delivery_assignments(
             benchmark_id=benchmark_id,
             index_score=index_score,
             cost_per_task_usd=cost_per_task_usd,
-            source=(
-                "codex-default-webdev"
-                if role.startswith("visual-")
-                else "codex-default-matrix"
-            ),
+            source="codex-default-matrix",
         )
     return assignments
 
@@ -218,7 +191,7 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
         return ()
     excluded = set(excluded_names)
     values: list[LocalModel] = []
-    seen: set[tuple[str, str | None, str]] = set()
+    seen: set[tuple[str, str | None]] = set()
     for path in sorted(directory.iterdir(), key=lambda item: item.name):
         if path.name in excluded or path.is_symlink() or path.suffix not in {".toml", ".md"}:
             continue
@@ -230,18 +203,16 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
             continue
         model_match = _TOML_MODEL.search(text) or _YAML_MODEL.search(text)
         effort_match = _TOML_EFFORT.search(text) or _YAML_EFFORT.search(text)
-        scope_match = _TOML_SCOPE.search(text) or _YAML_SCOPE.search(text)
         if model_match is None:
             continue
         model = model_match.group(1)
         effort = effort_match.group(1) if effort_match is not None else None
-        scope = scope_match.group(1) if scope_match is not None else "all"
         if _SAFE_VALUE.fullmatch(model) is None or (effort is not None and _SAFE_VALUE.fullmatch(effort) is None):
             continue
-        key = (model, effort, scope)
+        key = (model, effort)
         if key not in seen:
             seen.add(key)
-            values.append(LocalModel(model, effort, scope))
+            values.append(LocalModel(model, effort))
     return tuple(values)
 
 
@@ -359,15 +330,10 @@ def select_role_assignments(
         raise ToolError("native role assignments are unavailable for this target")
     agent_catalog = load_coding_agent_catalog()
     model_catalog = load_model_catalog()
-    webdev_catalog = load_webdev_catalog()
     harness_variants = tuple(variant for variant in agent_catalog.variants if variant.harness == harness)
     local_models = _read_local_models(native_role_directory(paths, target), excluded_names)
     if target == "codex" and not local_models:
-        assignments = _codex_default_delivery_assignments(
-            agent_catalog,
-            model_catalog,
-            webdev_catalog,
-        )
+        assignments = _codex_default_delivery_assignments(agent_catalog, model_catalog)
         assignments.update(_codex_finder_assignments())
         return assignments
     if target == "cursor" and not local_models:
@@ -409,11 +375,8 @@ def select_role_assignments(
 
     model_by_id = {model.model_id: model for model in model_catalog.models}
     configs_by_model_id: dict[str, tuple[str, str | None, str]] = {}
-    code_local_models = tuple(model for model in local_models if model.better_plan_scope == "all")
-    visual_local_models = tuple(model for model in local_models if model.better_plan_scope == "visual")
-    visual_candidates = visual_local_models or (code_local_models if target == "codex" else ())
     if local_models:
-        for local in code_local_models:
+        for local in local_models:
             for model_id in _local_model_ids(local, model_by_id):
                 configs_by_model_id.setdefault(
                     model_id,
@@ -449,40 +412,9 @@ def select_role_assignments(
             cost_per_task_usd=None,
             source=assignment_source,
         )
-    visual_configs: dict[str, tuple[str, str | None, str]] = {}
-    for local in visual_candidates:
-        for model_id in _local_model_ids(local, model_by_id):
-            visual_configs.setdefault(
-                model_id,
-                (local.model, local.reasoning_effort, "local-config"),
-            )
-    try:
-        visual_model = select_webdev_model_from_catalog(
-            webdev_catalog,
-            available_model_ids=set(visual_configs),
-        )
-    except ToolError:
-        pass
-    else:
-        configured_model, configured_effort, assignment_source = visual_configs[
-            visual_model.model_id
-        ]
-        for role in VISUAL_ROLES:
-            assignments[role] = RoleAssignment(
-                role=role,
-                agent_name=role,
-                model=configured_model,
-                reasoning_effort=configured_effort,
-                benchmark_id=visual_model.model_id,
-                index_score=round(visual_model.score),
-                cost_per_task_usd=None,
-                source=assignment_source,
-            )
     if target == "codex":
         for agent_name, assignment in _codex_default_delivery_assignments(
-            agent_catalog,
-            model_catalog,
-            webdev_catalog,
+            agent_catalog, model_catalog
         ).items():
             assignments.setdefault(agent_name, assignment)
         assignments.update(_codex_finder_assignments())
