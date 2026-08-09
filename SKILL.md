@@ -172,6 +172,8 @@ dispatch — do not exist. Their absence is part of the v3 contract.
 
 ## Progressive references
 
+- General design principles, only when maintaining or auditing Better Plan itself or resolving a
+  cross-cutting workflow tradeoff: `references/design-principles.md`
 - State formats, lifecycle, and command contracts: `references/state.md`
 - Leaf contracts: `references/designer.md`, `references/worker.md`, `references/reviewer.md`
 - Designer pattern decisions, when a structural choice is non-trivial: `references/design-patterns.md`
