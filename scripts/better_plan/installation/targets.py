@@ -66,6 +66,19 @@ def _native_receipt_path(destination: Path) -> Path:
     return destination.with_name(f"{destination.name}.better-plan.json")
 
 
+def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
+    """Return whether this host already owns any local Better Plan role state."""
+
+    destination = _native_role_directory(paths, target)
+    receipt = _native_receipt_path(destination)
+    if receipt.exists() or receipt.is_symlink():
+        return True
+    return any(
+        (destination / filename).exists() or (destination / filename).is_symlink()
+        for filename in NATIVE_ROLE_FILES[target]
+    )
+
+
 def _content_digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -259,7 +272,10 @@ def install_role_templates(
     *,
     dry_run: bool,
 ) -> list[str]:
-    """Validate and idempotently install only Better Plan's native role files."""
+    """Install a missing matrix once; never mutate existing native role state."""
+
+    if native_role_configuration_exists(paths, target):
+        return [f"native: preserved {target} role templates"]
 
     destination = _native_role_directory(paths, target)
     receipt_path = _native_receipt_path(destination)
@@ -716,7 +732,6 @@ def install_wsl_opencode(
     paths: _InstallPaths,
     *,
     dry_run: bool,
-    preserve_native_roles: bool = False,
 ) -> list[str]:
     wsl = wsl_executable()
     if wsl is None:
@@ -728,10 +743,7 @@ def install_wsl_opencode(
             continue
         source = wsl_source_path(wsl, runtime, paths.repo_root)
         installer = posixpath.join(source, "scripts", "install.py")
-        preserve = " --preserve-native-roles" if preserve_native_roles else ""
-        script = (
-            f"python3 {shlex.quote(installer)} update --agents codex,opencode{preserve}"
-        )
+        script = f"python3 {shlex.quote(installer)} update --agents codex,opencode"
         result = run_wsl_script(wsl, runtime.distro, script, timeout=120)
         if result.returncode != 0:
             raise _InstallError("failed to update Better Plan in the WSL runtime")
@@ -744,17 +756,13 @@ def install_target(
     target: str,
     *,
     dry_run: bool,
-    preserve_native_roles: bool = False,
 ) -> list[str]:
     """Apply only the target-specific side effects for one normalized target."""
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
     role_messages: list[str] = []
     if target in NATIVE_ROLE_FILES:
-        if preserve_native_roles:
-            role_messages.append(f"native: preserved {target} role templates")
-        else:
-            role_messages.extend(install_role_templates(paths, target, dry_run=dry_run))
+        role_messages.extend(install_role_templates(paths, target, dry_run=dry_run))
     if target == "codex":
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
@@ -777,7 +785,6 @@ def install_target(
             *install_wsl_opencode(
                 paths,
                 dry_run=dry_run,
-                preserve_native_roles=preserve_native_roles,
             ),
         ]
     if target == "cursor":

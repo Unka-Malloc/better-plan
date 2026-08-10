@@ -176,7 +176,24 @@ class InstallToolTests(unittest.TestCase):
             for target in ("claude", "opencode", "cursor"):
                 self.assertFalse(native_role_directory(paths, target).exists())
 
-    def test_role_preserving_update_repairs_skill_and_hooks_without_touching_role_receipt(self) -> None:
+    def test_existing_same_name_role_is_never_adopted_or_completed_into_a_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            directory = native_role_directory(paths, "codex")
+            directory.mkdir(parents=True)
+            local_role = directory / "designer.toml"
+            local_role.write_text("local host configuration\n", encoding="utf-8")
+
+            messages = install_service.install_agents(paths, ["codex"], dry_run=False)
+
+            self.assertIn("native: preserved codex role templates", messages)
+            self.assertEqual(local_role.read_text(encoding="utf-8"), "local host configuration\n")
+            self.assertEqual({path.name for path in directory.iterdir()}, {"designer.toml"})
+            self.assertFalse(directory.with_name("agents.better-plan.json").exists())
+            self.assertTrue((paths.shared_skill / "SKILL.md").is_file())
+            self.assertTrue(paths.codex_hooks.is_file())
+
+    def test_update_always_repairs_skill_and_hooks_without_touching_existing_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             install_service.install_agents(paths, ["codex"], dry_run=False)
@@ -211,7 +228,6 @@ class InstallToolTests(unittest.TestCase):
                 paths,
                 ["codex"],
                 dry_run=False,
-                preserve_native_roles=True,
             )
 
             self.assertIn("native: preserved codex role templates", messages)
@@ -223,11 +239,6 @@ class InstallToolTests(unittest.TestCase):
             )
             repaired_hooks = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
             self.assertEqual(set(repaired_hooks["hooks"]), {"SessionStart", "UserPromptSubmit"})
-
-            parsed = install_cli.build_parser().parse_args(
-                ["update", "--agents", "all", "--preserve-native-roles"]
-            )
-            self.assertTrue(parsed.preserve_native_roles)
 
     def test_install_creates_all_current_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -435,7 +446,7 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(any(check.target == "cursor hooks" for check in checks), checks)
             self.assertTrue(any(check.target == "cursor hooks" and check.status == "OK" for check in checks), checks)
 
-    def test_doctor_rejects_tampered_role_matrix(self) -> None:
+    def test_doctor_warns_about_tampered_local_roles_without_repairing_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             install_service.install_agents(paths, ["codex"], dry_run=False)
@@ -444,8 +455,9 @@ class InstallToolTests(unittest.TestCase):
 
             check = install_doctor.check_native_roles(paths, "codex")
 
-            self.assertEqual(check.status, "FAIL")
+            self.assertEqual(check.status, "WARN")
             self.assertEqual(check.target, "codex native roles")
+            self.assertIn("local native roles preserved", check.message)
             self.assertNotIn(tmpdir, check.message)
 
     def test_doctor_accepts_adapter_only_host_when_no_native_role_is_selectable(self) -> None:
@@ -504,12 +516,10 @@ class InstallToolTests(unittest.TestCase):
                     paths,
                     ["opencode"],
                     dry_run=False,
-                    preserve_native_roles=True,
                 )
 
             self.assertTrue(any("updated detected WSL runtime" in message for message in messages), messages)
             self.assertTrue(any("scripts/install.py" in command[-1] for command in commands), commands)
-            self.assertTrue(any("--preserve-native-roles" in command[-1] for command in commands), commands)
 
     def test_opencode_doctor_validates_detected_wsl_runtime_when_windows_path_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

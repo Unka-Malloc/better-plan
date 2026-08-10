@@ -23,15 +23,14 @@
 - Avoid exhaustive permutations of incidental formatting, equivalent invalid inputs, or host
   templates. Add a case only when it protects a user-visible principle or a security/state boundary.
 
-## Native agent replacement
+## Native role immutability
 
-- Treat the current Better Plan native role matrix as the only supported generation and one
-  receipt-managed unit. Do not retain legacy aliases, compatibility adapters, translated receipts,
-  mixed generations, or runtime fallback to an older role shape.
-- Normal install and update remain fail-closed for unowned same-name files. An explicit user request
-  to replace an older Better Plan setup authorizes removing only that setup from the active agent
-  directory and installing the complete current matrix with a fresh receipt.
-- A recoverable copy may be kept solely for manual file recovery; Better Plan must never read,
-  import, restore, or treat it as a compatible configuration. Never displace unrelated local agents.
-- Verify the resulting selectors, receipt inventory, skill structure, and installer Doctor result
-  before reporting success.
+- Treat every existing local native role file and role receipt as immutable host configuration.
+  Better Plan may create its role matrix only when no same-name role configuration or receipt exists.
+- Install, update, Doctor, migration, repair, and explicit replacement requests never authorize
+  Better Plan to edit, remove, adopt, re-sign, or regenerate an existing local role matrix or its
+  receipt. Update only skills, Hooks, plugins, and adapters around it.
+- A receipt mismatch is a report-only Doctor warning. Never recommend replacement as its repair,
+  never convert the current bytes into a fresh receipt, and never displace unrelated local agents.
+- Verify that role files and receipts remain byte-identical across every non-initial installation
+  operation, then report the separate skill, Hook, plugin, and adapter Doctor results.

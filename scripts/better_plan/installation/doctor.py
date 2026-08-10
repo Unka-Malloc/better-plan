@@ -96,7 +96,14 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
 
 def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
     ok, message = _targets.native_role_status(paths, target)
-    return _Check("OK" if ok else "FAIL", f"{target} native roles", message)
+    if ok:
+        status = "OK"
+    elif _targets.native_role_configuration_exists(paths, target):
+        status = "WARN"
+        message = f"local native roles preserved; {message}"
+    else:
+        status = "FAIL"
+    return _Check(status, f"{target} native roles", message)
 
 
 def check_claude(paths: _InstallPaths) -> _Check:

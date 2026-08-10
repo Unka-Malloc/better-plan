@@ -17,7 +17,6 @@ def install_agents(
     agents: list[str],
     *,
     dry_run: bool,
-    preserve_native_roles: bool = False,
 ) -> list[str]:
     """Install selected agents through one deterministic composition path."""
     _skills.validate_source_tree(paths.repo_root)
@@ -50,7 +49,6 @@ def install_agents(
                 paths,
                 agent,
                 dry_run=dry_run,
-                preserve_native_roles=preserve_native_roles,
             )
         )
 

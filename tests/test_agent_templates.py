@@ -12,7 +12,7 @@ from scripts.better_plan.installation.assignments import (
     CODEX_FINDER_MATRIX,
     select_role_assignments,
 )
-from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallError, InstallPaths
+from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallPaths
 from scripts.better_plan.installation.targets import NATIVE_ROLE_FILES, install_role_templates
 
 
@@ -177,6 +177,9 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("fix defects in those invariants once in the framework", guidance)
         self.assertIn("a host adapter owns only behavior imposed by that host's api", guidance)
         self.assertIn("adding or changing one must not alter another host", guidance)
+        self.assertIn("immutable local host configuration", guidance)
+        self.assertIn("explicit replacement request", guidance)
+        self.assertIn("doctor reports the integrity finding as a warning without a repair proposal", guidance)
         self.assertIn("fork_turns", guidance)
         self.assertIn("codex has no better plan completion hook", guidance)
 
@@ -405,7 +408,7 @@ class AgentTemplateTests(unittest.TestCase):
             for role in DELIVERY_ROLE_NAMES:
                 self.assertEqual(assignments[role].source, "codex-default-matrix")
 
-    def test_obsolete_receipt_is_rejected_without_translation(self) -> None:
+    def test_obsolete_receipt_is_reported_without_translation_or_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             install_paths = paths(Path(tmpdir))
             install_role_templates(install_paths, "codex", dry_run=False)
@@ -417,8 +420,11 @@ class AgentTemplateTests(unittest.TestCase):
                 receipt["assignments"].pop(filename)
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
-            with self.assertRaises(InstallError):
-                install_role_templates(install_paths, "codex", dry_run=False)
+            before = receipt_path.read_bytes()
+            messages = install_role_templates(install_paths, "codex", dry_run=False)
+
+            self.assertEqual(messages, ["native: preserved codex role templates"])
+            self.assertEqual(receipt_path.read_bytes(), before)
 
     def test_update_keeps_the_original_assignment_even_if_new_local_models_appear(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
