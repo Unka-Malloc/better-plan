@@ -278,6 +278,18 @@ changed repository-relative paths plus focused evidence.
 Bind each Worker agent id to exactly one dispatch using `bind-agent`. A spawn result is not a
 completion signal. Record a Worker only when its exact final callback arrives:
 
+For Codex, spawn every configured role with `fork_turns` set to `none`; a full-history fork inherits
+the parent role and is incompatible with `agent_type`. Use a unique lower-snake `task_name` for each
+attempt, dispatch no more children than the currently available collaboration slots, and never
+substitute a generic `worker` for either Better Plan Worker tier.
+
+Pass the canonical task name returned by Codex spawn, such as `/root/backend_worker`, unchanged to
+both `bind-agent` and `agent-complete`. Better Plan recognizes that narrow form as a host identity;
+do not replace `/` with punctuation, use the UI thread UUID, or invent a second correlation id.
+Codex completion is parent-driven: wait for that task's exact final callback and then invoke
+`agent-complete`. Do not install or rely on a Codex completion Hook because its subagent-stop UUID
+cannot be correlated safely with the returned canonical task name.
+
 ```sh
 python3 scripts/manifest_tool.py agent-complete <root> \
   --plan <plan> \

@@ -176,6 +176,59 @@ class InstallToolTests(unittest.TestCase):
             for target in ("claude", "opencode", "cursor"):
                 self.assertFalse(native_role_directory(paths, target).exists())
 
+    def test_role_preserving_update_repairs_skill_and_hooks_without_touching_role_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            role = native_role_directory(paths, "codex") / "worker-complex.toml"
+            receipt = native_role_directory(paths, "codex").with_name(
+                "agents.better-plan.json"
+            )
+            role.write_text("locally modified role\n", encoding="utf-8")
+            role_before = role.read_bytes()
+            receipt_before = receipt.read_bytes()
+            (paths.shared_skill / "SKILL.md").write_text("stale skill\n", encoding="utf-8")
+
+            hooks = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            hooks["hooks"]["PostToolUse"] = [
+                {
+                    "matcher": "^Agent$",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_config.hook_command("codex", "agent-complete"),
+                            "timeout": hook_config.HOOK_TIMEOUT_SECONDS,
+                        }
+                    ],
+                }
+            ]
+            paths.codex_hooks.write_text(
+                json.dumps(hooks, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            messages = install_service.install_agents(
+                paths,
+                ["codex"],
+                dry_run=False,
+                preserve_native_roles=True,
+            )
+
+            self.assertIn("native: preserved codex role templates", messages)
+            self.assertEqual(role.read_bytes(), role_before)
+            self.assertEqual(receipt.read_bytes(), receipt_before)
+            self.assertEqual(
+                (paths.shared_skill / "SKILL.md").read_bytes(),
+                (REPO_ROOT / "SKILL.md").read_bytes(),
+            )
+            repaired_hooks = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
+            self.assertEqual(set(repaired_hooks["hooks"]), {"SessionStart", "UserPromptSubmit"})
+
+            parsed = install_cli.build_parser().parse_args(
+                ["update", "--agents", "all", "--preserve-native-roles"]
+            )
+            self.assertTrue(parsed.preserve_native_roles)
+
     def test_install_creates_all_current_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
@@ -208,13 +261,13 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue(paths.codex_hooks.is_file())
             self.assertTrue(paths.claude_settings.is_file())
             self.assertTrue((paths.cursor_home / "hooks.json").is_file())
-            self.assertEqual(paths.codex_hooks.read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
+            self.assertEqual(paths.codex_hooks.read_text(encoding="utf-8").count("--managed-by better-plan"), 2)
             self.assertEqual(paths.claude_settings.read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
             self.assertEqual((paths.cursor_home / "hooks.json").read_text(encoding="utf-8").count("--managed-by better-plan"), 3)
             codex = json.loads(paths.codex_hooks.read_text(encoding="utf-8"))
             claude = json.loads(paths.claude_settings.read_text(encoding="utf-8"))
             cursor = json.loads((paths.cursor_home / "hooks.json").read_text(encoding="utf-8"))
-            self.assertEqual(set(codex["hooks"]), {"SessionStart", "UserPromptSubmit", "PostToolUse"})
+            self.assertEqual(set(codex["hooks"]), {"SessionStart", "UserPromptSubmit"})
             self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "SubagentStop"})
             self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
             self.assertTrue((paths.opencode_agent).is_file())
@@ -264,7 +317,6 @@ class InstallToolTests(unittest.TestCase):
             managed_commands = [
                 codex["hooks"]["SessionStart"][0]["hooks"][0]["command"],
                 codex["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
-                codex["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
                 claude["hooks"]["SessionStart"][0]["hooks"][0]["command"],
                 claude["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
                 claude["hooks"]["SubagentStop"][0]["hooks"][0]["command"],
@@ -448,10 +500,16 @@ class InstallToolTests(unittest.TestCase):
                         side_effect=fake_run,
                     )
                 )
-                messages = install_service.install_agents(paths, ["opencode"], dry_run=False)
+                messages = install_service.install_agents(
+                    paths,
+                    ["opencode"],
+                    dry_run=False,
+                    preserve_native_roles=True,
+                )
 
             self.assertTrue(any("updated detected WSL runtime" in message for message in messages), messages)
             self.assertTrue(any("scripts/install.py" in command[-1] for command in commands), commands)
+            self.assertTrue(any("--preserve-native-roles" in command[-1] for command in commands), commands)
 
     def test_opencode_doctor_validates_detected_wsl_runtime_when_windows_path_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -809,7 +867,7 @@ command = "notify"
                 install_service.install_agents(paths, ["codex", "claude", "cursor"], dry_run=False)
 
             expected_counts = {
-                paths.codex_hooks: 3,
+                paths.codex_hooks: 2,
                 paths.claude_settings: 3,
                 cursor_hooks: 3,
             }
@@ -1013,14 +1071,17 @@ command = "notify"
 
             for agent, path in [("codex", paths.codex_hooks), ("claude", paths.claude_settings)]:
                 handlers = hook_config.nested_handlers(agent)
-                completion_event = "PostToolUse" if agent == "codex" else "SubagentStop"
+                completion_event = "SubagentStop" if agent == "claude" else None
+                expected_events = {"SessionStart", "UserPromptSubmit"}
+                if completion_event is not None:
+                    expected_events.add(completion_event)
                 self.assertEqual(
                     set(handlers.keys()),
-                    {"SessionStart", "UserPromptSubmit", completion_event},
+                    expected_events,
                 )
                 for event, groups in handlers.items():
                     self.assertEqual(len(groups), 1)
-                    if event == completion_event:
+                    if completion_event is not None and event == completion_event:
                         self.assertEqual(groups[0]["matcher"], "^Agent$")
                     else:
                         self.assertNotIn("matcher", groups[0])
@@ -1072,7 +1133,7 @@ command = "notify"
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             required_events = {
-                "codex": ["SessionStart", "UserPromptSubmit", "PostToolUse"],
+                "codex": ["SessionStart", "UserPromptSubmit"],
                 "claude": ["SessionStart", "UserPromptSubmit", "SubagentStop"],
                 "cursor": ["sessionStart", "beforeSubmitPrompt", "postToolUse"],
             }

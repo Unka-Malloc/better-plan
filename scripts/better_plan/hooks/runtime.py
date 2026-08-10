@@ -16,7 +16,6 @@ from . import context, scope
 EVENTS = ("session-start", "prompt-submit", "agent-complete")
 MANAGED_BY = "better-plan"
 SUBAGENT_EVENTS = {"subagentstart", "subagentstop"}
-AGENT_TOOL_NAMES = frozenset({"agent", "task"})
 
 
 def nonempty_string(value: Any) -> bool:
@@ -45,7 +44,7 @@ def detected_manifest(payload: dict[str, Any]) -> Path | None:
 def handle_session_start(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
     if is_subagent_lifecycle(payload):
         return {}
-    if agent == "antigravity" and payload.get("invocationNum") != 0:
+    if not protocols.accepts_event(agent, "session-start", payload):
         return {}
     if detected_manifest(payload) is None:
         return {}
@@ -55,65 +54,26 @@ def handle_session_start(agent: str, payload: dict[str, Any]) -> dict[str, Any] 
 def handle_prompt_submit(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
     if is_subagent_lifecycle(payload):
         return {}
+    if not protocols.accepts_event(agent, "prompt-submit", payload):
+        return {}
     if detected_manifest(payload) is None:
         return {}
-    if agent == "cursor":
-        return protocols.prompt_allow_response(agent)
     return protocols.context_response(agent, "prompt-submit", context.prompt_context())
 
 
-def is_subagent_stop(payload: dict[str, Any]) -> bool:
-    """Return True only for an unambiguous subagent-stop lifecycle signal."""
-    event_name = payload.get("hook_event_name")
-    if nonempty_string(event_name):
-        normalized = str(event_name).replace("_", "").replace("-", "").lower()
-        if normalized in {"subagentstop"}:
-            return True
-        if normalized in {"subagentstart"}:
-            return False
-    # Claude PostToolUse:Agent payloads can include child identity metadata,
-    # but they do not prove that the child has stopped.  Only the explicit
-    # SubagentStop protocol event is a final signal.
-    return False
-
-
 def handle_agent_complete(agent: str, payload: dict[str, Any]) -> dict[str, Any] | str:
-    if agent == "claude":
-        # Claude Code's PostToolUse:Agent hook fires for every Agent tool use,
-        # including asynchronous launches, and cannot distinguish a completed
-        # leaf from one still running. Only an unambiguous subagent-stop
-        # signal may advance the lifecycle.
-        if not is_subagent_stop(payload):
-            return {}
-    else:
-        tool_name = payload.get("agent_name") if agent == "kimi" else payload.get("tool_name")
-        if not nonempty_string(tool_name):
-            return {}
-        normalized_tool = str(tool_name).replace("_", "").replace("-", "").lower()
-        if agent != "kimi" and normalized_tool not in AGENT_TOOL_NAMES:
-            return {}
+    signal = protocols.completion_signal(agent, payload)
+    if signal is None:
+        return {}
     manifest = detected_manifest(payload)
     if manifest is None:
         return {}
-    agent_id = payload.get("agent_id")
-    final = payload.get("final")
-    if not nonempty_string(agent_id) or type(final) is not bool or final is not True:
-        return {}
-    # Native hosts are not consistent about exposing the Better Plan target.
-    # When present, carry it through as a hard correlation constraint; when
-    # absent, the reducer finds one uniquely bound active dispatch by child ID.
-    expected_target_id = payload.get("target_id") if "target_id" in payload else None
-    expected_dispatch_id = payload.get("dispatch_id") if "dispatch_id" in payload else None
-    if "target_id" in payload and not nonempty_string(expected_target_id):
-        return {}
-    if "dispatch_id" in payload and not nonempty_string(expected_dispatch_id):
-        return {}
     directive = reduce_agent_completion(
         manifest,
-        agent_id=str(agent_id),
-        final=final,
-        target_id=str(expected_target_id) if expected_target_id is not None else None,
-        dispatch_id=str(expected_dispatch_id) if expected_dispatch_id is not None else None,
+        agent_id=signal.agent_id,
+        final=True,
+        target_id=signal.target_id,
+        dispatch_id=signal.dispatch_id,
     )
     if directive is None:
         return {}
@@ -170,6 +130,6 @@ def hook_main() -> int:
     response = safe_handle_event(args.agent, args.event, payload)
     if isinstance(response, str):
         print(response)
-    elif args.agent != "kimi" or response:
+    elif response or protocols.emit_empty_response(args.agent):
         print(json.dumps(response, ensure_ascii=False))
     return 0

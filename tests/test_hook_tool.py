@@ -11,6 +11,8 @@ from pathlib import Path
 
 from scripts.better_plan.hooks import context as hook_context
 from scripts.better_plan.hooks import protocols
+from scripts.better_plan.hooks import runtime as hook_runtime
+from scripts.better_plan.hooks import adapters as hook_adapters
 from tests.v3_fixtures import complete_plan, write_workspace
 
 
@@ -134,7 +136,7 @@ class HookToolTests(unittest.TestCase):
     def test_protocol_event_inventory_is_exact(self) -> None:
         self.assertEqual(
             dict(protocols.host_events("codex")),
-            {"SessionStart": "session-start", "UserPromptSubmit": "prompt-submit", "PostToolUse": "agent-complete"},
+            {"SessionStart": "session-start", "UserPromptSubmit": "prompt-submit"},
         )
         self.assertEqual(
             dict(protocols.host_events("claude")),
@@ -147,6 +149,57 @@ class HookToolTests(unittest.TestCase):
         self.assertEqual(
             dict(protocols.host_events("kimi")),
             {"SessionStart": "session-start", "UserPromptSubmit": "prompt-submit", "SubagentStop": "agent-complete"},
+        )
+
+    def test_codex_completion_hook_is_unsupported_and_fails_closed(self) -> None:
+        payload = {
+            "hook_event_name": "SubagentStop",
+            "cwd": "/not/a/workspace",
+            "agent_id": "child-thread-uuid",
+            "agent_type": "worker-standard",
+            "tool_name": "Agent",
+            "final": True,
+        }
+
+        self.assertNotIn("agent-complete", protocols.host_events("codex").values())
+        self.assertIsNone(protocols.event_matcher("codex", "agent-complete"))
+        self.assertEqual(hook_runtime.safe_handle_event("codex", "agent-complete", payload), {})
+        with self.assertRaises(protocols.HookProtocolError):
+            protocols.context_response("codex", "agent-complete", "ignored")
+
+    def test_each_host_owns_its_completion_protocol_in_one_adapter(self) -> None:
+        self.assertEqual(
+            set(hook_adapters.BY_NAME),
+            {"codex", "claude", "cursor", "antigravity", "kimi"},
+        )
+        for name, adapter in hook_adapters.BY_NAME.items():
+            with self.subTest(agent=name):
+                self.assertEqual(adapter.context_encoder.__module__.rsplit(".", 1)[-1], name)
+
+        common = {"agent_id": "child-1", "final": True}
+        self.assertIsNone(
+            protocols.completion_signal(
+                "codex", {**common, "hook_event_name": "SubagentStop"}
+            )
+        )
+        self.assertIsNone(
+            protocols.completion_signal(
+                "claude", {**common, "hook_event_name": "PostToolUse"}
+            )
+        )
+        self.assertEqual(
+            protocols.completion_signal(
+                "claude", {**common, "hook_event_name": "SubagentStop"}
+            ).agent_id,
+            "child-1",
+        )
+        self.assertEqual(
+            protocols.completion_signal("cursor", {**common, "tool_name": "Agent"}).agent_id,
+            "child-1",
+        )
+        self.assertEqual(
+            protocols.completion_signal("kimi", {**common, "agent_name": "worker"}).agent_id,
+            "child-1",
         )
 
     def test_completion_context_names_task_target_and_single_sessions(self) -> None:

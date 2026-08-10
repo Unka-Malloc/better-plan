@@ -84,7 +84,10 @@ ELEVATED_RISKS = frozenset(
 VALID_RISKS = ELEVATED_RISKS | {"observability", "quality"}
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-OPAQUE_EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# Host identities are opaque framework values. Preserve the exact returned
+# token while bounding its size and character set; slash namespaces are not
+# filesystem paths merely because one host renders them that way.
+OPAQUE_EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 CODE_PATTERN = re.compile(r"^(?:PLAN|REQ|TASK|NODE|OUT|AC|Q|DEC)-[A-Z0-9][A-Z0-9-]*$")
 OPTION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
