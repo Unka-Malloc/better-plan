@@ -6,6 +6,7 @@ import json
 import hashlib
 import os
 import posixpath
+import re
 import shlex
 import shutil
 import subprocess
@@ -37,6 +38,10 @@ NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
     "cursor": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
 }
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
+_OPENCODE_NO_TEMPERATURE = frozenset(
+    {"opencode-go/gpt-5.6-luna", "opencode-go/kimi-k3"}
+)
+_SAFE_OPENCODE_SELECTOR = re.compile(r"opencode-go/[A-Za-z0-9._+-]{1,128}")
 
 
 def _native_role_directory(paths: _InstallPaths, target: str) -> Path:
@@ -199,8 +204,11 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
 
 def _render_native_source(target: str, source: str, assignment: _RoleAssignment) -> bytes:
     effort = assignment.reasoning_effort or "host-default"
-    if assignment.role == "worker":
+    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
         basis = "Coding Agent"
+        measurement = f"score={assignment.index_score}"
+    elif assignment.role == "worker":
+        basis = "Intelligence Index proxy"
         measurement = f"score={assignment.index_score}"
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
@@ -229,6 +237,16 @@ def _render_native_source(target: str, source: str, assignment: _RoleAssignment)
         if assignment.reasoning_effort is not None:
             selector += f'model_reasoning_effort = "{assignment.reasoning_effort}"\n'
         rendered = rendered[:position] + selector + rendered[position:]
+    elif target == "opencode":
+        if assignment.model in _OPENCODE_NO_TEMPERATURE:
+            rendered = re.sub(r"(?m)^temperature:\s*[^\n]+\n", "", rendered, count=1)
+        closing = rendered.find("\n---\n", 4)
+        if closing < 0:
+            raise _InstallError("native role template source is missing or malformed")
+        selector = f"\nmodel: {assignment.model}"
+        if assignment.reasoning_effort is not None:
+            selector += f"\nreasoningEffort: {assignment.reasoning_effort}"
+        rendered = rendered[:closing] + selector + rendered[closing:]
     else:
         closing = rendered.find("\n---\n", 4)
         if closing < 0:
@@ -240,6 +258,25 @@ def _render_native_source(target: str, source: str, assignment: _RoleAssignment)
     return rendered.encode("utf-8")
 
 
+def opencode_model_selectors() -> frozenset[str]:
+    """Return bounded public OpenCode Go model selectors from the local runtime."""
+
+    opencode = shutil.which("opencode")
+    if opencode is None:
+        return frozenset()
+    try:
+        result = run_text_command([opencode, "models", "opencode-go"], timeout=30)
+    except _InstallError:
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    return frozenset(
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.startswith("opencode-go/") and _SAFE_OPENCODE_SELECTOR.fullmatch(line.strip())
+    )
+
+
 def _native_payload(
     paths: _InstallPaths,
     target: str,
@@ -248,7 +285,14 @@ def _native_payload(
     sources = _validate_native_sources(paths, target)
     if receipt is None:
         try:
-            assignments = _select_role_assignments(paths, target, excluded_names=NATIVE_ROLE_FILES[target])
+            assignments = _select_role_assignments(
+                paths,
+                target,
+                excluded_names=NATIVE_ROLE_FILES[target],
+                available_model_selectors=(
+                    opencode_model_selectors() if target == "opencode" else None
+                ),
+            )
         except ToolError as exc:
             raise _InstallError("native role assignments could not be selected") from exc
     else:
@@ -374,9 +418,12 @@ def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssign
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
     effort = assignment.reasoning_effort or "host-default"
-    if assignment.role == "worker":
+    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
         basis = "Coding Agent"
         metric = f"score {assignment.index_score}, cost ${assignment.cost_per_task_usd:.2f}/task"
+    elif assignment.role == "worker":
+        basis = "Intelligence Index proxy"
+        metric = f"score {assignment.index_score}, price ignored"
     elif assignment.role == "finder":
         basis = "Codex read-only utility"
         metric = "fixed selector"
@@ -403,6 +450,9 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
                 paths,
                 target,
                 excluded_names=NATIVE_ROLE_FILES[target],
+                available_model_selectors=(
+                    opencode_model_selectors() if target == "opencode" else None
+                ),
             )
         except ToolError:
             return False, "native role selection could not be verified"

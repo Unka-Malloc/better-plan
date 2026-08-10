@@ -6,10 +6,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from scripts.better_plan.installation import targets as install_targets
 from scripts.better_plan.installation.assignments import (
     CODEX_DEFAULT_MATRIX,
     CODEX_FINDER_MATRIX,
+    OPENCODE_GO_DEFAULT_MATRIX,
     select_role_assignments,
 )
 from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallPaths
@@ -49,6 +52,9 @@ CATALOG_PATTERNS = (
     "Strategy",
     "Template Method",
     "Visitor",
+)
+OPENCODE_GO_SELECTORS = frozenset(
+    values[1] for values in OPENCODE_GO_DEFAULT_MATRIX.values()
 )
 
 
@@ -479,6 +485,54 @@ class AgentTemplateTests(unittest.TestCase):
             self.assertTrue(
                 all(assignments[role].benchmark_id == "muse-spark-1-1" for role in ("designer", "reviewer"))
             )
+
+    def test_callable_opencode_go_defaults_create_the_complete_role_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_paths = paths(Path(tmpdir))
+            directory = install_paths.opencode_config / "agents"
+            directory.mkdir(parents=True)
+            (directory / "user-agent.md").write_text(
+                "---\nmodel: opencode-go/unmeasured-local-model\nmode: subagent\n---\n",
+                encoding="utf-8",
+            )
+
+            assignments = select_role_assignments(
+                install_paths,
+                "opencode",
+                available_model_selectors=OPENCODE_GO_SELECTORS,
+            )
+
+            self.assertEqual(set(assignments), DELIVERY_ROLE_NAMES)
+            self.assertEqual(assignments["designer"].model, "opencode-go/kimi-k3")
+            self.assertEqual(assignments["worker-standard"].model, "opencode-go/deepseek-v4-flash")
+            self.assertEqual(assignments["worker-complex"].model, "opencode-go/gpt-5.6-luna")
+            self.assertEqual(assignments["reviewer"].model, "opencode-go/kimi-k3")
+            self.assertTrue(
+                all(value.source == "opencode-go-default-matrix" for value in assignments.values())
+            )
+
+    def test_opencode_go_templates_use_native_options_and_model_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            install_paths = paths(Path(tmpdir))
+            with mock.patch.object(
+                install_targets,
+                "opencode_model_selectors",
+                return_value=OPENCODE_GO_SELECTORS,
+            ):
+                install_role_templates(install_paths, "opencode", dry_run=False)
+
+            directory = install_paths.opencode_config / "agents"
+            designer = (directory / "designer.md").read_text(encoding="utf-8")
+            standard = (directory / "worker-standard.md").read_text(encoding="utf-8")
+            complex_worker = (directory / "worker-complex.md").read_text(encoding="utf-8")
+            reviewer = (directory / "reviewer.md").read_text(encoding="utf-8")
+            for text in (designer, standard, complex_worker, reviewer):
+                self.assertIn("reasoningEffort:", text)
+                self.assertNotRegex(text, r"(?m)^reasoning_effort:")
+            self.assertNotIn("temperature:", designer)
+            self.assertIn("temperature: 0.1", standard)
+            self.assertNotIn("temperature:", complex_worker)
+            self.assertNotIn("temperature:", reviewer)
 
 
 if __name__ == "__main__":
