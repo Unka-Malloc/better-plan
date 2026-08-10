@@ -617,6 +617,49 @@ class V3WorkflowTests(unittest.TestCase):
         phases = {item["code"]: item["dispatch"]["phase"] for item in checkpoints["tasks"]}
         self.assertEqual(phases, {"TASK-001": "awaiting_acceptance", "TASK-002": "worker_running"})
 
+    def test_slash_namespaced_host_id_binds_and_completes_exactly(self) -> None:
+        self.design_and_authorize()
+        dispatched = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
+        agent = "/root/vityo_backend"
+
+        rejected = self.cli(
+            "bind-agent",
+            "TASK-001",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            dispatched["dispatch_id"],
+            "--agent-id",
+            "/root/not an opaque id",
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("must be an opaque host identifier", rejected.stderr)
+
+        self.cli(
+            "bind-agent",
+            "TASK-001",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            dispatched["dispatch_id"],
+            "--agent-id",
+            agent,
+        )
+        checkpoints_path = self.root / "delivery" / "Checkpoints.json"
+        checkpoints = json.loads(checkpoints_path.read_text(encoding="utf-8"))
+        self.assertEqual(checkpoints["tasks"][0]["dispatch"]["host_agent_id"], agent)
+        self.cli("validate", str(self.root))
+
+        returned = self.payload(
+            "agent-complete", str(self.root), "--plan", PLAN, "--agent-id", agent, "--final"
+        )
+        self.assertEqual(returned["task"], "TASK-001")
+        checkpoints = json.loads(checkpoints_path.read_text(encoding="utf-8"))
+        self.assertEqual(checkpoints["tasks"][0]["dispatch"]["phase"], "awaiting_acceptance")
+
     def test_independent_task_acceptance_runs_concurrently_outside_the_workspace_lock(self) -> None:
         barrier = self.root / "acceptance_barrier.py"
         barrier.write_text(

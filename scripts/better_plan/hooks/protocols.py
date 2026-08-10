@@ -1,61 +1,24 @@
-"""Host-specific guidance event names and response encoders."""
+"""Stable facade over isolated native-host Hook adapters."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from types import MappingProxyType
 from typing import Any
 
-
-AGENTS = ("codex", "claude", "cursor", "antigravity", "kimi")
-NESTED_CONFIG_AGENTS = frozenset({"codex", "claude"})
-HOST_EVENTS: dict[str, dict[str, str]] = {
-    "codex": {
-        "SessionStart": "session-start",
-        "UserPromptSubmit": "prompt-submit",
-        "PostToolUse": "agent-complete",
-    },
-    "claude": {
-        "SessionStart": "session-start",
-        "UserPromptSubmit": "prompt-submit",
-        "SubagentStop": "agent-complete",
-    },
-    "cursor": {
-        "sessionStart": "session-start",
-        "beforeSubmitPrompt": "prompt-submit",
-        "postToolUse": "agent-complete",
-    },
-    "antigravity": {
-        "PreInvocation": "session-start",
-    },
-    "kimi": {
-        "SessionStart": "session-start",
-        "UserPromptSubmit": "prompt-submit",
-        "SubagentStop": "agent-complete",
-    },
-}
-AGENT_COMPLETION_MATCHERS = {
-    "codex": "^Agent$",
-    "claude": "^Agent$",
-    "cursor": "^(Agent|Task)$",
-}
-COMPLETION_HOST_EVENTS = {
-    "codex": "PostToolUse",
-    "claude": "SubagentStop",
-    "cursor": "postToolUse",
-    "kimi": "SubagentStop",
-}
+from . import adapters
 
 
-class HookProtocolError(ValueError):
-    """Raised when a lifecycle response cannot be encoded for a host."""
+AGENTS = tuple(adapter.name for adapter in adapters.ADAPTERS)
+NESTED_CONFIG_AGENTS = frozenset(
+    adapter.name for adapter in adapters.ADAPTERS if adapter.config_shape == "nested-json"
+)
+HookProtocolError = adapters.HookProtocolError
 
 
 def host_events(agent: str) -> Mapping[str, str]:
     """Return the immutable-by-contract event mapping for one current host."""
-    if agent not in AGENTS:
-        raise HookProtocolError(f"unknown agent: {agent}")
-    return MappingProxyType(HOST_EVENTS[agent].copy())
+
+    return adapters.get(agent).host_events()
 
 
 def context_response(
@@ -64,67 +27,62 @@ def context_response(
     value: str,
     host_event_name: str | None = None,
 ) -> dict[str, Any] | str:
-    """Encode bounded lifecycle context for one host."""
-    host_events(agent)
+    """Encode bounded lifecycle context with exactly one host adapter."""
+
     if event not in {"session-start", "prompt-submit", "agent-complete"}:
         raise HookProtocolError(f"unsupported event: {event}")
-    if event == "session-start":
-        if agent == "kimi":
-            return value
-        if agent == "antigravity":
-            return {"injectSteps": [{"ephemeralMessage": value}]}
-        if agent == "cursor":
-            return {"additional_context": value}
-        if agent in {"codex", "claude"}:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": value,
-                }
-            }
-    if event == "prompt-submit":
-        if agent == "kimi":
-            return value
-        if agent in {"codex", "claude"}:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "UserPromptSubmit",
-                    "additionalContext": value,
-                }
-            }
-        if agent == "cursor":
-            raise HookProtocolError("cursor prompt-submit must be handled by prompt_allow_response")
-    if event == "agent-complete":
-        if agent == "kimi":
-            return value
-        if agent == "cursor":
-            return {"additional_context": value}
-        if agent in {"codex", "claude"}:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": (
-                        host_event_name
-                        if isinstance(host_event_name, str) and host_event_name.strip()
-                        else COMPLETION_HOST_EVENTS[agent]
-                    ),
-                    "additionalContext": value,
-                }
-            }
-    raise HookProtocolError(f"unsupported event for {agent}: {event}")
+    return adapters.get(agent).context_response(event, value, host_event_name)
 
 
 def event_matcher(agent: str, normalized_event: str) -> str | None:
-    """Return the narrow native matcher for an event, when one is required."""
-    host_events(agent)
-    if normalized_event == "agent-complete":
-        return AGENT_COMPLETION_MATCHERS.get(agent)
-    return None
+    """Return the narrow native matcher for a configured completion event."""
+
+    adapter = adapters.get(agent)
+    if normalized_event not in adapter.host_events().values():
+        return None
+    return adapter.completion_matcher if normalized_event == "agent-complete" else None
 
 
 def prompt_allow_response(agent: str) -> dict[str, Any]:
-    """Return the explicit non-blocking prompt response required by a host."""
-    if agent == "cursor":
-        return {"continue": True}
-    if agent in {"codex", "claude"}:
-        return {}
-    raise HookProtocolError(f"unknown agent: {agent}")
+    """Return the explicit non-blocking prompt response required by one host."""
+
+    return adapters.get(agent).prompt_allow_response()
+
+
+def completion_signal(
+    agent: str,
+    payload: Mapping[str, Any],
+) -> adapters.CompletionSignal | None:
+    """Normalize one host-native final callback, or fail closed."""
+
+    return adapters.get(agent).completion_signal(payload)
+
+
+def accepts_event(agent: str, event: str, payload: Mapping[str, Any]) -> bool:
+    """Apply only the selected host's native event filter."""
+
+    return adapters.get(agent).accepts_event(event, payload)
+
+
+def config_shape(agent: str) -> str:
+    """Return the selected host's native configuration shape."""
+
+    return adapters.get(agent).config_shape
+
+
+def emit_empty_response(agent: str) -> bool:
+    """Return whether the host requires an explicit empty JSON response."""
+
+    return adapters.get(agent).emit_empty_response
+
+
+def skill_root_expressions(agent: str) -> tuple[str, ...]:
+    """Return only the selected host's portable skill discovery expressions."""
+
+    return adapters.get(agent).skill_root_expressions
+
+
+def missing_skill_response(agent: str) -> str:
+    """Return the selected host's safe launcher fallback expression."""
+
+    return adapters.get(agent).missing_skill_response

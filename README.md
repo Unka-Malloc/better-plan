@@ -94,9 +94,14 @@ agents. An explicit replacement removes only an older Better Plan generation, in
 current matrix, and creates a fresh receipt.
 
 ```sh
-python3 scripts/install.py install --agent codex
-python3 scripts/install.py doctor --agent codex
+python3 scripts/install.py install --agents codex
+python3 scripts/install.py doctor --agents codex
+python3 scripts/install.py update --agents all --preserve-native-roles
 ```
+
+Use `--preserve-native-roles` when updating skills, Hooks, and adapters without changing native role
+files or their receipts. Host-neutral lifecycle invariants remain in the framework; only native API,
+event, payload, response, and configuration differences live in isolated host adapters.
 
 Codex, Claude Code, OpenCode, Cursor, Copilot, Antigravity, Kimi, and supported plugin targets use
 their native role and Hook formats. Installed selectors remain authoritative; package selectors are

@@ -170,6 +170,11 @@ plan never enters a rewording loop. Command output is never persisted: only
 redacted deterministically; a bounded safe failure tail is emitted ephemerally to the operator and
 Reviewer brief, never written into Plan or Checkpoints.
 
+Slash-namespaced host identities, including Codex canonical task names such as
+`/root/<task_name>`, are opaque correlation tokens rather than filesystem paths. They are allowed
+only as `host_agent_id` values and must be stored and matched unchanged; the same text remains
+forbidden in every semantic, diagnostic, and report field.
+
 Declared-path fingerprints are receipts, never gates. A path a Task has not produced yet is recorded
 as absent, so a greenfield Task dispatches and completes normally; only symlinks and non-relative
 paths are hard errors.
@@ -216,3 +221,10 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `open-reviewer-session` | validate current regression evidence and dispatch the sole Reviewer without executing tests |
 | `close-reviewer-session` | close only against current green regression evidence; execute no tests |
 | `validate`, `status`, `tree`, `schema` | inspect v3 workspace truth and the Design.md skeleton |
+
+`dispatch.host_agent_id` is a framework-level opaque identity. It stores the exact bounded token
+returned by the host, including slash-namespaced forms, without normalization or translation. A
+host adapter may define which native callback field supplies that token, but it must never replace
+the spawn identity with a second identifier. For Codex specifically, the child thread UUID exposed
+by lifecycle Hooks is not the canonical task name returned by spawn, so the native main consumes the
+exact final callback and submits the stored task name to `agent-complete`.

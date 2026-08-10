@@ -59,3 +59,41 @@ An explicit replacement of an older Better Plan setup authorizes removing only t
 active agent directory and installing the complete current matrix with a fresh receipt. A backup is
 manual-recovery-only; runtime never reads or restores it. Never displace unrelated agents. Finish by
 verifying selectors, receipt inventory, skill structure, and installer Doctor.
+
+## Framework and adapter boundary
+
+Keep lifecycle truth host-neutral. Exact opaque identity preservation, one-ID-to-one-dispatch
+binding, retry ceilings, Task independence, and final-callback reduction are Better Plan framework
+rules. Fix defects in those invariants once in the framework; never duplicate them across native
+hosts.
+
+A host adapter owns only behavior imposed by that host's API or configuration format: native event
+names and payload fields, response encoding, spawn options, capacity semantics, and the identity the
+host exposes at each boundary. Each host adapter is isolated; adding or changing one must not alter
+another host's event inventory or completion parser. If a new host already satisfies the shared
+framework contract, its adapter stays declarative and minimal.
+
+## Codex collaboration adapter
+
+Codex configured roles require a fresh child context. For every Designer, Worker, or Reviewer
+spawn, pass the returned Better Plan `agent_type`, set `fork_turns` to `none`, and give the attempt a
+unique lower-snake `task_name`. Never combine `agent_type` with a full-history fork: Codex inherits
+the parent role in that mode and rejects the configured child role.
+
+Codex collaboration capacity is bounded and includes the native main. Inspect current capacity
+before `dispatch-task`, then dispatch only the eligible Tasks that can be spawned immediately. Keep
+the rest pending until a slot opens. Capacity-limited batching is a host constraint, not permission
+to merge Tasks, serialize their internal Nodes, or substitute a generic `worker`. If the exact
+`worker-standard` or `worker-complex` role cannot start, use the existing `delegation-failed`, retry,
+and `main-complete` lifecycle for that same role.
+
+Bind the canonical `task_name` returned by Codex spawn, for example `/root/backend_worker`, without
+normalization. It is the sole Better Plan host identity; a UI task/thread UUID is not equivalent.
+Wait for the exact final callback from that spawned task, then have the native main invoke
+`agent-complete` with the same canonical task name.
+
+Codex has no Better Plan completion Hook. Its current subagent-stop event identifies the child by a
+thread UUID rather than the canonical task name returned by spawn, so a Hook cannot correlate the
+two safely—especially for parallel children using the same role. Session-start and prompt-submit
+Hooks remain supported; completion stays parent-driven until Codex exposes one stable shared
+identity at both boundaries.

@@ -132,6 +132,10 @@ Spawn return is not completion. Silence, elapsed time, or context compaction is 
 host-confirmed terminated child with no final callback. At the retry ceiling `next-action` reports
 `complete_in_main` and the native main completes that same role contract.
 
+Before the first role dispatch, apply the native host's exact spawn, capacity, identity, and
+completion rules from `references/host-configuration.md`. Host-imposed batching never changes Task
+contracts or authorizes an unconfigured fallback role.
+
 After Workers return, run `accept-task` concurrently for the entire awaiting Task frontier. Python
 locks only the short state snapshot and result commit; each Task's declared command list keeps its
 own order. If focused regression fails the Task enters `worker_correction`: repair it in the native

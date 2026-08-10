@@ -164,6 +164,22 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("按需查阅的离线目录", catalog)
         self.assertNotIn("必须完整阅读", catalog)
 
+    def test_host_guidance_separates_framework_invariants_from_native_adapters(self) -> None:
+        guidance = " ".join(
+            (ROOT / "references" / "host-configuration.md")
+            .read_text(encoding="utf-8")
+            .lower()
+            .split()
+        )
+
+        self.assertIn("framework and adapter boundary", guidance)
+        self.assertIn("exact opaque identity preservation", guidance)
+        self.assertIn("fix defects in those invariants once in the framework", guidance)
+        self.assertIn("a host adapter owns only behavior imposed by that host's api", guidance)
+        self.assertIn("adding or changing one must not alter another host", guidance)
+        self.assertIn("fork_turns", guidance)
+        self.assertIn("codex has no better plan completion hook", guidance)
+
     def test_every_native_designer_template_owns_the_single_design_session(self) -> None:
         source_target = {"claude": "claude-code"}
         for target, filenames in NATIVE_ROLE_FILES.items():
