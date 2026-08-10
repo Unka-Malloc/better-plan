@@ -27,6 +27,7 @@ def task(
     prerequisites: list[str] | None = None,
     inputs: list[dict[str, Any]] | None = None,
     outputs: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
     requirements: list[str] | None = None,
     acceptance_code: str = "AC-001",
     difficulty: str = "standard",
@@ -48,6 +49,18 @@ def task(
         ]
     )
     requirements = requirements if requirements is not None else ["REQ-001"]
+    nodes = (
+        nodes
+        if nodes is not None
+        else [
+            {
+                "code": "NODE-%s" % suffix,
+                "title": "deliver-result-%s" % suffix,
+                "outcome": "Complete this Task's bounded implementation and verification.",
+                "prerequisites": [],
+            }
+        ]
+    )
     covers = list(requirements) + [item["code"] for item in outputs]
     return {
         "code": code,
@@ -62,6 +75,7 @@ def task(
         "verification": verification,
         "requirements": requirements,
         "risks": [],
+        "nodes": nodes,
         "design": {"approach": ["One direct bounded implementation"]},
         "acceptance": [
             {

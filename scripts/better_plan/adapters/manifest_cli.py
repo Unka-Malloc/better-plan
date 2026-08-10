@@ -9,6 +9,7 @@ import json
 import sys
 
 from ..application import workflow
+from ..domain.design_compile import DESIGN_TEMPLATE
 from ..domain.models import (
     CHECKPOINTS_SCHEMA,
     MANIFEST_TEMPLATE,
@@ -41,6 +42,9 @@ def validate_command(args: argparse.Namespace) -> int:
 
 
 def schema_command(args: argparse.Namespace) -> int:
+    if args.kind == "design":
+        print(DESIGN_TEMPLATE, end="")
+        return 0
     payloads: dict[str, Any] = {
         "manifest": MANIFEST_TEMPLATE,
         "plan": PLAN_TEMPLATE,
@@ -52,6 +56,7 @@ def schema_command(args: argparse.Namespace) -> int:
             "revision": 1,
             "semantic_digest": "SHA256",
             "delivery_status": "pending",
+            "full_regression": None,
             "tasks": [],
         },
     }
@@ -115,7 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.set_defaults(func=validate_command)
 
     schema = subparsers.add_parser("schema", help="print one canonical shape")
-    schema.add_argument("kind", choices=("manifest", "plan", "task", "question", "checkpoints"))
+    schema.add_argument("kind", choices=("manifest", "plan", "task", "question", "checkpoints", "design"))
     schema.set_defaults(func=schema_command)
 
     init = subparsers.add_parser("init-plan", help="create one draft Delivery Plan")
@@ -149,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_plan(close_designer)
     close_designer.add_argument("--dispatch-id", required=True)
     close_designer.set_defaults(func=workflow.close_designer_session)
+
+    compile_design = subparsers.add_parser("compile-design", help="preview compilation or apply one Plan repair receipt")
+    _add_plan(compile_design)
+    mode = compile_design.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--apply", action="store_true")
+    compile_design.set_defaults(func=workflow.compile_design)
 
     readiness = subparsers.add_parser("check-readiness", help="list every remaining readiness issue")
     _add_plan(readiness)
@@ -225,12 +237,16 @@ def build_parser() -> argparse.ArgumentParser:
     block.add_argument("--reason", required=True)
     block.set_defaults(func=workflow.block_task)
 
+    regression = subparsers.add_parser("run-full-regression", help="run the independent complete regression stage")
+    _add_plan(regression)
+    regression.set_defaults(func=workflow.run_full_regression)
+
     open_reviewer = subparsers.add_parser("open-reviewer-session", help="dispatch the sole Reviewer")
     _add_plan(open_reviewer)
     _add_host(open_reviewer)
     open_reviewer.set_defaults(func=workflow.open_reviewer_session)
 
-    close_reviewer = subparsers.add_parser("close-reviewer-session", help="close after full regression")
+    close_reviewer = subparsers.add_parser("close-reviewer-session", help="close after post-regression audit")
     _add_plan(close_reviewer)
     close_reviewer.add_argument("--dispatch-id", required=True)
     close_reviewer.add_argument("--blocked-reason")

@@ -1,16 +1,17 @@
 """Semantic and structural validation for the Better Plan v3 protocol.
 
 The validator enforces only the guarantees that keep a delivery executable after
-context loss: an honest dependency graph, provably safe parallelism, executable
-acceptance for every requirement and handoff, immutable authorization bindings,
-and a hard privacy boundary. Bookkeeping that an agent would otherwise spend its
-attention satisfying is deliberately absent.
+context loss: one Designer-authored parallel Task frontier, executable acceptance
+for every requirement and output, immutable authorization bindings, and a hard
+privacy boundary. Bookkeeping that an agent would otherwise spend its attention
+satisfying is deliberately absent.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+import hashlib
 
 from .models import (
     ABSOLUTE_PATH_PATTERN,
@@ -52,7 +53,7 @@ TASK_REQUIRED_FIELDS = {
     "requirements",
     "risks",
 }
-TASK_DESIGN_FIELDS = {"inputs", "outputs", "design", "acceptance", "focused_regression"}
+TASK_DESIGN_FIELDS = {"inputs", "outputs", "nodes", "design", "acceptance", "focused_regression"}
 TASK_ALLOWED_FIELDS = TASK_REQUIRED_FIELDS | TASK_DESIGN_FIELDS
 LIFECYCLE_REQUIRED_FIELDS = {
     "sealed",
@@ -115,48 +116,6 @@ def _privacy_issues(path: Path, value: Any, prefix: str = "plan") -> list[Issue]
         if SENSITIVE_TOKEN_PATTERN.search(value):
             issues.append(_issue(path, prefix, "must not contain secret-shaped data"))
     return issues
-
-
-def dependency_cycle(graph: Mapping[str, Sequence[str]]) -> list[str] | None:
-    visiting: set[str] = set()
-    visited: set[str] = set()
-    stack: list[str] = []
-
-    def visit(node: str) -> list[str] | None:
-        if node in visiting:
-            return stack[stack.index(node):] + [node]
-        if node in visited:
-            return None
-        visiting.add(node)
-        stack.append(node)
-        for prerequisite in graph.get(node, []):
-            found = visit(prerequisite)
-            if found is not None:
-                return found
-        stack.pop()
-        visiting.discard(node)
-        visited.add(node)
-        return None
-
-    for node in graph:
-        found = visit(node)
-        if found is not None:
-            return found
-    return None
-
-
-def _reachable(graph: Mapping[str, Sequence[str]], start: str, target: str) -> bool:
-    pending = list(graph.get(start, []))
-    seen: set[str] = set()
-    while pending:
-        current = pending.pop()
-        if current == target:
-            return True
-        if current in seen:
-            continue
-        seen.add(current)
-        pending.extend(graph.get(current, []))
-    return False
 
 
 def _paths_overlap(left: str, right: str) -> bool:
@@ -339,6 +298,90 @@ def _validate_ledger(path: Path, ledger: Any, dossier: Any) -> list[Issue]:
     return issues
 
 
+def _validate_nodes(path: Path, nodes: Any, task_index: int, require_design: bool) -> list[Issue]:
+    prefix = "spec.tasks[%d].nodes" % task_index
+    if not isinstance(nodes, list) or (require_design and not nodes):
+        return [_issue(path, prefix, "must be a non-empty array")]
+    issues: list[Issue] = []
+    codes: list[str] = []
+    by_code: dict[str, int] = {}
+    for node_index, node in enumerate(nodes):
+        node_prefix = "%s[%d]" % (prefix, node_index)
+        if not _mapping(node):
+            issues.append(_issue(path, node_prefix, "must be an object"))
+            continue
+        required = {"code", "title", "outcome", "prerequisites"}
+        missing = required - set(node)
+        if missing:
+            issues.append(_issue(path, node_prefix, "missing fields %s" % ", ".join(sorted(missing))))
+            continue
+        issues.extend(_unknown_fields(path, node_prefix, node, required))
+        code = node.get("code")
+        if not is_code(code, "NODE") or code in by_code:
+            issues.append(_issue(path, node_prefix + ".code", "must be a unique NODE-* code"))
+        else:
+            codes.append(str(code))
+            by_code[str(code)] = node_index
+        for field in ("title", "outcome"):
+            if safe_summary_issue(node.get(field)) is not None:
+                issues.append(_issue(path, node_prefix + "." + field, "must be a concrete safe summary"))
+        prerequisites = node.get("prerequisites")
+        if not isinstance(prerequisites, list) or any(
+            not is_code(item, "NODE") for item in prerequisites
+        ):
+            issues.append(_issue(path, node_prefix + ".prerequisites", "must contain NODE-* codes"))
+        elif len(set(prerequisites)) != len(prerequisites):
+            issues.append(_issue(path, node_prefix + ".prerequisites", "must not repeat a Node"))
+    graph: dict[str, list[str]] = {}
+    for code, node_index in by_code.items():
+        node = nodes[node_index]
+        prerequisites = [
+            str(item) for item in node.get("prerequisites", []) if isinstance(item, str)
+        ]
+        graph[code] = prerequisites
+        for prerequisite in prerequisites:
+            field = "%s[%d].prerequisites" % (prefix, node_index)
+            if prerequisite == code:
+                issues.append(_issue(path, field, "Node cannot depend on itself"))
+            elif prerequisite not in by_code:
+                issues.append(_issue(path, field, "unknown Node prerequisite %s" % prerequisite))
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    stack: list[str] = []
+
+    def visit(code: str) -> list[str] | None:
+        if code in visiting:
+            return stack[stack.index(code):] + [code]
+        if code in visited:
+            return None
+        visiting.add(code)
+        stack.append(code)
+        for prerequisite in graph.get(code, []):
+            if prerequisite in graph:
+                cycle = visit(prerequisite)
+                if cycle is not None:
+                    return cycle
+        stack.pop()
+        visiting.remove(code)
+        visited.add(code)
+        return None
+
+    for code in codes:
+        cycle = visit(code)
+        if cycle is not None:
+            node_index = by_code[cycle[0]]
+            issues.append(
+                _issue(
+                    path,
+                    "%s[%d].prerequisites" % (prefix, node_index),
+                    "Node dependency cycle %s" % " -> ".join(cycle),
+                )
+            )
+            break
+    return issues
+
+
 def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> list[Issue]:
     prefix = "spec.tasks[%d]" % index
     if not _mapping(task):
@@ -362,10 +405,14 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
         issues.extend(_unknown_fields(path, "%s.scope" % label, scope, {"in", "out"}))
         if set(scope.get("in", [])) & set(scope.get("out", [])):
             issues.append(_issue(path, "%s.scope" % label, "in/out boundaries must not overlap"))
-    if not isinstance(task.get("prerequisites"), list) or any(
-        not is_code(item, "TASK") for item in task.get("prerequisites", [])
-    ):
-        issues.append(_issue(path, "%s.prerequisites" % label, "must contain TASK-* codes"))
+    if task.get("prerequisites") != []:
+        issues.append(
+            _issue(
+                path,
+                "%s.prerequisites" % label,
+                "must be empty; dependent work belongs inside one parallel-safe Task",
+            )
+        )
     if not isinstance(task.get("requirements"), list) or any(
         not is_code(item, "REQ") for item in task.get("requirements", [])
     ):
@@ -375,6 +422,9 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
         issues.append(_issue(path, "%s.risks" % label, "must contain known risk tags"))
     elif len(set(risks)) != len(risks):
         issues.append(_issue(path, "%s.risks" % label, "must not repeat a risk tag"))
+    nodes = task.get("nodes")
+    if nodes is not None:
+        issues.extend(_validate_nodes(path, nodes, index, require_design))
     if task.get("difficulty") not in VALID_DIFFICULTIES:
         issues.append(_issue(path, "%s.difficulty" % label, "must be standard or complex"))
     elif isinstance(risks, list) and set(risks) & ELEVATED_RISKS and task.get("difficulty") != "complex":
@@ -432,20 +482,14 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
                         _issue(path, output_prefix, "artifact must fall inside this Task's write ownership")
                     )
     inputs = task.get("inputs")
-    if inputs is not None and not isinstance(inputs, list):
-        issues.append(_issue(path, "%s.inputs" % label, "must be an array"))
-    elif isinstance(inputs, list):
-        for input_index, item in enumerate(inputs):
-            input_prefix = "%s.inputs[%d]" % (label, input_index)
-            if (
-                not _mapping(item)
-                or not is_code(item.get("from"), "TASK")
-                or not is_code(item.get("output"), "OUT")
-                or safe_summary_issue(item.get("guarantee")) is not None
-            ):
-                issues.append(_issue(path, input_prefix, "requires from, output, and guarantee"))
-            else:
-                issues.extend(_unknown_fields(path, input_prefix, item, {"from", "output", "guarantee"}))
+    if inputs is not None and inputs != []:
+        issues.append(
+            _issue(
+                path,
+                "%s.inputs" % label,
+                "must be empty; parallel Tasks never consume another Task's output",
+            )
+        )
     acceptance = task.get("acceptance")
     if acceptance is not None:
         if not isinstance(acceptance, list) or (require_design and not acceptance):
@@ -528,7 +572,7 @@ def validate_plan_document(path: Path, plan: Any) -> list[Issue]:
     require_design = phase in AUTHORIZED_PHASES
     for index, task in enumerate(tasks):
         issues.extend(_validate_task(path, task, index, require_design))
-    issues.extend(_validate_graph(path, tasks))
+    issues.extend(_validate_parallel_frontier(path, tasks))
     issues.extend(_validate_coverage(path, tasks))
     issues.extend(_validate_lifecycle(path, plan))
     return issues
@@ -565,8 +609,8 @@ def _validate_intent(path: Path, intent: Any) -> list[Issue]:
     return issues
 
 
-def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
-    """Prerequisites are the sole graph and every edge carries a real handoff."""
+def _validate_parallel_frontier(path: Path, tasks: Sequence[Any]) -> list[Issue]:
+    """Every Task is a mutually independent member of one parallel frontier."""
 
     issues: list[Issue] = []
     valid = [task for task in tasks if _mapping(task) and is_code(task.get("code"), "TASK")]
@@ -574,7 +618,13 @@ def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
     if len(codes) != len(set(codes)):
         issues.append(_issue(path, "spec.tasks", "Task codes must be unique"))
     by_code = {str(task.get("code")): task for task in valid}
+    index_by_code = {
+        str(task.get("code")): index
+        for index, task in enumerate(tasks)
+        if _mapping(task) and is_code(task.get("code"), "TASK")
+    }
     output_owner: dict[str, str] = {}
+    node_codes: set[str] = set()
     for code, task in by_code.items():
         for output in task.get("outputs", []) or []:
             if _mapping(output) and is_code(output.get("code"), "OUT"):
@@ -582,48 +632,21 @@ def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
                 if output_code in output_owner:
                     issues.append(_issue(path, "%s.outputs" % code, "output code %s is not unique" % output_code))
                 output_owner[output_code] = code
-    graph: dict[str, list[str]] = {}
-    for code, task in by_code.items():
-        prerequisites = [
-            str(item) for item in task.get("prerequisites", []) or [] if isinstance(item, str)
-        ]
-        graph[code] = prerequisites
-        for prerequisite in prerequisites:
-            if prerequisite == code:
-                issues.append(_issue(path, "%s.prerequisites" % code, "self dependency"))
-            elif prerequisite not in by_code:
-                issues.append(_issue(path, "%s.prerequisites" % code, "unknown dependency %s" % prerequisite))
-    cycle = dependency_cycle(graph)
-    if cycle is not None:
-        issues.append(_issue(path, "spec.graph", "dependency cycle %s" % " -> ".join(cycle)))
-        return issues
-    for code, task in by_code.items():
-        mapped: set[str] = set()
-        for item in task.get("inputs", []) or []:
-            if not _mapping(item):
-                continue
-            source = str(item.get("from"))
-            output_code = str(item.get("output"))
-            if source not in by_code or output_owner.get(output_code) != source:
-                issues.append(_issue(path, "%s.inputs" % code, "input must name an upstream Task output"))
-            elif source not in graph.get(code, []):
-                issues.append(_issue(path, "%s.inputs" % code, "%s must be a direct prerequisite" % source))
-            else:
-                mapped.add(source)
-        unmapped = {value for value in graph.get(code, []) if value in by_code} - mapped
-        if unmapped and task.get("inputs") is not None:
-            issues.append(
-                _issue(
-                    path,
-                    "%s.inputs" % code,
-                    "every prerequisite must map at least one input: %s" % ", ".join(sorted(unmapped)),
-                )
-            )
+        for node in task.get("nodes", []) or []:
+            if _mapping(node) and is_code(node.get("code"), "NODE"):
+                node_code = str(node.get("code"))
+                if node_code in node_codes:
+                    issues.append(
+                        _issue(
+                            path,
+                            "spec.tasks[%d].nodes" % index_by_code[code],
+                            "Node code %s is not unique" % node_code,
+                        )
+                    )
+                node_codes.add(node_code)
     ordered = sorted(by_code)
     for left_index, left_code in enumerate(ordered):
         for right_code in ordered[left_index + 1:]:
-            if _reachable(graph, left_code, right_code) or _reachable(graph, right_code, left_code):
-                continue
             left = by_code[left_code].get("ownership", {})
             right = by_code[right_code].get("ownership", {})
             if not _mapping(left) or not _mapping(right):
@@ -638,8 +661,8 @@ def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
                 issues.append(
                     _issue(
                         path,
-                        "spec.parallel",
-                        "%s and %s have overlapping write ownership without a dependency" % (left_code, right_code),
+                        "spec.tasks[%d].ownership.write_paths" % index_by_code[right_code],
+                        "parallel Tasks %s and %s have overlapping write ownership" % (left_code, right_code),
                     )
                 )
             shared = {item for item in left.get("shared_exclusive", []) or []} & {
@@ -649,8 +672,9 @@ def _validate_graph(path: Path, tasks: Sequence[Any]) -> list[Issue]:
                 issues.append(
                     _issue(
                         path,
-                        "spec.parallel",
-                        "%s and %s share exclusive resources %s" % (left_code, right_code, ", ".join(sorted(shared))),
+                        "spec.tasks[%d].ownership.shared_exclusive" % index_by_code[right_code],
+                        "parallel Tasks %s and %s share exclusive resources %s"
+                        % (left_code, right_code, ", ".join(sorted(shared))),
                     )
                 )
     return issues
@@ -712,6 +736,89 @@ def _validate_session(path: Path, name: str, session: Any) -> list[Issue]:
     return issues
 
 
+def _validate_compile_receipt(path: Path, receipt: Any) -> list[Issue]:
+    prefix = "lifecycle.designer_session.compile"
+    if receipt is None:
+        return []
+    if not _mapping(receipt):
+        return [_issue(path, prefix, "must be an object")]
+    allowed = {
+        "pristine_digest",
+        "compiled_spec_digest",
+        "applied_at",
+        "sections_from_plan",
+        "issues",
+        "unmapped",
+    }
+    issues = _unknown_fields(path, prefix, receipt, allowed)
+    missing = allowed - set(receipt)
+    if missing:
+        issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))
+    for name in ("pristine_digest", "compiled_spec_digest"):
+        if SHA256_PATTERN.fullmatch(str(receipt.get(name, ""))) is None:
+            issues.append(_issue(path, "%s.%s" % (prefix, name), "must be sha256"))
+    if safe_summary_issue(receipt.get("applied_at")) is not None:
+        issues.append(_issue(path, prefix + ".applied_at", "must be a safe timestamp"))
+    if not _string_list(receipt.get("sections_from_plan"), True) or any(
+        value not in {"requirements", "architecture", "full_regression"}
+        for value in receipt.get("sections_from_plan", [])
+    ):
+        issues.append(_issue(path, prefix + ".sections_from_plan", "contains an unknown section"))
+    entries = receipt.get("issues")
+    if not isinstance(entries, list):
+        issues.append(_issue(path, prefix + ".issues", "must be an array"))
+    else:
+        for index, entry in enumerate(entries):
+            item_prefix = "%s.issues[%d]" % (prefix, index)
+            if not _mapping(entry):
+                issues.append(_issue(path, item_prefix, "must be an object"))
+                continue
+            issue_fields = {"kind", "message", "line", "field", "status"}
+            issues.extend(_unknown_fields(path, item_prefix, entry, issue_fields))
+            missing_issue_fields = issue_fields - set(entry)
+            if missing_issue_fields:
+                issues.append(_issue(
+                    path,
+                    item_prefix,
+                    "missing diagnostic fields %s" % ", ".join(sorted(missing_issue_fields)),
+                ))
+            if entry.get("kind") not in {"structure", "content"}:
+                issues.append(_issue(path, item_prefix + ".kind", "must be structure or content"))
+            if safe_summary_issue(entry.get("message")) is not None:
+                issues.append(_issue(path, item_prefix + ".message", "must be a safe summary"))
+            if entry.get("status") not in {"open", "resolved"}:
+                issues.append(_issue(path, item_prefix + ".status", "must be open or resolved"))
+            if type(entry.get("line")) is not int or entry.get("line", 0) < 1:
+                issues.append(_issue(path, item_prefix + ".line", "must be a positive integer"))
+            if not isinstance(entry.get("field"), str) or not entry.get("field", "").strip():
+                issues.append(_issue(path, item_prefix + ".field", "must be a non-empty field path"))
+            elif safe_summary_issue(entry.get("field")) is not None:
+                issues.append(_issue(path, item_prefix + ".field", "must be a safe field path"))
+    residue = receipt.get("unmapped")
+    if not isinstance(residue, list):
+        issues.append(_issue(path, prefix + ".unmapped", "must be an array"))
+    else:
+        for index, entry in enumerate(residue):
+            item_prefix = "%s.unmapped[%d]" % (prefix, index)
+            if not _mapping(entry):
+                issues.append(_issue(path, item_prefix, "must be an object"))
+                continue
+            issues.extend(_unknown_fields(path, item_prefix, entry, {"lines", "digest", "status"}))
+            lines = entry.get("lines")
+            if (
+                not isinstance(lines, list)
+                or len(lines) != 2
+                or any(type(value) is not int or value < 1 for value in lines)
+                or lines[0] > lines[1]
+            ):
+                issues.append(_issue(path, item_prefix + ".lines", "must be an ordered line range"))
+            if SHA256_PATTERN.fullmatch(str(entry.get("digest", ""))) is None:
+                issues.append(_issue(path, item_prefix + ".digest", "must be sha256"))
+            if entry.get("status") not in {"open", "resolved", "excluded"}:
+                issues.append(_issue(path, item_prefix + ".status", "invalid residue status"))
+    return issues
+
+
 def _validate_lifecycle(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     lifecycle = plan.get("lifecycle")
     if not _mapping(lifecycle):
@@ -727,6 +834,8 @@ def _validate_lifecycle(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     reviewer = lifecycle.get("reviewer_session")
     issues.extend(_validate_session(path, "designer_session", designer))
     issues.extend(_validate_session(path, "reviewer_session", reviewer))
+    if _mapping(designer):
+        issues.extend(_validate_compile_receipt(path, designer.get("compile")))
     phase = plan.get("phase")
     sealed = lifecycle.get("sealed")
     authorization = lifecycle.get("authorization")
@@ -857,7 +966,7 @@ def validate_checkpoints_document(path: Path, checkpoints: Any, plan: Mapping[st
             path,
             "checkpoints",
             checkpoints,
-            {"schema", "plan", "revision", "semantic_digest", "delivery_status", "tasks"},
+            {"schema", "plan", "revision", "semantic_digest", "delivery_status", "full_regression", "tasks"},
         )
     )
     if not is_code(checkpoints.get("plan"), "PLAN"):
@@ -868,6 +977,48 @@ def validate_checkpoints_document(path: Path, checkpoints: Any, plan: Mapping[st
         issues.append(_issue(path, "checkpoints.semantic_digest", "must be sha256"))
     if checkpoints.get("delivery_status") not in DELIVERY_STATUSES:
         issues.append(_issue(path, "checkpoints.delivery_status", "invalid status"))
+    regression = checkpoints.get("full_regression")
+    if regression is not None:
+        prefix = "checkpoints.full_regression"
+        allowed = {"passed", "commands", "content_fingerprint", "recorded_at"}
+        if not _mapping(regression):
+            issues.append(_issue(path, prefix, "must be an object or null"))
+        else:
+            issues.extend(_unknown_fields(path, prefix, regression, allowed))
+            missing = allowed - set(regression)
+            if missing:
+                issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))
+            if type(regression.get("passed")) is not bool:
+                issues.append(_issue(path, prefix + ".passed", "must be boolean"))
+            if SHA256_PATTERN.fullmatch(str(regression.get("content_fingerprint", ""))) is None:
+                issues.append(_issue(path, prefix + ".content_fingerprint", "must be sha256"))
+            if safe_summary_issue(regression.get("recorded_at")) is not None:
+                issues.append(_issue(path, prefix + ".recorded_at", "must be a safe timestamp"))
+            commands = regression.get("commands")
+            if not isinstance(commands, list) or not commands:
+                issues.append(_issue(path, prefix + ".commands", "must be a non-empty array"))
+            else:
+                command_fields = {"command_sha256", "outcome", "exit_code", "recorded_at"}
+                for index, command in enumerate(commands):
+                    command_prefix = "%s.commands[%d]" % (prefix, index)
+                    if not _mapping(command):
+                        issues.append(_issue(path, command_prefix, "must be an object"))
+                        continue
+                    issues.extend(_unknown_fields(path, command_prefix, command, command_fields))
+                    if command_fields - set(command):
+                        issues.append(_issue(path, command_prefix, "missing receipt fields"))
+                    if SHA256_PATTERN.fullmatch(str(command.get("command_sha256", ""))) is None:
+                        issues.append(_issue(path, command_prefix + ".command_sha256", "must be sha256"))
+                    if command.get("outcome") not in {"passed", "failed", "timeout"}:
+                        issues.append(_issue(path, command_prefix + ".outcome", "invalid outcome"))
+                    if command.get("exit_code") is not None and type(command.get("exit_code")) is not int:
+                        issues.append(_issue(path, command_prefix + ".exit_code", "must be integer or null"))
+                    if safe_summary_issue(command.get("recorded_at")) is not None:
+                        issues.append(_issue(path, command_prefix + ".recorded_at", "must be a safe timestamp"))
+                if type(regression.get("passed")) is bool and regression.get("passed") != all(
+                    _mapping(command) and command.get("outcome") == "passed" for command in commands
+                ):
+                    issues.append(_issue(path, prefix + ".passed", "does not match command outcomes"))
     entries = checkpoints.get("tasks")
     if not isinstance(entries, list):
         issues.append(_issue(path, "checkpoints.tasks", "must be an array"))
@@ -903,6 +1054,15 @@ def validate_checkpoints_document(path: Path, checkpoints: Any, plan: Mapping[st
         }
         if expected != seen:
             issues.append(_issue(path, "checkpoints.tasks", "must project every Task exactly once"))
+        if _mapping(regression) and isinstance(regression.get("commands"), list):
+            declared = plan.get("spec", {}).get("full_regression", {}).get("commands", [])
+            receipts = regression.get("commands", [])
+            if len(receipts) > len(declared) or (regression.get("passed") is True and len(receipts) != len(declared)):
+                issues.append(_issue(path, "checkpoints.full_regression.commands", "does not match the declared command sequence"))
+            for index, receipt in enumerate(receipts[: len(declared)]):
+                expected_digest = hashlib.sha256(str(declared[index]).encode("utf-8")).hexdigest()
+                if not _mapping(receipt) or receipt.get("command_sha256") != expected_digest:
+                    issues.append(_issue(path, "checkpoints.full_regression.commands[%d]" % index, "does not match the declared command"))
     return issues
 
 

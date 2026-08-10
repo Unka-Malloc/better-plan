@@ -12,8 +12,15 @@ import subprocess
 import sys
 import time
 
+from ..domain.design_compile import (
+    DESIGN_TEMPLATE,
+    compile_design as compile_design_text,
+    source_line_for_field,
+)
 from ..domain.models import (
     CHECKPOINTS_NAME,
+    DESIGN_NAME,
+    DESIGN_PRISTINE_NAME,
     DOSSIER_PHASES,
     MANIFEST_NAME,
     PLAN_DOCUMENT,
@@ -27,7 +34,9 @@ from ..domain.models import (
     manifest_template,
     plan_template,
     public_summary,
+    safe_summary_issue,
     semantic_digest,
+    semantic_payload,
     sha256_value,
     task_state,
 )
@@ -108,6 +117,130 @@ def _save_plan(paths: Mapping[str, Path], plan: dict[str, Any]) -> None:
     write_text(paths["directory"] / PLAN_DOCUMENT, document)
 
 
+def _open_compile_items(receipt: Any) -> list[dict[str, Any]]:
+    if not isinstance(receipt, Mapping):
+        return []
+    values = [
+        dict(item)
+        for item in receipt.get("issues", [])
+        if isinstance(item, Mapping) and item.get("status") == "open"
+    ]
+    values.extend(
+        {"kind": "unmapped", **dict(item)}
+        for item in receipt.get("unmapped", [])
+        if isinstance(item, Mapping) and item.get("status") == "open"
+    )
+    return values
+
+
+def _receipt_issues(result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {key: item[key] for key in ("kind", "message", "line", "field", "status")}
+        for item in result.get("issues", [])
+        if isinstance(item, Mapping) and item.get("kind") in {"structure", "content"}
+    ]
+
+
+def _compiler_validation_diagnostic(message: str, result: Mapping[str, Any]) -> dict[str, Any]:
+    field, separator, detail = message.partition(": ")
+    canonical_field = field[5:] if field.startswith("plan.") else field
+    return {
+        "kind": "structure",
+        "message": detail if separator else message,
+        "line": source_line_for_field(result, canonical_field),
+        "field": canonical_field,
+        "status": "open",
+    }
+
+
+def _unique_compiler_diagnostics(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for item in values:
+        key = (item.get("kind"), item.get("message"), item.get("line"), item.get("field"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def _compile_item_summary(item: Mapping[str, Any]) -> str:
+    if item.get("message"):
+        return "Design.md:%s %s: %s" % (
+            item.get("line"),
+            item.get("field"),
+            item.get("message"),
+        )
+    return "Design.md lines %s: unmapped content" % item.get("lines")
+
+
+def _compile_receipt(
+    result: Mapping[str, Any],
+    draft: str,
+    spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "pristine_digest": hashlib.sha256(draft.encode("utf-8")).hexdigest(),
+        "compiled_spec_digest": sha256_value(spec),
+        "applied_at": _now(),
+        "sections_from_plan": list(result.get("sections_from_plan", [])),
+        "issues": _receipt_issues(result),
+        "unmapped": [
+            dict(item) for item in result.get("unmapped", []) if isinstance(item, Mapping)
+        ],
+    }
+
+
+def _frozen_design(paths: Mapping[str, Path], receipt: Mapping[str, Any]) -> str:
+    if not paths["design"].is_file() or not paths["design_pristine"].is_file():
+        raise ToolError("Design.md and Design.pristine.md are required before authorization")
+    try:
+        draft = paths["design"].read_text(encoding="utf-8")
+        pristine = paths["design_pristine"].read_text(encoding="utf-8")
+    except OSError:
+        raise ToolError("cannot read the archived Designer draft")
+    expected = receipt.get("pristine_digest")
+    if draft != pristine or hashlib.sha256(draft.encode("utf-8")).hexdigest() != expected:
+        raise ToolError("Design.md is read-only after the Designer returns")
+    return pristine
+
+
+def _plan_repair_result(
+    plan: Mapping[str, Any],
+    paths: Mapping[str, Path],
+    receipt: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    updated = deepcopy(dict(receipt))
+    readiness = [issue.message for issue in plan_readiness_issues(paths["plan"], plan)]
+    if readiness:
+        return updated, readiness
+    for item in updated.get("issues", []):
+        if isinstance(item, dict) and item.get("status") == "open":
+            item["status"] = "resolved"
+    for item in updated.get("unmapped", []):
+        if isinstance(item, dict) and item.get("status") == "open":
+            item["status"] = "resolved"
+    updated["compiled_spec_digest"] = sha256_value(plan.get("spec", {}))
+    updated["applied_at"] = _now()
+    return updated, []
+
+
+def _install_compiled_spec(plan: dict[str, Any], result: dict[str, Any]) -> None:
+    candidate = deepcopy(plan)
+    candidate["spec"] = deepcopy(result["spec"])
+    candidate["phase"] = "ready"
+    candidate_session = candidate.get("lifecycle", {}).get("designer_session")
+    if isinstance(candidate_session, dict):
+        candidate_session["status"] = "completed"
+    structural = validate_plan_document(Path("Plan.json"), candidate)
+    if structural:
+        for issue in structural:
+            result["issues"].append(_compiler_validation_diagnostic(issue.message, result))
+        result["issues"] = _unique_compiler_diagnostics(result["issues"])
+        return
+    plan["spec"] = candidate["spec"]
+
+
 IMMUTABLE_FIELDS = ("intent", "dossier")
 
 
@@ -136,11 +269,28 @@ def _selector_payload(role: str, native_host: str | None, codex_home: str | None
     }
 
 
-def _run_commands(project_root: Path, commands: list[str]) -> tuple[bool, list[dict[str, Any]]]:
-    """Run commands, persisting only receipts while surfacing failures to the operator."""
+def _safe_diagnostic_tail(output: str) -> str:
+    """Return bounded useful diagnostics without local paths, endpoints, or secrets."""
+
+    values: list[str] = []
+    for raw in output[-OUTPUT_TAIL_CHARACTERS:].splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        value = line if safe_summary_issue(line, max_chars=500) is None else "[redacted unsafe diagnostic line]"
+        if not values or values[-1] != value:
+            values.append(value)
+    return "\n".join(values)[-OUTPUT_TAIL_CHARACTERS:]
+
+
+def _run_commands_with_diagnostics(
+    project_root: Path, commands: list[str]
+) -> tuple[bool, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run commands and return persistent receipts plus ephemeral safe diagnostics."""
 
     receipts: list[dict[str, Any]] = []
-    for command in commands:
+    diagnostics: list[dict[str, Any]] = []
+    for index, command in enumerate(commands):
         try:
             completed = subprocess.run(
                 command,
@@ -166,12 +316,28 @@ def _run_commands(project_root: Path, commands: list[str]) -> tuple[bool, list[d
             }
         )
         if outcome != "passed":
-            tail = output[-OUTPUT_TAIL_CHARACTERS:]
+            tail = _safe_diagnostic_tail(output)
             print("command %s (%s)" % (outcome, command), file=sys.stderr)
-            if tail.strip():
+            if tail:
                 print(tail, file=sys.stderr)
-            return False, receipts
-    return True, receipts
+            diagnostics.append(
+                {
+                    "command_index": index,
+                    "command_sha256": receipts[-1]["command_sha256"],
+                    "outcome": outcome,
+                    "exit_code": exit_code,
+                    "output_tail": tail,
+                }
+            )
+            return False, receipts, diagnostics
+    return True, receipts, diagnostics
+
+
+def _run_commands(project_root: Path, commands: list[str]) -> tuple[bool, list[dict[str, Any]]]:
+    """Run commands while callers persist only privacy-safe receipts."""
+
+    passed, receipts, _ = _run_commands_with_diagnostics(project_root, commands)
+    return passed, receipts
 
 
 def init_plan(args: Any) -> int:
@@ -295,6 +461,10 @@ def open_designer_session(args: Any) -> int:
             raise ToolError("resolve the Decision Dossier before the Designer session")
         if plan.get("lifecycle", {}).get("designer_session") is not None:
             raise ToolError("the Designer runs exactly once")
+        if paths["design"].exists() and not paths["design"].is_file():
+            raise ToolError("Design.md path must be a file")
+        if not paths["design"].exists():
+            write_text(paths["design"], DESIGN_TEMPLATE)
         dispatch_id = generate_id()
         selector = _selector_payload("designer", args.native_host, args.codex_home)
         plan["lifecycle"]["designer_session"] = {
@@ -310,12 +480,25 @@ def open_designer_session(args: Any) -> int:
         }
         plan["phase"] = "designing"
         _save_plan(paths, plan)
+    plan_path = "%s/%s" % (plan["directory"], PLAN_NAME)
+    draft_path = "%s/%s" % (plan["directory"], DESIGN_NAME)
     payload = {
         "action": "dispatch_designer",
         "dispatch_id": dispatch_id,
-        "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
+        "plan_path": plan_path,
+        "draft_path": draft_path,
+        "assignment": (
+            "Write the complete solution design to %s before returning. "
+            "Group dependent work inside one Task so every Task is mutually parallel-safe. "
+            "Inside each Task, design a minimal Node DAG: branch every independent Node, declare "
+            "only real dependencies, and name every predecessor at joins; the Worker will execute "
+            "every ready Node concurrently. "
+            "Do not edit Plan.json.spec while this draft path is available. "
+            "Only if the host cannot create the draft may you complete %s directly."
+            % (draft_path, plan_path)
+        ),
         "role_reference": "references/designer.md",
-        "knowledge_references": ["references/design-patterns.md"],
+        "knowledge_references": ["references/design-format.md", "references/design-patterns.md"],
     }
     payload.update(selector)
     print(json.dumps(payload))
@@ -353,11 +536,50 @@ def close_designer_session(args: Any) -> int:
             if plan.get("ledger", {}).get(name) != immutable.get(name):
                 plan["ledger"][name] = deepcopy(immutable.get(name))
                 restored.append("ledger.%s" % name)
+        compiled = False
+        result: dict[str, Any] | None = None
+        if paths["design"].is_file():
+            try:
+                draft = paths["design"].read_text(encoding="utf-8")
+            except OSError:
+                raise ToolError("cannot read Design.md")
+            compiled = draft != DESIGN_TEMPLATE
+        if compiled:
+            result = compile_design_text(draft, plan.get("spec", {}))
+            _install_compiled_spec(plan, result)
+            if paths["design_pristine"].exists():
+                try:
+                    archived = paths["design_pristine"].read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    result["issues"].append(
+                        {
+                            "kind": "structure",
+                            "message": "Design.pristine.md cannot be read",
+                            "line": 1,
+                            "field": "document.pristine",
+                            "status": "open",
+                        }
+                    )
+                else:
+                    if archived != draft:
+                        result["issues"].append(
+                            {
+                                "kind": "structure",
+                                "message": "Design.pristine.md differs from the returned draft",
+                                "line": 1,
+                                "field": "document.pristine",
+                                "status": "open",
+                            }
+                        )
+            else:
+                write_text(paths["design_pristine"], draft)
         session["status"] = "completed"
         session["closed_at"] = _now()
         if restored:
             session["restored"] = restored
         plan["phase"] = "ready"
+        if result is not None:
+            session["compile"] = _compile_receipt(result, draft, plan["spec"])
         _save_plan(paths, plan)
         issues = plan_readiness_issues(paths["plan"], plan)
     print(
@@ -367,10 +589,98 @@ def close_designer_session(args: Any) -> int:
                 "ready": not issues,
                 "restored": restored,
                 "open_issues": [issue.message for issue in issues],
+                "compiled": compiled,
+                "structure_issues": sum(
+                    1 for item in (result or {}).get("issues", []) if item.get("kind") == "structure"
+                ),
+                "content_issues": sum(
+                    1 for item in (result or {}).get("issues", []) if item.get("kind") == "content"
+                ),
+                "unmapped": sum(
+                    1 for item in (result or {}).get("unmapped", []) if item.get("status") == "open"
+                ),
             }
         )
     )
     return 0
+
+
+def compile_design(args: Any) -> int:
+    """Preview draft compilation or validate a main-thread Plan repair."""
+
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        phase = plan.get("phase")
+        if args.apply and phase != "ready":
+            raise ToolError("compile-design --apply requires a ready Plan")
+        if args.check and phase not in {"designing", "ready"}:
+            raise ToolError("compile-design --check requires a designing or ready Plan")
+        if not paths["design"].is_file():
+            raise ToolError("Design.md is missing")
+        try:
+            draft = paths["design"].read_text(encoding="utf-8")
+        except OSError:
+            raise ToolError("cannot read Design.md")
+        session = plan.get("lifecycle", {}).get("designer_session")
+        if not isinstance(session, dict):
+            raise ToolError("the Designer session is unavailable")
+        previous = session.get("compile") if isinstance(session.get("compile"), Mapping) else None
+        if phase == "designing":
+            result = compile_design_text(draft, plan.get("spec", {}))
+            candidate = deepcopy(plan)
+            candidate["spec"] = deepcopy(result["spec"])
+            candidate["phase"] = "ready"
+            candidate_session = candidate.get("lifecycle", {}).get("designer_session")
+            if isinstance(candidate_session, dict):
+                candidate_session["status"] = "completed"
+            readiness = plan_readiness_issues(paths["plan"], candidate)
+            diagnostics = [dict(item) for item in result["issues"]]
+            diagnostics.extend(
+                _compiler_validation_diagnostic(issue.message, result)
+                for issue in readiness
+            )
+            diagnostics = _unique_compiler_diagnostics(diagnostics)
+            has_unmapped = any(
+                item.get("status") == "open" for item in result["unmapped"]
+            )
+            print(
+                json.dumps(
+                    {
+                        "valid": not diagnostics and not has_unmapped,
+                        "issues": diagnostics,
+                        "unmapped": result["unmapped"],
+                    }
+                )
+            )
+            return 0 if not diagnostics and not has_unmapped else 1
+        if previous is None:
+            raise ToolError("the ready Plan has no Designer draft compilation receipt")
+        _frozen_design(paths, previous)
+        updated, problems = _plan_repair_result(plan, paths, previous)
+        if args.check:
+            print(
+                json.dumps(
+                    {
+                        "valid": not problems,
+                        "issues": problems,
+                        "unmapped": updated.get("unmapped", []),
+                    }
+                )
+            )
+            return 0 if not problems else 1
+        session["compile"] = updated
+        _save_plan(paths, plan)
+        open_items = _open_compile_items(session["compile"])
+    print(
+        json.dumps(
+            {
+                "applied": True,
+                "open_issues": len(open_items),
+            }
+        )
+    )
+    return 0 if not problems and not open_items else 1
 
 
 def check_readiness(args: Any) -> int:
@@ -402,6 +712,15 @@ def authorize_plan(args: Any) -> int:
             raise ToolError("authorization requires a design-ready Plan")
         if plan.get("lifecycle", {}).get("sealed") is not None or paths["checkpoints"].is_file():
             raise ToolError("this Plan is already authorized; revise it through a continuation")
+        compile_receipt = plan.get("lifecycle", {}).get("designer_session", {}).get("compile")
+        if isinstance(compile_receipt, Mapping):
+            _frozen_design(paths, compile_receipt)
+        compile_issues = _open_compile_items(compile_receipt)
+        if compile_issues:
+            raise ToolError(
+                "design compilation has open issues: %s"
+                % "; ".join(_compile_item_summary(item) for item in compile_issues)
+            )
         issues = plan_readiness_issues(paths["plan"], plan)
         if issues:
             raise ToolError("plan is not ready: %s" % "; ".join(issue.message for issue in issues))
@@ -534,15 +853,7 @@ def close_continuation(args: Any) -> int:
             existing.get(str(task.get("code")), task_state(task.get("code")))
             for task in plan.get("spec", {}).get("tasks", [])
         ]
-        checkpoints.update({"revision": revision, "semantic_digest": digest})
-        # A revision may add work behind an already blocked prerequisite; keep the
-        # blocked frontier closed so no Task is left permanently unreachable.
-        for state in list(checkpoints["tasks"]):
-            status = str(state.get("status", ""))
-            if status.startswith("blocked_by_"):
-                _propagate_blocker(
-                    plan, checkpoints, str(state.get("code")), status, str(state.get("status_reason", "upstream blocker"))
-                )
+        checkpoints.update({"revision": revision, "semantic_digest": digest, "full_regression": None})
         write_json(paths["checkpoints"], checkpoints)
     print(json.dumps({"continued": True, "revision": revision}))
     return 0
@@ -575,37 +886,6 @@ def _state_by_code(checkpoints: Mapping[str, Any], code: str) -> dict[str, Any]:
     return matches[0]
 
 
-def _eligible(task: Mapping[str, Any], checkpoints: Mapping[str, Any]) -> bool:
-    states = {str(item.get("code")): item.get("status") for item in checkpoints.get("tasks", [])}
-    return all(states.get(str(code)) == "completed" for code in task.get("prerequisites", []))
-
-
-def _propagate_blocker(
-    plan: Mapping[str, Any],
-    checkpoints: dict[str, Any],
-    seed: str,
-    status: str,
-    reason: str,
-) -> set[str]:
-    affected = {seed}
-    changed = True
-    while changed:
-        changed = False
-        for task in plan.get("spec", {}).get("tasks", []):
-            state = _state_by_code(checkpoints, str(task.get("code")))
-            if state.get("status") == "pending" and affected.intersection(task.get("prerequisites", [])):
-                state.update(
-                    {
-                        "status": status,
-                        "status_reason": "upstream blocker: %s" % reason,
-                        "dispatch": None,
-                    }
-                )
-                affected.add(str(task.get("code")))
-                changed = True
-    return affected
-
-
 PRE_DELIVERY_ACTIONS = {
     "draft": "open_designer_session",
     "designing": "close_designer_session",
@@ -617,12 +897,32 @@ PRE_DELIVERY_ACTIONS = {
 
 
 def next_action(args: Any) -> int:
-    """Name exactly one next action for every reachable delivery state."""
+    """Name exactly one next action for the single parallel Task frontier."""
 
     root = workspace_root(Path(args.root))
+    project = _project_root(root)
     with workspace_lock(root):
         _, plan, paths = _load_raw_plan(root, args.plan)
         phase = str(plan.get("phase"))
+        if phase == "ready":
+            receipt = plan.get("lifecycle", {}).get("designer_session", {}).get("compile")
+            compile_issues = _open_compile_items(receipt)
+            if compile_issues:
+                print(
+                    json.dumps(
+                        {
+                            "action": "repair_plan",
+                            "phase": phase,
+                            "brief": {
+                                "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
+                                "readonly_design_path": "%s/%s" % (plan["directory"], DESIGN_NAME),
+                                "issues": compile_issues,
+                                "rules_reference": "references/structure-repair.md",
+                            },
+                        }
+                    )
+                )
+                return 0
         if phase != "authorized":
             print(json.dumps({"action": PRE_DELIVERY_ACTIONS[phase], "phase": phase}))
             return 0
@@ -632,7 +932,6 @@ def next_action(args: Any) -> int:
     running: list[str] = []
     exhausted: list[str] = []
     eligible: list[str] = []
-    unreachable: list[str] = []
     for task in plan.get("spec", {}).get("tasks", []):
         code = str(task.get("code"))
         state = _state_by_code(checkpoints, code)
@@ -645,13 +944,17 @@ def next_action(args: Any) -> int:
             awaiting.append(code)
         elif status == "in_progress":
             (exhausted if isinstance(dispatch, Mapping) and dispatch.get("main_thread_fallback") else running).append(code)
-        elif status == "pending" and _eligible(task, checkpoints):
-            eligible.append(code)
         elif status == "pending":
-            unreachable.append(code)
+            eligible.append(code)
     reviewer = plan.get("lifecycle", {}).get("reviewer_session")
     reviewer_active = isinstance(reviewer, Mapping) and reviewer.get("status") == "active"
-    if corrections:
+    regression = checkpoints.get("full_regression")
+    regression_current = isinstance(regression, Mapping) and regression.get(
+        "content_fingerprint"
+    ) == fingerprint_paths(project, plan["spec"]["full_regression"]["paths"])
+    if eligible:
+        action = "dispatch_tasks"
+    elif corrections:
         action = "repair_tasks"
     elif awaiting:
         action = "accept_tasks"
@@ -659,16 +962,15 @@ def next_action(args: Any) -> int:
         action = "complete_in_main"
     elif running:
         action = "await_tasks"
-    elif eligible:
-        action = "dispatch_tasks"
-    elif unreachable:
-        # Every remaining Task sits behind a blocked prerequisite. Record the
-        # blockers so delivery can still close through the sole Reviewer.
-        action = "block_unreachable_tasks"
     elif reviewer is None:
-        action = "open_reviewer_session"
+        action = "open_reviewer_session" if regression_current else "run_full_regression"
     else:
-        action = "await_reviewer" if reviewer_active and reviewer.get("agent_returned") is not True else "close_reviewer_session"
+        if reviewer_active and reviewer.get("agent_returned") is not True:
+            action = "await_reviewer"
+        elif regression_current and regression.get("passed") is True:
+            action = "close_reviewer_session"
+        else:
+            action = "run_full_regression"
     print(
         json.dumps(
             {
@@ -679,7 +981,6 @@ def next_action(args: Any) -> int:
                 "exhausted": exhausted,
                 "running": running,
                 "eligible": eligible,
-                "unreachable": unreachable,
             }
         )
     )
@@ -687,15 +988,11 @@ def next_action(args: Any) -> int:
 
 
 def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, Any]:
-    upstream_codes = set(task.get("prerequisites", []))
-    upstream = [
-        {"code": candidate.get("code"), "outcome": candidate.get("outcome"), "outputs": candidate.get("outputs")}
-        for candidate in plan.get("spec", {}).get("tasks", [])
-        if candidate.get("code") in upstream_codes
-    ]
     ledger = plan.get("ledger", {})
     policy = [
         "Do not ask the user questions after authorization.",
+        "Execute every currently ready Task Node concurrently; wait only at declared Node joins.",
+        "Never serialize independent Nodes merely for convenience.",
         "Resolve local choices from the frozen contract, then the simplest safe implementation.",
         "Return every changed repository-relative path and focused evidence.",
     ]
@@ -706,13 +1003,12 @@ def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, A
         "authorized_scope": plan.get("intent", {}).get("scope"),
         "decisions": list(ledger.get("user_decided", [])) + list(ledger.get("defaulted", [])),
         "task": task,
-        "upstream": upstream,
         "execution_policy": policy,
     }
 
 
 def dispatch_task(args: Any) -> int:
-    """Dispatch an eligible Task, or re-dispatch one that failed acceptance."""
+    """Dispatch one pending parallel Task, or re-dispatch a failed acceptance."""
 
     root = workspace_root(Path(args.root))
     with workspace_lock(root):
@@ -725,7 +1021,7 @@ def dispatch_task(args: Any) -> int:
             and isinstance(prior, Mapping)
             and prior.get("phase") == "worker_correction"
         )
-        if not correction and (state.get("status") != "pending" or not _eligible(task, checkpoints)):
+        if not correction and state.get("status") != "pending":
             raise ToolError("Task is not eligible for dispatch")
         attempts = int(prior.get("attempts", 0)) + 1 if correction and isinstance(prior, Mapping) else 1
         role = "worker-%s" % task.get("difficulty")
@@ -980,20 +1276,38 @@ def accept_task(args: Any) -> int:
     project = _project_root(root)
     with workspace_lock(root):
         plan, paths, checkpoints = _execution_context(root, args.plan)
-        task = _task_by_code(plan, args.task)
+        task = deepcopy(_task_by_code(plan, args.task))
         state = _state_by_code(checkpoints, args.task)
         dispatch = state.get("dispatch")
         if state.get("status") != "in_progress" or not isinstance(dispatch, dict):
             raise ToolError("Task is not awaiting acceptance")
         if dispatch.get("phase") not in {"awaiting_acceptance", "worker_correction"}:
             raise ToolError("Task is not awaiting acceptance")
-        passed, receipts = _run_commands(project, task["focused_regression"]["commands"])
+        dispatch_id = dispatch.get("id")
+        task_digest = sha256_value(task)
+
+    passed, receipts = _run_commands(project, task["focused_regression"]["commands"])
+    content_fingerprint = fingerprint_paths(project, task["focused_regression"]["paths"])
+
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        current_task = _task_by_code(plan, args.task)
+        state = _state_by_code(checkpoints, args.task)
+        dispatch = state.get("dispatch")
+        if (
+            sha256_value(current_task) != task_digest
+            or state.get("status") != "in_progress"
+            or not isinstance(dispatch, dict)
+            or dispatch.get("id") != dispatch_id
+            or dispatch.get("phase") not in {"awaiting_acceptance", "worker_correction"}
+        ):
+            raise ToolError("Task acceptance changed while focused regression was running")
         state["evidence"].append(
             {
                 "kind": "focused_regression",
                 "passed": passed,
                 "commands": receipts,
-                "content_fingerprint": fingerprint_paths(project, task["focused_regression"]["paths"]),
+                "content_fingerprint": content_fingerprint,
                 "recorded_at": _now(),
             }
         )
@@ -1017,28 +1331,146 @@ def block_task(args: Any) -> int:
     status = "blocked_by_authority" if args.kind == "authority" else "blocked_by_environment"
     reason = public_summary(args.reason, "Task blocker")
     with workspace_lock(root):
-        plan, paths, checkpoints = _execution_context(root, args.plan)
+        _, paths, checkpoints = _execution_context(root, args.plan)
         state = _state_by_code(checkpoints, args.task)
         if state.get("status") == "completed":
             raise ToolError("a completed Task is frozen")
         state.update({"status": status, "status_reason": reason, "dispatch": None})
-        affected = _propagate_blocker(plan, checkpoints, args.task, status, reason)
         write_json(paths["checkpoints"], checkpoints)
-    print(json.dumps({"blocked": True, "status": status, "affected_tasks": sorted(affected)}))
+    print(json.dumps({"blocked": True, "status": status, "affected_tasks": [args.task]}))
+    return 0
+
+
+def _execute_full_regression(
+    project: Path, plan: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    regression = plan["spec"]["full_regression"]
+    passed, receipts, diagnostics = _run_commands_with_diagnostics(
+        project, regression["commands"]
+    )
+    return (
+        {
+            "passed": passed,
+            "commands": receipts,
+            "content_fingerprint": fingerprint_paths(project, regression["paths"]),
+            "recorded_at": _now(),
+        },
+        diagnostics,
+    )
+
+
+def _reviewer_brief(
+    plan: Mapping[str, Any],
+    checkpoints: Mapping[str, Any],
+    regression: Mapping[str, Any],
+    rendered: list[Any],
+) -> dict[str, Any]:
+    return {
+        "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
+        "checkpoints_path": "%s/%s" % (plan["directory"], CHECKPOINTS_NAME),
+        "plan": semantic_payload(plan),
+        "checkpoints": deepcopy(dict(checkpoints)),
+        "full_regression": {
+            "contract": deepcopy(plan["spec"]["full_regression"]),
+            "result": deepcopy(dict(regression)),
+            "diagnostics_handoff": (
+                "Attach the ephemeral diagnostics from the immediately preceding "
+                "run-full-regression result; never persist them."
+            ),
+        },
+        "rendered_evidence_tasks": list(rendered),
+        "execution_policy": [
+            "Audit the current source, tests, Task evidence, and supplied full-regression diagnostics.",
+            "Directly repair every in-scope defect; do not merely recommend a patch.",
+            "Do not run or wait for the full regression; Python runs it outside Reviewer model time.",
+            "Use bounded focused checks only when they materially guide a repair.",
+            "Do not ask the user or create another Reviewer or Repair Task.",
+        ],
+    }
+
+
+def run_full_regression(args: Any) -> int:
+    """Run the complete regression as its own deterministic delivery stage."""
+
+    root = workspace_root(Path(args.root))
+    project = _project_root(root)
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
+            raise ToolError("full regression requires every Task terminal")
+        reviewer = plan.get("lifecycle", {}).get("reviewer_session")
+        if isinstance(reviewer, Mapping) and (
+            reviewer.get("status") != "active" or reviewer.get("agent_returned") is not True
+        ):
+            raise ToolError("full regression cannot run while the Reviewer is working")
+        plan_digest = semantic_digest(plan)
+        checkpoints_digest = sha256_value(checkpoints)
+
+    regression, diagnostics = _execute_full_regression(project, plan)
+
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        if (
+            semantic_digest(plan) != plan_digest
+            or sha256_value(checkpoints) != checkpoints_digest
+            or any(
+                item.get("status") not in TERMINAL_TASK_STATUSES
+                for item in checkpoints.get("tasks", [])
+            )
+        ):
+            raise ToolError("delivery changed while full regression was running")
+        checkpoints["full_regression"] = regression
+        reviewer = plan.get("lifecycle", {}).get("reviewer_session")
+        if isinstance(reviewer, dict):
+            if reviewer.get("status") != "active" or reviewer.get("agent_returned") is not True:
+                raise ToolError("Reviewer state changed while full regression was running")
+            if regression["passed"] is True:
+                reviewer.pop("repair_required", None)
+                action = "close_reviewer_session"
+            else:
+                reviewer["repair_required"] = True
+                reviewer["agent_returned"] = False
+                action = "resume_reviewer"
+            write_json(paths["plan"], plan)
+        else:
+            action = "open_reviewer_session"
+        write_json(paths["checkpoints"], checkpoints)
+    print(
+        json.dumps(
+            {
+                "completed": True,
+                "passed": regression["passed"],
+                "action": action,
+                "full_regression": {
+                    "contract": deepcopy(plan["spec"]["full_regression"]),
+                    "result": regression,
+                    "diagnostics": diagnostics,
+                },
+            }
+        )
+    )
     return 0
 
 
 def open_reviewer_session(args: Any) -> int:
     root = workspace_root(Path(args.root))
+    project = _project_root(root)
     with workspace_lock(root):
-        _, plan, paths = _load_raw_plan(root, args.plan)
-        if plan.get("phase") != "authorized":
+        _, current, _ = _load_raw_plan(root, args.plan)
+        if current.get("phase") != "authorized":
             raise ToolError("the Reviewer opens only on an authorized Plan with no open continuation")
-        checkpoints = read_json(paths["checkpoints"])
+        plan, paths, checkpoints = _execution_context(root, args.plan)
         if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
             raise ToolError("the Reviewer requires every Task terminal")
         if plan.get("lifecycle", {}).get("reviewer_session") is not None:
             raise ToolError("the Reviewer runs exactly once")
+        regression = checkpoints.get("full_regression")
+        if not isinstance(regression, Mapping):
+            raise ToolError("run the independent full regression before opening the Reviewer")
+        if regression.get("content_fingerprint") != fingerprint_paths(
+            project, plan["spec"]["full_regression"]["paths"]
+        ):
+            raise ToolError("full regression evidence is stale; run it again before opening the Reviewer")
         rendered = [
             task.get("code")
             for task in plan.get("spec", {}).get("tasks", [])
@@ -1061,10 +1493,8 @@ def open_reviewer_session(args: Any) -> int:
     payload = {
         "action": "dispatch_reviewer",
         "dispatch_id": dispatch_id,
-        "plan": plan["code"],
         "role_reference": "references/reviewer.md",
-        "rendered_evidence_tasks": rendered,
-        "tasks": [task.get("code") for task in plan.get("spec", {}).get("tasks", [])],
+        "brief": _reviewer_brief(plan, checkpoints, regression, rendered),
     }
     payload.update(selector)
     print(json.dumps(payload))
@@ -1075,13 +1505,12 @@ def close_reviewer_session(args: Any) -> int:
     root = workspace_root(Path(args.root))
     project = _project_root(root)
     with workspace_lock(root):
-        _, plan, paths = _load_raw_plan(root, args.plan)
+        plan, paths, checkpoints = _execution_context(root, args.plan)
         session = plan.get("lifecycle", {}).get("reviewer_session")
         if not isinstance(session, dict) or session.get("status") != "active" or session.get("id") != args.dispatch_id:
             raise ToolError("Reviewer session correlation mismatch")
         if session.get("agent_returned") is not True:
             raise ToolError("Reviewer session has not reached a final role boundary")
-        checkpoints = read_json(paths["checkpoints"])
         if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
             raise ToolError("closing review requires every Task terminal")
         blocked = [
@@ -1106,22 +1535,14 @@ def close_reviewer_session(args: Any) -> int:
             return 0
         if blocked:
             raise ToolError("blocked Tasks require --blocked-reason and cannot be reported as completed")
-        passed, receipts = _run_commands(project, plan["spec"]["full_regression"]["commands"])
-        session["full_regression"] = {
-            "passed": passed,
-            "commands": receipts,
-            "content_fingerprint": fingerprint_paths(project, plan["spec"]["full_regression"]["paths"]),
-            "recorded_at": _now(),
-        }
-        if not passed:
-            # The session stays open and closable: the same Reviewer repairs the
-            # failure and this command is rerun. Clearing the returned flag here
-            # would strand a delivery whose child cannot emit a second callback.
-            session["repair_required"] = True
-            write_json(paths["plan"], plan)
-            raise ToolError(
-                "final regression failed; repair inside this same Reviewer session and rerun close-reviewer-session"
-            )
+        regression = checkpoints.get("full_regression")
+        if not isinstance(regression, Mapping):
+            raise ToolError("run the independent full regression before closing the Reviewer")
+        current_fingerprint = fingerprint_paths(
+            project, plan["spec"]["full_regression"]["paths"]
+        )
+        if regression.get("passed") is not True or current_fingerprint != regression.get("content_fingerprint"):
+            raise ToolError("Reviewer repairs require the independent full regression before close")
         session.pop("repair_required", None)
         session["status"] = "completed"
         session["closed_at"] = _now()

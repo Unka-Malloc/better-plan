@@ -26,12 +26,20 @@ def render_plan_tree(
             status = "%s/%s" % (status, dispatch.get("phase"))
         line = "  %s %s %s [%s]" % (marker, task.get("code"), task.get("title"), status)
         if details:
-            line += " tier=%s verification=%s prerequisites=%s" % (
+            line += " tier=%s verification=%s frontier=parallel" % (
                 task.get("difficulty"),
                 task.get("verification"),
-                ",".join(task.get("prerequisites", []) or ["none"]),
             )
         lines.append(line)
+        if details:
+            nodes = task.get("nodes") if isinstance(task.get("nodes"), list) else []
+            for node_index, node in enumerate(nodes):
+                node_marker = "└─" if node_index == len(nodes) - 1 else "├─"
+                prerequisites = ",".join(node.get("prerequisites", []) or ["none"])
+                lines.append(
+                    "      %s %s %s after=%s"
+                    % (node_marker, node.get("code"), node.get("title"), prerequisites)
+                )
     return "\n".join(lines)
 
 

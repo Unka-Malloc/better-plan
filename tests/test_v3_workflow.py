@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from scripts.better_plan.application.agent_completion import reduce_agent_completion
+from scripts.better_plan.domain.design_compile import DESIGN_EXAMPLE, DESIGN_TEMPLATE
 from tests.v3_fixtures import MARKER_COMMAND, draft_plan, task, write_workspace
 
 
@@ -45,6 +46,9 @@ class V3WorkflowTests(unittest.TestCase):
     def write_plan(self, value: dict) -> None:
         (self.root / "delivery" / "Plan.json").write_text(json.dumps(value), encoding="utf-8")
 
+    def write_design(self, value: str) -> None:
+        (self.root / "delivery" / "Design.md").write_text(value, encoding="utf-8")
+
     def design_and_authorize(self, *extra: str) -> None:
         opened = self.payload("open-designer-session", str(self.root), "--plan", PLAN)
         dispatch = opened["dispatch_id"]
@@ -69,6 +73,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", agent, "--final")
 
     def close_review(self, agent: str, *extra: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        self.payload("run-full-regression", str(self.root), "--plan", PLAN)
         review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
         self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"], "--agent-id", agent)
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", agent, "--final")
@@ -84,6 +89,15 @@ class V3WorkflowTests(unittest.TestCase):
         )
 
     def test_one_designer_and_one_reviewer_complete_without_more_questions(self) -> None:
+        value = self.read_plan()
+        value["spec"]["full_regression"] = {
+            "commands": [
+                "python3 -c \"from pathlib import Path; p=Path('full-count.txt'); "
+                "p.write_text(str((int(p.read_text()) if p.exists() else 0)+1))\""
+            ],
+            "paths": ["full-count.txt"],
+        }
+        self.write_plan(value)
         opened = self.payload("open-designer-session", str(self.root), "--plan", PLAN)
         dispatch = opened["dispatch_id"]
         self.assertEqual(opened["role_reference"], "references/designer.md")
@@ -112,14 +126,19 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(dispatched["agent_type"], "worker-standard")
         self.assertFalse(dispatched["correction"])
         self.assertIn("Do not ask the user", json.dumps(dispatched["brief"]))
+        self.assertIn("Execute every currently ready Task Node concurrently", json.dumps(dispatched["brief"]))
+        self.assertTrue(dispatched["brief"]["task"]["nodes"])
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", "worker.agent")
         returned = self.payload("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.agent", "--final")
         self.assertEqual(returned["action"], "accept_task")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
 
         self.assertEqual(
-            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "open_reviewer_session"
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "run_full_regression"
         )
+        premature = self.cli("open-reviewer-session", str(self.root), "--plan", PLAN, check=False)
+        self.assertNotEqual(premature.returncode, 0)
+        self.assertIn("independent full regression", premature.stderr)
         result = self.close_review("reviewer.agent")
         self.assertTrue(json.loads(result.stdout)["completed"])
         self.assertNotEqual(
@@ -129,7 +148,9 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(final["phase"], "completed")
         self.assertEqual(final["lifecycle"]["designer_session"]["count"], 1)
         self.assertEqual(final["lifecycle"]["reviewer_session"]["count"], 1)
-        self.assertTrue(final["lifecycle"]["reviewer_session"]["full_regression"]["passed"])
+        checkpoints = json.loads((self.root / "delivery" / "Checkpoints.json").read_text(encoding="utf-8"))
+        self.assertTrue(checkpoints["full_regression"]["passed"])
+        self.assertEqual((self.root / "full-count.txt").read_text(encoding="utf-8"), "1")
         self.assertEqual(self.cli("validate", str(self.root)).returncode, 0)
 
     def test_incomplete_design_closes_and_reports_issues_instead_of_trapping_the_session(self) -> None:
@@ -160,6 +181,104 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("authorize-plan", str(self.root), "--plan", PLAN, "--source", "explicit", "--reference", "user-approval")
         self.assertEqual(self.read_plan()["phase"], "authorized")
 
+    def test_designer_draft_compiles_and_authorizes_without_manual_spec_bookkeeping(self) -> None:
+        value = self.read_plan()
+        value["spec"] = {
+            "requirements": [],
+            "architecture": {"summary": "", "notes": []},
+            "tasks": [],
+            "full_regression": {"commands": [], "paths": []},
+        }
+        self.write_plan(value)
+        opened = self.payload("open-designer-session", str(self.root), "--plan", PLAN)
+        self.assertEqual(opened["draft_path"], "delivery/Design.md")
+        self.assertEqual(
+            (self.root / "delivery" / "Design.md").read_text(encoding="utf-8"),
+            DESIGN_TEMPLATE,
+        )
+        self.assertNotIn("bounded-delivery", DESIGN_TEMPLATE)
+        self.assertNotIn("observable-behavior", DESIGN_TEMPLATE)
+        self.assertIn("references/design-format.md", opened["knowledge_references"])
+        self.assertIn("Write the complete solution design to delivery/Design.md", opened["assignment"])
+        self.assertIn("every Task is mutually parallel-safe", opened["assignment"])
+        self.assertIn("design a minimal Node DAG", opened["assignment"])
+        self.assertIn("branch every independent Node", opened["assignment"])
+        self.assertIn("every ready Node concurrently", opened["assignment"])
+        self.assertIn("Do not edit Plan.json.spec", opened["assignment"])
+        self.assertIn("complete delivery/Plan.json directly", opened["assignment"])
+        self.write_design(DESIGN_EXAMPLE)
+        dispatch = opened["dispatch_id"]
+        self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", dispatch, "--agent-id", "designer.draft")
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "designer.draft", "--final")
+
+        closed = self.payload("close-designer-session", str(self.root), "--plan", PLAN, "--dispatch-id", dispatch)
+        self.assertTrue(closed["compiled"])
+        self.assertEqual((closed["structure_issues"], closed["content_issues"], closed["unmapped"]), (0, 0, 0))
+        compiled = self.read_plan()
+        self.assertEqual(compiled["spec"]["tasks"][0]["code"], "TASK-001")
+        self.assertEqual(compiled["spec"]["tasks"][0]["outputs"][0]["code"], "OUT-001")
+        self.assertEqual(
+            (self.root / "delivery" / "Design.pristine.md").read_text(encoding="utf-8"),
+            DESIGN_EXAMPLE,
+        )
+        authorized = self.payload(
+            "authorize-plan", str(self.root), "--plan", PLAN,
+            "--source", "inherited_implementation_request", "--reference", "draft-compiler",
+        )
+        self.assertTrue(authorized["authorized"])
+
+    def test_structure_residue_routes_to_plan_repair_without_changing_design(self) -> None:
+        opened = self.payload("open-designer-session", str(self.root), "--plan", PLAN)
+        residue = "## Notes from Designer\nPreserve this design note.\n\n"
+        self.write_design(DESIGN_EXAMPLE.replace("## Architecture", residue + "## Architecture"))
+        checked = self.cli(
+            "compile-design", str(self.root), "--plan", PLAN, "--check", check=False,
+        )
+        self.assertNotEqual(checked.returncode, 0)
+        diagnostics = json.loads(checked.stdout)["issues"]
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(
+            type(item.get("line")) is int and item.get("field")
+            for item in diagnostics
+        ))
+        dispatch = opened["dispatch_id"]
+        self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", dispatch, "--agent-id", "designer.residue")
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "designer.residue", "--final")
+        closed = self.payload("close-designer-session", str(self.root), "--plan", PLAN, "--dispatch-id", dispatch)
+        self.assertEqual(closed["unmapped"], 1)
+        action = self.payload("next-action", str(self.root), "--plan", PLAN)
+        self.assertEqual(action["action"], "repair_plan")
+        self.assertEqual(action["brief"]["plan_path"], "delivery/Plan.json")
+        self.assertEqual(action["brief"]["rules_reference"], "references/structure-repair.md")
+        rejected = self.cli(
+            "authorize-plan", str(self.root), "--plan", PLAN,
+            "--source", "explicit", "--reference", "approval", check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("design compilation has open issues", rejected.stderr)
+
+        frozen = (self.root / "delivery" / "Design.md").read_text(encoding="utf-8")
+        self.write_design(frozen + "\n")
+        immutable = self.cli("compile-design", str(self.root), "--plan", PLAN, "--apply", check=False)
+        self.assertNotEqual(immutable.returncode, 0)
+        self.assertIn("Design.md is read-only", immutable.stderr)
+        self.write_design(frozen)
+
+        current = self.read_plan()
+        current["spec"]["architecture"]["notes"].append("Preserve this design note.")
+        self.write_plan(current)
+        repaired = self.payload("compile-design", str(self.root), "--plan", PLAN, "--apply")
+        self.assertEqual(repaired["open_issues"], 0)
+        self.assertEqual(
+            (self.root / "delivery" / "Design.md").read_text(encoding="utf-8"),
+            frozen,
+        )
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "authorize_plan")
+        self.cli(
+            "authorize-plan", str(self.root), "--plan", PLAN,
+            "--source", "explicit", "--reference", "approval",
+        )
+
     def test_failed_acceptance_has_a_scripted_correction_path(self) -> None:
         value = self.read_plan()
         value["spec"]["tasks"][0]["focused_regression"]["commands"] = [MARKER_COMMAND]
@@ -186,7 +305,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.second", "--final")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
         self.assertEqual(
-            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "open_reviewer_session"
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "run_full_regression"
         )
 
     def test_dossier_can_be_rebuilt_before_resolution_and_resolves_once(self) -> None:
@@ -269,16 +388,14 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("changed a started Task", result.stderr)
 
-    def test_hard_blocker_propagates_downstream_and_reaches_a_reviewed_terminal(self) -> None:
+    def test_hard_blocker_isolated_to_one_parallel_task_and_delivery_finishes(self) -> None:
         value = draft_plan()
-        consumer = task(
+        independent = task(
             "TASK-002",
             write_paths=["other.txt"],
-            prerequisites=["TASK-001"],
-            inputs=[{"from": "TASK-001", "output": "OUT-001", "guarantee": "The upstream behavior holds."}],
             acceptance_code="AC-002",
         )
-        value["spec"]["tasks"].append(consumer)
+        value["spec"]["tasks"].append(independent)
         self.plan = write_workspace(self.root, value)
         (self.root / "other.txt").write_text("fixture\n", encoding="utf-8")
         self.design_and_authorize()
@@ -287,9 +404,14 @@ class V3WorkflowTests(unittest.TestCase):
             "block-task", "TASK-001", str(self.root), "--plan", PLAN,
             "--kind", "environment", "--reason", "required external system unavailable",
         )
-        self.assertEqual(blocked["affected_tasks"], ["TASK-001", "TASK-002"])
+        self.assertEqual(blocked["affected_tasks"], ["TASK-001"])
         self.assertEqual(
-            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "open_reviewer_session"
+            self.payload("next-action", str(self.root), "--plan", PLAN)["eligible"], ["TASK-002"]
+        )
+        self.run_worker("TASK-002", "worker.independent")
+        self.cli("accept-task", "TASK-002", str(self.root), "--plan", PLAN)
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "run_full_regression"
         )
         refused = self.close_review("reviewer.blocked", check=False)
         self.assertNotEqual(refused.returncode, 0)
@@ -328,9 +450,14 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", "worker.visual")
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.visual", "--final")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+        regression = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
         review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
         self.assertEqual(review["agent_type"], "reviewer")
-        self.assertEqual(review["rendered_evidence_tasks"], ["TASK-001"])
+        self.assertEqual(review["brief"]["rendered_evidence_tasks"], ["TASK-001"])
+        self.assertEqual(review["brief"]["plan"]["code"], PLAN)
+        self.assertEqual(review["brief"]["checkpoints"]["tasks"][0]["status"], "completed")
+        self.assertTrue(review["brief"]["full_regression"]["result"]["passed"])
+        self.assertEqual(regression["action"], "open_reviewer_session")
 
     def test_authorization_can_prove_the_host_harness_without_mutating_inputs(self) -> None:
         self.design_and_authorize("--verify-command", 'python3 -c "raise SystemExit(0)"')
@@ -381,20 +508,46 @@ class V3WorkflowTests(unittest.TestCase):
 
     def test_failed_final_regression_keeps_the_same_reviewer_session_closable(self) -> None:
         value = self.read_plan()
-        value["spec"]["full_regression"]["commands"] = [MARKER_COMMAND]
+        value["spec"]["full_regression"]["commands"] = [
+            "python3 -c \"import pathlib, sys; print('marker artifact is missing'); "
+            "print(chr(47)+'private/runtime/path'); "
+            "sys.exit(0 if pathlib.Path('marker.txt').is_file() else 1)\""
+        ]
         self.write_plan(value)
         self.design_and_authorize()
         self.run_worker("TASK-001", "worker.only")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
-        failed = self.close_review("reviewer.retry", check=False)
-        self.assertNotEqual(failed.returncode, 0)
-        self.assertIn("rerun close-reviewer-session", failed.stderr)
+        baseline_run = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
+        baseline = baseline_run["full_regression"]
+        self.assertFalse(baseline["result"]["passed"])
+        self.assertIn("marker artifact is missing", baseline["diagnostics"][0]["output_tail"])
+        self.assertIn("[redacted unsafe diagnostic line]", baseline["diagnostics"][0]["output_tail"])
+        self.assertNotIn("/private/runtime/path", json.dumps(baseline))
+        persisted = (self.root / "delivery" / "Checkpoints.json").read_text(encoding="utf-8")
+        self.assertNotIn("marker artifact is missing", persisted)
+        self.assertNotIn("private/runtime/path", persisted)
+        self.cli(
+            "bind-agent", PLAN, str(self.root), "--plan", PLAN,
+            "--dispatch-id", review["dispatch_id"], "--agent-id", "reviewer.retry",
+        )
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.retry", "--final")
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "run_full_regression",
+        )
+        retry = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        self.assertEqual(retry["action"], "resume_reviewer")
+        self.assertIn("marker artifact is missing", json.dumps(retry["full_regression"]))
         session = self.read_plan()["lifecycle"]["reviewer_session"]
         self.assertTrue(session["repair_required"])
-        self.assertTrue(session["agent_returned"])
+        self.assertFalse(session["agent_returned"])
 
         # The same Reviewer repairs and the very same session closes; no second Reviewer.
         (self.root / "marker.txt").write_text("repaired\n", encoding="utf-8")
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.retry", "--final")
+        verified = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        self.assertEqual(verified["action"], "close_reviewer_session")
         result = self.cli(
             "close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", session["id"]
         )
@@ -447,6 +600,9 @@ class V3WorkflowTests(unittest.TestCase):
         (self.root / "other.txt").write_text("fixture\n", encoding="utf-8")
         self.design_and_authorize()
         first = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
+        remaining = self.payload("next-action", str(self.root), "--plan", PLAN)
+        self.assertEqual(remaining["action"], "dispatch_tasks")
+        self.assertEqual(remaining["eligible"], ["TASK-002"])
         second = self.payload("dispatch-task", "TASK-002", str(self.root), "--plan", PLAN)
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", first["dispatch_id"], "--agent-id", "same.agent")
         rejected = self.cli(
@@ -461,6 +617,64 @@ class V3WorkflowTests(unittest.TestCase):
         phases = {item["code"]: item["dispatch"]["phase"] for item in checkpoints["tasks"]}
         self.assertEqual(phases, {"TASK-001": "awaiting_acceptance", "TASK-002": "worker_running"})
 
+    def test_independent_task_acceptance_runs_concurrently_outside_the_workspace_lock(self) -> None:
+        barrier = self.root / "acceptance_barrier.py"
+        barrier.write_text(
+            "from pathlib import Path\n"
+            "import sys, time\n"
+            "mine, other = Path(sys.argv[1]), Path(sys.argv[2])\n"
+            "mine.parent.mkdir(parents=True, exist_ok=True)\n"
+            "mine.write_text('ready', encoding='utf-8')\n"
+            "deadline = time.monotonic() + 5\n"
+            "while not other.is_file() and time.monotonic() < deadline:\n"
+            "    time.sleep(0.02)\n"
+            "raise SystemExit(0 if other.is_file() else 1)\n",
+            encoding="utf-8",
+        )
+        value = draft_plan()
+        value["spec"]["tasks"] = [
+            task(
+                "TASK-001",
+                write_paths=["task-a"],
+                command="python3 acceptance_barrier.py task-a/ready task-b/ready",
+            ),
+            task(
+                "TASK-002",
+                write_paths=["task-b"],
+                acceptance_code="AC-002",
+                command="python3 acceptance_barrier.py task-b/ready task-a/ready",
+            ),
+        ]
+        self.plan = write_workspace(self.root, value)
+        self.design_and_authorize()
+        self.run_worker("TASK-001", "worker.first")
+        self.run_worker("TASK-002", "worker.second")
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["awaiting_acceptance"],
+            ["TASK-001", "TASK-002"],
+        )
+
+        processes = [
+            subprocess.Popen(
+                [sys.executable, str(TOOL), "accept-task", code, str(self.root), "--plan", PLAN],
+                cwd=str(ROOT),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for code in ("TASK-001", "TASK-002")
+        ]
+        results = [process.communicate(timeout=10) for process in processes]
+
+        self.assertEqual(
+            [(process.returncode, stderr) for process, (_, stderr) in zip(processes, results)],
+            [(0, ""), (0, "")],
+        )
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "run_full_regression",
+        )
+
     def test_a_greenfield_task_can_be_dispatched_and_accepted(self) -> None:
         value = draft_plan()
         value["spec"]["tasks"][0]["ownership"]["write_paths"] = ["created.txt"]
@@ -473,7 +687,7 @@ class V3WorkflowTests(unittest.TestCase):
         (self.root / "created.txt").write_text("new module\n", encoding="utf-8")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
         self.assertEqual(
-            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "open_reviewer_session"
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "run_full_regression"
         )
 
     def test_dossier_cannot_reopen_after_authorization(self) -> None:
@@ -526,6 +740,8 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("main-complete", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"])
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "accept_tasks")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "run_full_regression")
+        self.payload("run-full-regression", str(self.root), "--plan", PLAN)
         review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "await_reviewer")
         self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"], "--agent-id", "rev.phase")

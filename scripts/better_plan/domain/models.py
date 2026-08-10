@@ -15,6 +15,8 @@ MANIFEST_NAME = "Manifest.json"
 PLAN_NAME = "Plan.json"
 CHECKPOINTS_NAME = "Checkpoints.json"
 PLAN_DOCUMENT = "Plan.md"
+DESIGN_NAME = "Design.md"
+DESIGN_PRISTINE_NAME = "Design.pristine.md"
 
 MANIFEST_SCHEMA = "better-plan.manifest/v3"
 PLAN_SCHEMA = "better-plan.plan/v3"
@@ -83,7 +85,7 @@ VALID_RISKS = ELEVATED_RISKS | {"observability", "quality"}
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 OPAQUE_EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-CODE_PATTERN = re.compile(r"^(?:PLAN|REQ|TASK|OUT|AC|Q|DEC)-[A-Z0-9][A-Z0-9-]*$")
+CODE_PATTERN = re.compile(r"^(?:PLAN|REQ|TASK|NODE|OUT|AC|Q|DEC)-[A-Z0-9][A-Z0-9-]*$")
 OPTION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 # Absolute local paths and UNC shares leak machine identity and break portability.
@@ -252,9 +254,9 @@ def task_template() -> dict[str, Any]:
         "outputs": [
             {
                 "code": "OUT-001",
-                "title": "Verified handoff",
+                "title": "Verified result",
                 "artifact": "relative/path",
-                "guarantee": "The declared consumer can rely on this behavior.",
+                "guarantee": "The delivery can rely on this behavior.",
             }
         ],
         "ownership": {"write_paths": ["relative/output"], "shared_exclusive": []},
@@ -262,6 +264,14 @@ def task_template() -> dict[str, Any]:
         "verification": "code",
         "requirements": ["REQ-001"],
         "risks": [],
+        "nodes": [
+            {
+                "code": "NODE-001",
+                "title": "deliver-result",
+                "outcome": "Complete the Task's bounded implementation and verification.",
+                "prerequisites": [],
+            }
+        ],
         "design": {
             "approach": ["The direct implementation that satisfies the outcome"],
             "interfaces": ["Public contract, when the Task changes one"],
@@ -327,6 +337,7 @@ def checkpoints_template(plan: Mapping[str, Any]) -> dict[str, Any]:
         "revision": revision,
         "semantic_digest": semantic_digest(plan),
         "delivery_status": "pending",
+        "full_regression": None,
         "tasks": [task_state(task.get("code")) for task in tasks if isinstance(task, Mapping)],
     }
 
