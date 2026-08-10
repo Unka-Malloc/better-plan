@@ -53,11 +53,36 @@ CURSOR_DEFAULT_WORKER_MATRIX: Final[Mapping[str, tuple[str, str, str]]] = Mappin
         "worker-complex": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
     }
 )
+OPENCODE_GO_DEFAULT_MATRIX: Final[
+    Mapping[str, tuple[str, str, str, str, str]]
+] = MappingProxyType(
+    {
+        "designer": ("designer", "opencode-go/kimi-k3", "max", "model", "kimi-k3"),
+        "worker-standard": (
+            "worker",
+            "opencode-go/deepseek-v4-flash",
+            "high",
+            "model",
+            "deepseek-v4-flash",
+        ),
+        "worker-complex": (
+            "worker",
+            "opencode-go/gpt-5.6-luna",
+            "max",
+            "coding-agent",
+            "codex-gpt-5-6-luna-max",
+        ),
+        "reviewer": ("reviewer", "opencode-go/kimi-k3", "max", "model", "kimi-k3"),
+    }
+)
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/+-]{1,128}$")
 _TOML_MODEL = re.compile(r'(?m)^model\s*=\s*"([A-Za-z0-9._:/+-]{1,128})"\s*$')
 _TOML_EFFORT = re.compile(r'(?m)^model_reasoning_effort\s*=\s*"([A-Za-z0-9._+-]{1,64})"\s*$')
 _YAML_MODEL = re.compile(r"(?m)^model:\s*['\"]?([A-Za-z0-9._:/+-]{1,128})['\"]?\s*$")
-_YAML_EFFORT = re.compile(r"(?m)^(?:reasoning_effort|model_reasoning_effort):\s*['\"]?([A-Za-z0-9._+-]{1,64})['\"]?\s*$")
+_YAML_EFFORT = re.compile(
+    r"(?m)^(?:reasoningEffort|reasoning_effort|model_reasoning_effort):"
+    r"\s*['\"]?([A-Za-z0-9._+-]{1,64})['\"]?\s*$"
+)
 _EFFORT_SUFFIXES = ("non-reasoning", "minimal", "medium", "xhigh", "high", "low", "max")
 _MODEL_SELECTOR_ALIASES: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
@@ -164,6 +189,49 @@ def _cursor_default_worker_assignments(
             index_score=benchmark.index_score,
             cost_per_task_usd=benchmark.cost_per_task_usd,
             source="cursor-default-matrix",
+        )
+    return assignments
+
+
+def _opencode_go_default_assignments(
+    agent_catalog: CodingAgentCatalog,
+    model_catalog: ModelCatalog,
+    available_model_selectors: Iterable[str],
+) -> dict[str, RoleAssignment]:
+    """Resolve the curated OpenCode Go matrix only when every selector is callable."""
+
+    available = frozenset(available_model_selectors)
+    required = frozenset(values[1] for values in OPENCODE_GO_DEFAULT_MATRIX.values())
+    if not required.issubset(available):
+        return {}
+
+    variants = {variant.variant_id: variant for variant in agent_catalog.variants}
+    models = {model.model_id: model for model in model_catalog.models}
+    assignments: dict[str, RoleAssignment] = {}
+    for agent_name, (role, selector, effort, benchmark_kind, benchmark_id) in (
+        OPENCODE_GO_DEFAULT_MATRIX.items()
+    ):
+        if benchmark_kind == "coding-agent":
+            benchmark = variants.get(benchmark_id)
+            if benchmark is None:
+                raise ToolError("the OpenCode Go Worker benchmark is unavailable")
+            index_score = benchmark.index_score
+            cost_per_task_usd = benchmark.cost_per_task_usd
+        else:
+            benchmark = models.get(benchmark_id)
+            if benchmark is None or benchmark.intelligence_index is None:
+                raise ToolError("the OpenCode Go model benchmark is unavailable")
+            index_score = int(benchmark.intelligence_index)
+            cost_per_task_usd = None
+        assignments[agent_name] = RoleAssignment(
+            role=role,
+            agent_name=agent_name,
+            model=selector,
+            reasoning_effort=effort,
+            benchmark_id=benchmark_id,
+            index_score=index_score,
+            cost_per_task_usd=cost_per_task_usd,
+            source="opencode-go-default-matrix",
         )
     return assignments
 
@@ -322,6 +390,7 @@ def select_role_assignments(
     target: str,
     *,
     excluded_names: Iterable[str] = (),
+    available_model_selectors: Iterable[str] | None = None,
 ) -> dict[str, RoleAssignment]:
     """Select once, preferring matching native agent configuration over table fallback."""
 
@@ -330,6 +399,12 @@ def select_role_assignments(
         raise ToolError("native role assignments are unavailable for this target")
     agent_catalog = load_coding_agent_catalog()
     model_catalog = load_model_catalog()
+    if target == "opencode" and available_model_selectors is not None:
+        return _opencode_go_default_assignments(
+            agent_catalog,
+            model_catalog,
+            available_model_selectors,
+        )
     harness_variants = tuple(variant for variant in agent_catalog.variants if variant.harness == harness)
     local_models = _read_local_models(native_role_directory(paths, target), excluded_names)
     if target == "codex" and not local_models:

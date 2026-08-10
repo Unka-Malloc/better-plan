@@ -77,6 +77,19 @@ class InstallToolTests(unittest.TestCase):
         wsl_discovery = mock.patch.object(install_targets, "discover_wsl_opencode", return_value=[])
         wsl_discovery.start()
         self.addCleanup(wsl_discovery.stop)
+        opencode_models = mock.patch.object(
+            install_targets,
+            "opencode_model_selectors",
+            return_value=frozenset(
+                {
+                    "opencode-go/deepseek-v4-flash",
+                    "opencode-go/gpt-5.6-luna",
+                    "opencode-go/kimi-k3",
+                }
+            ),
+        )
+        opencode_models.start()
+        self.addCleanup(opencode_models.stop)
 
     def test_parse_running_wsl_distros(self) -> None:
         output = "\ufeff  NAME                   STATE           VERSION\r\n* Debian                 Running         2\r\n  Ubuntu                 Stopped         2\r\n  docker-desktop         Running         2\r\n"

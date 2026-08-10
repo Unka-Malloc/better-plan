@@ -15,6 +15,13 @@ Better Plan installs four delivery roles per supported host:
 | `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / medium` |
 | `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
 
+When the local OpenCode runtime exposes the complete curated OpenCode Go selector set, its first
+installation pins `designer` and `reviewer` to `opencode-go/kimi-k3 / max`, `worker-standard` to
+`opencode-go/deepseek-v4-flash / high`, and `worker-complex` to
+`opencode-go/gpt-5.6-luna / max`. The installer reads only the bounded public selector inventory
+from `opencode models opencode-go`; it never inspects credentials. It creates no partial matrix when
+one of those selectors is unavailable.
+
 A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
 user to choose between installed and recommended matrices, and never pause delivery for that choice.
 The package recommendation is only a per-role fallback for an absent, unreadable, unsafe, or
