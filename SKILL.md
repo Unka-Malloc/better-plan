@@ -1,12 +1,12 @@
 ---
 name: better-plan
-description: Complete-delivery planning for large refactors, migrations, high-risk changes, and real multi-Task handoffs. It consolidates user decisions once, lets one Designer directly finish the Plan, then executes without mid-delivery questions and closes through one write-capable Reviewer.
+description: Complete-delivery planning for large refactors, migrations, high-risk changes, and real parallel multi-Task delivery. It consolidates user decisions once, compiles one Designer's structured solution draft into the Plan, then executes without mid-delivery questions and closes through one write-capable Reviewer.
 ---
 
 # Better Plan
 
 Better Plan is a complete-delivery protocol. It freezes the whole authorized outcome before any
-Worker starts, then advances independent Tasks through explicit handoffs and executable evidence.
+Worker starts, then executes one Designer-authored parallel Task frontier with executable evidence.
 The latest user request is always authoritative; stored state never grants work by itself.
 
 ## Internal operating guidance
@@ -22,7 +22,7 @@ in-scope work and report hard authority or environment blockers only at final ha
 Use the native main's ordinary workflow for one small closure that can be understood, implemented,
 and verified directly. Activate Better Plan only for at least one of:
 
-- multiple independently acceptable Tasks with a real handoff or parallel frontier;
+- multiple independently acceptable Tasks that form a real parallel frontier;
 - a complete migration or refactor that removes an old generation;
 - coordinated schema, data, protocol, state, concurrency, security, privacy, or release work; or
 - a long delivery whose result must remain executable after context loss.
@@ -35,26 +35,37 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
 - Keep secrets, personal or machine identity, absolute local paths, runtime endpoints, and backend
   runtime data out of state, prompts, evidence, and reports.
 - `Plan.json` is the sole semantic source; `Manifest.json` indexes Plans; `Checkpoints.json` holds
-  execution state only; `Plan.md` is a render-only projection that is never parsed back.
-- `prerequisites` is the sole execution graph. Every Task-to-Task edge declares one matching input
-  `{from, output, guarantee}`.
+  execution state only; `Plan.md` is a render-only projection that is never parsed back. `Design.md`
+  and its pristine archive are pre-authorization compiler inputs, never semantic state.
+- Every Task belongs to one mutually independent parallel frontier. Dependent implementation work
+  stays inside one Task; Python fixes the v3 `prerequisites` and `inputs` fields to empty arrays.
+- Every Task contains one static Node DAG. The Designer exposes all safe concurrency, Python
+  generates and validates `NODE-*` references, and the Worker executes every ready Node
+  concurrently, waiting only at declared joins. Nodes never gain separate roles or lifecycle state.
 - A Task is one independently acceptable observable outcome. File lists, development phases,
   generic investigation, design, approval, and final review are not Tasks.
 - Present at most one Decision Dossier per Delivery Plan and resolve it exactly once. Never ask a
   sequence of granular questions that one coherent choice can close.
-- Dispatch exactly one Designer. During its exclusive session the Designer directly edits the
-  complete `Plan.json`; it is not a patch-only or read-only adviser.
+- Dispatch exactly one Designer. During its exclusive session it writes one complete structured
+  `Design.md` solution into the neutral field-only skeleton precreated at the canonical draft path;
+  Python derives canonical codes, mappings, defaults, and `Plan.json.spec`.
+- Make the compiler finish diagnostic work in one pass. Every conversion error identifies its exact
+  Design line and canonical Plan field; unmapped content identifies its exact line range. Never make
+  an agent rediscover locations or split a generic error by manually reparsing the draft.
 - Dispatch exactly one Reviewer. It directly repairs code, tests, documentation, and generated
-  artifacts, obtains rendered evidence when the Plan requires it, and stays in that same session
-  through final regression.
+  artifacts after Python runs the complete regression, receives its precise diagnostics, obtains
+  rendered evidence when required, and never spends model time supervising that regression.
 - After authorization, never ask the user another question. Apply the frozen decision precedence,
   revise unstarted in-scope work autonomously, continue independent branches, and report hard
   authority or environment blockers only at final handoff.
 - Started Task contracts and evidence are frozen. A continuation may add or replace unstarted work
   but cannot expand goal, scope, user decisions, elevated risk, or irreversible authority.
-- Run one focused regression per Task. Run the complete regression inside the sole Reviewer session
-  after all repairs are integrated. A failed full run is repaired and repeated inside that same
-  session, never through a second Reviewer.
+- Run one focused regression per Task. After all Tasks finish, Python runs the complete regression
+  as the independent `run-full-regression` stage outside model time. Only after that stage completes
+  may `open-reviewer-session` dispatch the Reviewer. The native main forwards the stage's ephemeral
+  privacy-safe diagnostics with the dispatch; `open-reviewer-session` never executes tests. Reuse
+  an unchanged green receipt; rerun the independent stage only after Reviewer repairs change
+  covered paths or the prior run failed, and resume the same Reviewer from new diagnostics if needed.
 
 ## Delivery sequence
 
@@ -74,24 +85,33 @@ Present every question together. `build-dossier` may be rebuilt while unresolved
 `resolve-dossier` call applies explicit selections, adopts declared defaults for omissions, and
 closes the Dossier permanently.
 
-### 3. Draft and design once
+### 3. Pass requirements and design once
 
-Draft the authorized goal, in/out scope, success conditions, risk boundary, requirements, and the
-initial Task closures. Then open exactly one Designer session with the whole Plan, repository
-access, and write access to `Plan.json`. It may add, remove, split, merge, reorder, or redesign
-Tasks; change prerequisites, interfaces, schemas, algorithms, state, ownership, risk handling, and
-acceptance; and run the validators.
+Pass the authorized goal, in/out scope, success conditions, risk boundary, requirements, resolved
+decisions, and repository facts to exactly one Designer with repository access and the documented
+`Design.md` format. The native main does not pre-design Tasks. The Designer creates the Task
+boundaries and keeps every dependency inside one Task so all resulting Tasks are mutually
+parallel-safe. Inside each Task it declares a minimal Node DAG with no avoidable ordering edge. It
+may change interfaces, schemas, algorithms, state, ownership, risk handling, and acceptance, and run
+`compile-design --check` when useful.
+
+Pass the `assignment` returned by `open-designer-session` to the sole Designer unchanged.
 
 The Designer must preserve goal, selected options, global scope, and authority. It completes and
-self-corrects the Plan in the same session. Never dispatch it again. `close-designer-session`
-verifies correlation only and restores any authorized field the Designer touched, so a design session
-can always be closed; any remaining gap is listed by `check-readiness` and repaired by the native
-main.
+self-corrects the solution in the same session without authoring canonical IDs or schema mechanics.
+Never dispatch it again. `close-designer-session` restores immutable fields, archives the pristine
+draft, compiles the candidate spec, and always reaches `ready`. Structure, content, or unmapped
+conversion issues are returned by `next-action` in one self-contained repair brief; the native main
+completes `Plan.json` and runs `compile-design --apply` instead of redispatching the Designer.
+Each reported issue already carries the precise Design line and canonical Plan field needed for
+repair; use those locations directly instead of repeating compiler analysis.
+After the Designer returns, `Design.md` is read-only. Without a draft, the existing direct-write
+path remains valid.
 
 ### 4. Authorize once
 
-`authorize-plan` is the single gate. It proves decision completeness, graph validity, handoff
-mapping, ownership independence, acceptance coverage, and regression contracts; optionally proves
+`authorize-plan` is the single gate. It proves decision completeness, one parallel frontier,
+ownership independence, acceptance coverage, and regression contracts; optionally proves
 the host harness with `--verify-command` without mutating declared inputs; then seals the revision,
 records authorization, and creates `Checkpoints.json`.
 
@@ -102,7 +122,9 @@ specification.
 
 Read `next-action` and dispatch the full eligible frontier. Serialize only the short state writes;
 native Workers may run concurrently. Each Worker receives one compiled brief containing the exact
-Task, relevant decisions, direct upstream outputs, and execution policy — never an opaque ID.
+Task, relevant decisions, authorized scope, and execution policy — never an opaque ID.
+Within that Task, the Worker runs every ready Node concurrently and waits only when a Node declares
+all predecessors of a real join.
 
 Bind every returned host ID to its dispatch, and never bind one host ID to two live dispatches.
 Spawn return is not completion. Silence, elapsed time, or context compaction is not failure; record
@@ -110,10 +132,11 @@ Spawn return is not completion. Silence, elapsed time, or context compaction is 
 host-confirmed terminated child with no final callback. At the retry ceiling `next-action` reports
 `complete_in_main` and the native main completes that same role contract.
 
-After a Worker returns, run `accept-task`. If focused regression fails the Task enters
-`worker_correction`: repair it in the native main and rerun `accept-task`, or run `dispatch-task`
-again to send exactly one correction Worker. Keep ordinary compile, type, test, integration, and
-implementation defects inside the same Task.
+After Workers return, run `accept-task` concurrently for the entire awaiting Task frontier. Python
+locks only the short state snapshot and result commit; each Task's declared command list keeps its
+own order. If focused regression fails the Task enters `worker_correction`: repair it in the native
+main and rerun `accept-task`, or run `dispatch-task` again to send exactly one correction Worker.
+Keep ordinary compile, type, test, integration, and implementation defects inside the same Task.
 
 When implementation reveals a plan defect, resolve it in this order:
 
@@ -130,51 +153,61 @@ unavailable infrastructure, mark only that Task `blocked_by_authority` or
 
 ### 6. Review once and finish
 
-After every Task reaches a terminal state and no continuation is open, open the sole Reviewer
-session. It receives the full Plan, all changes, tests, evidence, impacted shared paths, and the list
-of Tasks that require rendered evidence. It reviews end to end, directly repairs every in-scope
-defect, strengthens tests, exercises the real interface when required, and finishes with the complete
-regression.
+After every Task reaches a terminal state and no continuation is open, run the independent
+`run-full-regression` stage outside the workspace lock. It records only the regression receipt in
+Checkpoints and returns precise privacy-safe diagnostics ephemerally to the native main. Then
+`open-reviewer-session` only validates that current receipt, opens the sole Reviewer, and returns
+its compiled audit brief. Forward the immediately preceding diagnostics with that brief. The
+Reviewer audits source and tests, directly repairs every in-scope defect, and never runs or waits
+for the complete regression.
 
-If that regression fails, repair inside this same session and run `close-reviewer-session` again;
-the session stays open and closable. Never dispatch a second Reviewer. Once the session closes, no
-production code may change.
+After the Reviewer returns, `next-action` either closes against an unchanged green receipt or names
+`run_full_regression`. A failed independent rerun yields diagnostics for the same Reviewer session;
+never dispatch a second Reviewer. `close-reviewer-session` performs no tests. Once the session
+closes, no production code may change.
 
 ## Task contract
 
-Every Task freezes a stable `TASK-*` code, title, outcome, in/out scope, prerequisites, inputs,
-`OUT-*` outputs with guarantees, write ownership and exclusive shared resources, tier
+Every Task freezes a stable `TASK-*` code, title, outcome, in/out scope, `OUT-*` outputs with
+guarantees, write ownership and exclusive shared resources, tier
 (`standard` or `complex`), verification (`code`, `visual`, or `hybrid`), requirements, risk tags,
 design decisions, `AC-*` Given/When/Then acceptance with an exact oracle and evidence, and focused
-regression commands with fingerprint paths.
+regression commands with fingerprint paths. Python emits empty `prerequisites` and `inputs`
+compatibility fields; the workflow has no cross-Task scheduling edges. Each Task also contains a
+non-empty static `NODE-*` DAG of `{code, title, outcome, prerequisites}`.
 
 Record only the design dimensions a Worker actually needs. Every requirement and output the Task
 owns must be covered by executable acceptance. An elevated risk tag requires the `complex` tier.
-Independent Tasks may run concurrently only when graph reachability, write ownership, and exclusive
-resources prove that concurrency safe.
+The Designer must merge coupled work until every Task has disjoint write ownership and exclusive
+resources. It then minimizes each Task's Node edges so every ready branch can run concurrently.
+Nodes share the Task's Worker, ownership, acceptance, and Checkpoint; they add no orchestration state.
 
 ## Command entry points
 
 All commands use `scripts/manifest_tool.py`.
 
 - Authoring: `init-plan`, `build-dossier`, `resolve-dossier`.
-- Design and authorization: `open-designer-session`, `close-designer-session`, `check-readiness`,
-  `authorize-plan`.
+- Design and authorization: `open-designer-session`, `compile-design --check|--apply`,
+  `close-designer-session`, `check-readiness`, `authorize-plan`.
 - Continuation: `begin-continuation`, `close-continuation`.
 - Delivery: `next-action`, `dispatch-task`, `bind-agent`, `agent-complete`, `delegation-failed`,
   `main-complete`, `accept-task`, `block-task`.
-- Closure: `open-reviewer-session`, `close-reviewer-session`.
-- Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints`.
+- Closure: `run-full-regression`, `open-reviewer-session`, `close-reviewer-session`.
+- Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints|design`.
 
-Removed v1 and v2 commands — Node, Gate, capability, rewire, repair-plan, decision-session,
+Removed v1 and v2 top-level commands — Node, Gate, capability, rewire, repair-plan, decision-session,
 seal-plan, render-plan, import-plan-edits, check-host-readiness, visual-verifier, and generic
 dispatch — do not exist. Their absence is part of the v3 contract.
 
 ## Progressive references
 
+- End-to-end user workflow, including every command, role handoff, prompt, recovery branch, and
+  close step: `references/workflow.md`
 - General design principles, only when maintaining or auditing Better Plan itself or resolving a
   cross-cutting workflow tradeoff: `references/design-principles.md`
 - State formats, lifecycle, and command contracts: `references/state.md`
 - Leaf contracts: `references/designer.md`, `references/worker.md`, `references/reviewer.md`
+- Designer draft syntax: `references/design-format.md`
+- Main-thread conversion repair: `references/structure-repair.md`
 - Designer pattern decisions, when a structural choice is non-trivial: `references/design-patterns.md`
 - Host roles, installation, and Doctor: `references/host-configuration.md`

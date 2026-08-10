@@ -25,18 +25,22 @@ def agent_completion_context(target: str, phase: str, action: str) -> str:
 
     if action == "close_designer_session":
         duty = (
-            "The sole Designer returned after directly editing Plan.json. Close that same session, "
-            "then use check-readiness to list any remaining issue; never dispatch another Designer."
+            "The sole Designer returned after writing the parallel Task frontier to Design.md. "
+            "Close that same session so Python compiles it, then use check-readiness to list any "
+            "remaining issue; never dispatch another Designer."
         )
     elif action == "accept_task":
         duty = (
-            "The Worker returned. Run this Task's focused acceptance. If it fails, repair it in the "
-            "native main and rerun accept-task, or dispatch-task once more for a correction Worker."
+            "The Worker returned. Run this Task's focused acceptance concurrently with every other "
+            "awaiting independent Task. If it fails, repair it in the native main and rerun "
+            "accept-task, or dispatch-task once more for a correction Worker."
         )
     elif action == "close_reviewer_session":
         duty = (
-            "The sole write-capable Reviewer returned. Run the final regression inside this same "
-            "Reviewer session; never dispatch a second Reviewer."
+            "The sole write-capable Reviewer returned after auditing the pre-dispatch regression. "
+            "Read next-action: close against unchanged green evidence, or run the separate full-"
+            "regression stage outside Reviewer model time and resume this same Reviewer only if new "
+            "diagnostics are returned; never dispatch a second Reviewer."
         )
     else:
         duty = "Read next-action and handle the current state in the native main."

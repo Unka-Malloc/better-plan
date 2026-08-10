@@ -10,10 +10,10 @@ Better Plan installs four delivery roles per supported host:
 
 | 角色 | 用途 | 推荐选择器 |
 |---|---|---|
-| `designer` | 单次直接写完整个 Delivery Plan | `gpt-5.6-sol / max` |
+| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-5.6-sol / max` |
 | `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
 | `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / high` |
-| `reviewer` | 唯一可写终审，含渲染证据与完整回归 | `gpt-5.6-sol / max` |
+| `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
 
 A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
 user to choose between installed and recommended matrices, and never pause delivery for that choice.

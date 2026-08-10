@@ -8,6 +8,7 @@ python3 scripts/manifest_tool.py schema plan
 python3 scripts/manifest_tool.py schema task
 python3 scripts/manifest_tool.py schema question
 python3 scripts/manifest_tool.py schema checkpoints
+python3 scripts/manifest_tool.py schema design
 ```
 
 Every state file carries an exact `better-plan.*/v3` marker. Missing markers and earlier
@@ -20,6 +21,8 @@ Manifest.json
 <delivery-directory>/
   Plan.json          # sole semantic source
   Plan.md            # render-only projection, never parsed back
+  Design.md          # neutral field skeleton, then optional Designer draft
+  Design.pristine.md # immutable archive created by draft compilation
   Checkpoints.json   # created only by authorization
 ```
 
@@ -30,13 +33,23 @@ semantic delivery status.
 ledger, Dossier, and spec. Mutable sessions and receipts never change that digest, so an authorized
 digest stays stable across dispatches.
 
+`open-designer-session` creates a field-only `Design.md` at the Plan's canonical draft path without
+adding solution examples. The untouched skeleton preserves the direct-write mode. A completed
+`Design.md` is an optional authoring input, not semantic state. When it exists at Designer close,
+Python compiles it into `Plan.json.spec`, archives the exact returned draft as `Design.pristine.md`,
+and records a lifecycle receipt. The returned draft is then read-only. If conversion is incomplete,
+the native main completes `Plan.json`; `compile-design --apply` verifies that repair without
+recompiling the draft. Before authorization, workspace validation requires both files and their
+pristine digest when a compile receipt exists. After sealing, the receipt digest is enough.
+
 `Checkpoints.json` appears only after authorization. It binds the sealed revision and digest and
-stores Task status, dispatch correlation, evidence, and freshness. It never duplicates Task
-definitions.
+stores Task status, dispatch correlation, evidence, freshness, and the independent full-regression
+receipt. It never duplicates Task definitions or stores command output.
 
 ## Identity
 
-Stable codes are the only identity: `PLAN-*`, `REQ-*`, `TASK-*`, `OUT-*`, `AC-*`, `Q-*`, `DEC-*`.
+Stable codes are the only identity: `PLAN-*`, `REQ-*`, `TASK-*`, `NODE-*`, `OUT-*`, `AC-*`,
+`Q-*`, `DEC-*`.
 No agent ever authors a UUID. Runtime correlation handles are minted by Better Plan, live only in
 lifecycle and Checkpoint receipts, and never enter the semantic payload. Codes never renumber or
 reuse after deletion.
@@ -63,6 +76,24 @@ The Designer and Reviewer session objects each have `count: 1`. Once a session e
 session of the same type is invalid even if delegation failed; the native-main fallback completes
 the existing session. One host agent id may own only one live dispatch at a time, so a single final
 callback can always be attributed to exactly one dispatch; an ambiguous callback advances nothing.
+
+`run-full-regression` is an independent delivery stage. It runs outside the global lock, stores only
+its receipt and covered-path fingerprint in `Checkpoints.json.full_regression`, and returns bounded
+privacy-safe diagnostics ephemerally to the native main. `open-reviewer-session` executes no tests:
+it only validates that current receipt and creates the Reviewer session. The native main forwards
+the immediately preceding diagnostics with the dispatch brief. A green receipt is reused while
+covered paths stay unchanged; a failed baseline or Reviewer repair makes `next-action` select the
+independent regression stage again before the session can close.
+
+The optional `designer_session.compile` receipt contains the pristine and compiled spec digests,
+applied time, sections retained from the prior Plan, safe structure/content issues, and unmapped
+line ranges and digests. It is lifecycle evidence and never enters the semantic digest. Any open
+issue blocks authorization. A draft-free Designer session retains the existing direct-write behavior
+and carries no compile receipt.
+
+Every structure/content issue has exactly `{kind, message, line, field, status}`. `line` locates the
+relevant `Design.md` source line and `field` names the canonical Plan target. Unmapped entries use
+their exact `lines` range. Broad compiler errors without those locations are invalid receipts.
 
 ## Intent and ledger
 
@@ -97,23 +128,27 @@ forces a new Plan. `resolve-dossier` runs exactly once: it records explicit sele
 
 ## Task
 
-Before design, a Task requires code, title, outcome, scope, prerequisites, ownership, difficulty,
-verification, requirements, and risks. Authorization additionally requires inputs, outputs, design,
-acceptance, and focused regression.
+The native main passes confirmed requirements to the Designer without pre-authoring Tasks. The
+Designer creates every Task as one independently acceptable outcome and groups dependent
+implementation work inside that same Task. Python generates the canonical Task structure and fixes
+`prerequisites` and `inputs` to empty arrays, preserving the v3 Task frontier without cross-Task
+ordering.
 
-`prerequisites` is the only graph. Every direct prerequisite must be matched by at least one input
-`{from, output, guarantee}` that names a real upstream output. Consumers are derived by the
-validator, never stored twice. Prose, document order, and output order never create scheduling
-edges.
+Each Task contains a non-empty static `nodes` DAG. A Node is exactly
+`{code, title, outcome, prerequisites}`; its prerequisites may name only Nodes in that Task.
+Python generates global `NODE-*` codes and rejects unknown references, self-dependencies, and
+cycles. Nodes with satisfied prerequisites form the ready frontier, all of which the Worker executes
+concurrently. A join names every branch it waits for. Nodes have no separate role, approval,
+acceptance, Checkpoint status, or receipt; the Task remains the sole dispatch and acceptance unit.
 
 `design` is an object of lowercase keys to concrete decision lines. Record the dimensions the Task
 actually needs — interfaces, schemas, data flow, algorithms, state, concurrency, error handling,
 recovery, or test seams — and omit the rest instead of writing filler.
 
-Independent Tasks must have non-overlapping write paths and no common exclusive shared resource.
-The validator rejects unsafe parallelism instead of silently serializing it. Every declared output
-artifact must fall inside its own Task's write ownership, so a Task can never promise a handoff at a
-path it does not own.
+All Tasks must have non-overlapping write paths and no common exclusive shared resource. The
+validator rejects a Designer partition that is not one parallel frontier instead of introducing
+ordering. Every declared output artifact must fall inside its own Task's write ownership.
+Task-internal Nodes share that Task's ownership and acceptance boundary.
 
 Every acceptance criterion records `covers`, Given/When/Then, an exact oracle, and an evidence
 contract. Together, a Task's criteria must cover every requirement and output it owns; a `covers`
@@ -131,8 +166,9 @@ Secret-shaped data, absolute local paths, UNC shares, loopback names, and bare I
 rejected anywhere in canonical state. Public `https://` documentation references, shell globs such as
 `tests/**/*.py`, and ordinary prose about bearer authentication are all allowed, so a legitimate
 plan never enters a rewording loop. Command output is never persisted: only
-`{command_sha256, outcome, exit_code, recorded_at}` receipts are stored, while a bounded failure
-tail is printed to stderr for the operator.
+`{command_sha256, outcome, exit_code, recorded_at}` receipts are stored. Unsafe diagnostic lines are
+redacted deterministically; a bounded safe failure tail is emitted ephemerally to the operator and
+Reviewer brief, never written into Plan or Checkpoints.
 
 Declared-path fingerprints are receipts, never gates. A path a Task has not produced yet is recorded
 as absent, so a greenfield Task dispatches and completes normally; only symlinks and non-relative
@@ -161,8 +197,10 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `init-plan` | create one draft Plan and its projection |
 | `build-dossier` | load or replace the single Dossier while it is unresolved |
 | `resolve-dossier` | apply explicit selections and declared defaults exactly once |
-| `open-designer-session` | create the sole direct-write Designer session |
-| `close-designer-session` | verify correlation, restore any authorized field the Designer touched, reach `ready`, and report open issues |
+| `open-designer-session` | create the sole structured-design session and return its draft path plus the exact assignment the native main must forward |
+| `compile-design --check` | compile in memory and return precise line-and-field conversion diagnostics plus readiness issues |
+| `close-designer-session` | restore immutable fields, compile and archive a present draft, always reach `ready`, and report open issues |
+| `compile-design --apply` | verify and record a native-main repair to `Plan.json` without changing or recompiling the archived draft |
 | `check-readiness` | list every remaining readiness issue in one pass |
 | `authorize-plan` | the single gate: readiness, optional harness verification, seal, and Checkpoints |
 | `begin-continuation` / `close-continuation` | revise unstarted in-scope work without questions |
@@ -172,8 +210,9 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `agent-complete` | consume one exact final callback |
 | `delegation-failed` | record a conclusive delegation failure and raise the fallback |
 | `main-complete` | record native-main completion of an exhausted delegation |
-| `accept-task` | run focused regression and complete exactly one Task |
-| `block-task` | record an authority or environment blocker and propagate downstream |
-| `open-reviewer-session` | dispatch the sole Reviewer with its rendered-evidence Task list |
-| `close-reviewer-session` | close after full regression passes or a hard blocker is proven; a failed run keeps the same session closable after repair |
-| `validate`, `status`, `tree`, `schema` | inspect v3 workspace truth |
+| `accept-task` | run one Task's focused regression outside the global lock; invoke concurrently across the awaiting Task frontier |
+| `block-task` | record an authority or environment blocker for exactly one independent Task |
+| `run-full-regression` | independently run the complete regression outside the lock, persist only its receipt, and return ephemeral safe diagnostics plus the next action |
+| `open-reviewer-session` | validate current regression evidence and dispatch the sole Reviewer without executing tests |
+| `close-reviewer-session` | close only against current green regression evidence; execute no tests |
+| `validate`, `status`, `tree`, `schema` | inspect v3 workspace truth and the Design.md skeleton |

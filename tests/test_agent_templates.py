@@ -95,7 +95,11 @@ class AgentTemplateTests(unittest.TestCase):
         reviewer = " ".join(
             (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower().split()
         )
-        self.assertIn("directly edit canonical `plan.json`", designer)
+        self.assertIn("write the complete solution design", designer)
+        self.assertIn("required output", designer)
+        self.assertIn("do not write canonical", designer)
+        self.assertIn("compiler is its sole write path", designer)
+        self.assertIn("final return freezes", designer)
         self.assertIn("there is no second designer", designer)
         self.assertIn("one independently acceptable task", worker)
         self.assertIn("do not ask the user", worker)
@@ -105,6 +109,8 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("there is no repair task and no second reviewer", reviewer)
         self.assertIn("rendered evidence", reviewer)
         self.assertIn("browser and vision", reviewer)
+        self.assertIn("python owns that deterministic work in a separate `run-full-regression` stage", reviewer)
+        self.assertIn("neither reviewer session command runs it", reviewer)
 
     def test_general_design_principles_preserve_progressive_role_disclosure(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -121,6 +127,10 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("use progressive disclosure", normalized)
         self.assertIn("smallest complete context", normalized)
         self.assertIn("do not inject this general reference into every leaf role", normalized)
+        self.assertIn("spend scarce model intelligence on solution design", normalized)
+        self.assertIn("python automation should convert", normalized)
+        self.assertIn("make deterministic tools finish diagnostic work", normalized)
+        self.assertIn("exact source line or line range", normalized)
 
         for role in ("designer", "worker", "reviewer"):
             relative = "references/%s.md" % role
@@ -143,6 +153,10 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertFalse(any("Interpreter" in heading for heading in numbered_headings))
         self.assertIn("references/design-patterns.md", CURRENT_SKILL_FILES)
         self.assertIn("references/host-configuration.md", CURRENT_SKILL_FILES)
+        self.assertIn("references/workflow.md", CURRENT_SKILL_FILES)
+        self.assertIn("references/design-format.md", CURRENT_SKILL_FILES)
+        self.assertIn("references/structure-repair.md", CURRENT_SKILL_FILES)
+        self.assertIn("scripts/better_plan/domain/design_compile.py", CURRENT_SKILL_FILES)
         self.assertIn("candidate: <模式英文名或 none>", catalog)
         self.assertIn("simpler_alternative", catalog)
         self.assertIn("costs_and_rejections", catalog)
@@ -158,10 +172,18 @@ class AgentTemplateTests(unittest.TestCase):
                 ROOT / "agents" / source_target.get(target, target) / designer_filename
             ).read_text(encoding="utf-8").lower()
             with self.subTest(target=target):
-                self.assertIn("directly edit canonical", template)
+                self.assertIn("design.md", template)
+                self.assertIn("required output", template)
+                self.assertIn("do not write canonical codes", template)
+                self.assertIn("python compiles", template)
+                self.assertIn("native main completes", template)
+                self.assertIn("return freezes", template)
                 self.assertIn("there is no second designer", template)
                 self.assertRegex(template, r"do not [^.]*ask the user")
-                self.assertIn("parallel frontier", template)
+                self.assertIn("does not pre-design tasks", template)
+                self.assertIn("mutually parallel-safe", template)
+                self.assertIn("minimal node dag", template)
+                self.assertRegex(template, r"empty .*prerequisites.*inputs")
 
     def test_every_native_worker_template_is_a_fresh_context_task_contract(self) -> None:
         source_target = {"claude": "claude-code"}
@@ -177,6 +199,7 @@ class AgentTemplateTests(unittest.TestCase):
                     self.assertIn("freely inspect better plan guidance", template)
                     self.assertIn("no local guidance is forbidden", template)
                     self.assertIn("do not ask the user", template)
+                    self.assertIn("every ready task node concurrently", template)
                     expected_tier = "economical tier" if stem == "worker-standard" else "strong tier"
                     self.assertIn(expected_tier, template)
 
@@ -191,6 +214,9 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("visual or hybrid", template)
                 self.assertIn("rendered evidence", template)
                 self.assertIn("no second reviewer", template)
+                self.assertIn("separate full-regression stage has already completed", template)
+                self.assertIn("reviewer session commands never run it", template)
+                self.assertIn("do not run or wait for the complete regression", template)
 
     def test_installer_renders_and_pins_codex_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

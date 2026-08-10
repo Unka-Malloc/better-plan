@@ -18,6 +18,8 @@ else:
 from ..domain.models import (
     AUTHORIZED_PHASES,
     CHECKPOINTS_NAME,
+    DESIGN_NAME,
+    DESIGN_PRISTINE_NAME,
     MANIFEST_NAME,
     PLAN_NAME,
     ToolError,
@@ -137,6 +139,8 @@ def plan_paths(root: Path, entry: Mapping[str, Any]) -> dict[str, Path]:
         "directory": plan_dir,
         "plan": plan_dir / PLAN_NAME,
         "checkpoints": plan_dir / CHECKPOINTS_NAME,
+        "design": plan_dir / DESIGN_NAME,
+        "design_pristine": plan_dir / DESIGN_PRISTINE_NAME,
     }
 
 
@@ -183,6 +187,34 @@ def validate_workspace(root: Path) -> list[str]:
             )
         elif isinstance(plan, Mapping) and plan.get("phase") in AUTHORIZED_PHASES:
             messages.append("%s: missing authorized Checkpoints.json" % entry.get("directory"))
+        compile_receipt = (
+            plan.get("lifecycle", {}).get("designer_session", {}).get("compile")
+            if isinstance(plan, Mapping)
+            and isinstance(plan.get("lifecycle"), Mapping)
+            and isinstance(plan.get("lifecycle", {}).get("designer_session"), Mapping)
+            else None
+        )
+        if isinstance(compile_receipt, Mapping) and not isinstance(plan.get("lifecycle", {}).get("sealed"), Mapping):
+            if not paths["design"].is_file():
+                messages.append("Design.md: missing before authorization")
+            else:
+                try:
+                    design_digest = hashlib.sha256(paths["design"].read_bytes()).hexdigest()
+                except OSError:
+                    messages.append("Design.md: cannot read")
+                else:
+                    if design_digest != compile_receipt.get("pristine_digest"):
+                        messages.append("Design.md: changed after Designer close")
+            if not paths["design_pristine"].is_file():
+                messages.append("Design.pristine.md: missing before authorization")
+            else:
+                try:
+                    digest = hashlib.sha256(paths["design_pristine"].read_bytes()).hexdigest()
+                except OSError:
+                    messages.append("Design.pristine.md: cannot read")
+                else:
+                    if digest != compile_receipt.get("pristine_digest"):
+                        messages.append("Design.pristine.md: digest mismatch")
     return messages
 
 
