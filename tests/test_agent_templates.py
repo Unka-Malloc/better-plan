@@ -181,6 +181,11 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("explicit replacement request", guidance)
         self.assertIn("doctor reports the integrity finding as a warning without a repair proposal", guidance)
         self.assertIn("fork_turns", guidance)
+        self.assertIn("not plain openai-compatible message forwarding", guidance)
+        self.assertIn("agent_message", guidance)
+        self.assertIn("encrypted_content", guidance)
+        self.assertIn("an openai-compatible label alone is insufficient", guidance)
+        self.assertIn("never strips, decrypts, or downgrades this payload to plaintext", guidance)
         self.assertIn("codex has no better plan completion hook", guidance)
 
     def test_every_native_designer_template_owns_the_single_design_session(self) -> None:
@@ -282,9 +287,9 @@ class AgentTemplateTests(unittest.TestCase):
                 for agent_name, values in CODEX_DEFAULT_MATRIX.items()
             },
             {
-                "designer": ("gpt-5.6-sol", "max"),
+                "designer": ("gpt-5.6-sol", "xhigh"),
                 "worker-standard": ("gpt-5.6-luna", "max"),
-                "worker-complex": ("gpt-5.6-sol", "high"),
+                "worker-complex": ("gpt-5.6-sol", "medium"),
                 "reviewer": ("gpt-5.6-sol", "max"),
             },
         )
@@ -332,6 +337,16 @@ class AgentTemplateTests(unittest.TestCase):
             self.assertIn("concurrently", payload)
         self.assertIn("exhausted quota", fallback)
         self.assertIn("only when", fallback)
+
+    def test_codex_workers_fail_closed_when_the_task_payload_is_absent(self) -> None:
+        for role in ("worker-standard", "worker-complex"):
+            template = (ROOT / "agents" / "codex" / f"{role}.toml").read_text(
+                encoding="utf-8"
+            )
+            with self.subTest(role=role):
+                self.assertIn("Payload has no visible actionable Task", template)
+                self.assertIn("do not inspect the workspace or call tools", template)
+                self.assertIn("payload-delivery-failed", template)
 
     def test_existing_local_model_configuration_wins_before_first_pin(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
