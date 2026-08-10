@@ -25,16 +25,18 @@ the user asks about role configuration. Render selectors as `model / effort`; wh
 provider, append `@ provider` and label the other side `@ unpinned`. Mark missing roles explicitly,
 never infer a provider, and never inspect credentials. Never inject this table from Hooks.
 
-## Role-change reconfirmation gate
+## Native role immutability
 
-Whenever the user requests any native role configuration change, show the complete
-installed-versus-recommended table even if it was already shown. Include every role, use the same
-selector format, and label client-specific overrides separately from package recommendations; never
-describe a local override as a recommendation change.
+An existing native role file or role receipt is immutable local host configuration. Better Plan may
+install its matrix only when no same-name role configuration or receipt exists. After that first
+installation, every install, update, migration, repair, and Doctor operation must leave all role
+files and receipts byte-identical while updating only skills, Hooks, plugins, and adapters.
 
-Restate the exact requested mutations, ask the user to confirm them, then stop and wait. Before that
-fresh confirmation, do not edit role files, provider configuration, receipts, templates, or
-recommendation matrices. A prior confirmation never satisfies a later role-change request.
+Neither a receipt mismatch nor an explicit replacement request authorizes Better Plan to edit,
+remove, adopt, re-sign, or regenerate local roles. Doctor reports the integrity finding as a warning
+without a repair proposal. If the user wants different native roles, that remains a manual
+host-configuration operation outside the Better Plan installer; never describe a local override as
+a recommendation change.
 
 ## Additive host integration — iron rule
 
@@ -50,15 +52,11 @@ untouched. Only an explicit request naming the exact existing file and mutation 
 
 ## Selector and generation rules
 
-The current installed native role matrix is the only supported generation and one receipt-managed
-unit. Runtime reads the pinned installed selector and uses the packaged selector only as a per-role
-fallback. Never reselect from conversation memory or leaderboard changes. Normal updates preserve
-pinned delivery roles.
-
-An explicit replacement of an older Better Plan setup authorizes removing only that setup from the
-active agent directory and installing the complete current matrix with a fresh receipt. A backup is
-manual-recovery-only; runtime never reads or restores it. Never displace unrelated agents. Finish by
-verifying selectors, receipt inventory, skill structure, and installer Doctor.
+The current local native role matrix is authoritative whether or not its receipt still matches.
+Runtime reads the installed selector and uses the packaged selector only when no local role exists.
+Never reselect from conversation memory or leaderboard changes. Normal updates and explicit
+requests both preserve every local role byte and receipt byte. Verify that immutability first, then
+verify skill structure and the separate Hook, plugin, and adapter Doctor results.
 
 ## Framework and adapter boundary
 
