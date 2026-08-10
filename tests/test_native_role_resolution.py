@@ -38,7 +38,7 @@ class NativeRoleResolutionTests(unittest.TestCase):
 
         self.assertIsNotNone(selector)
         assert selector is not None
-        self.assertEqual((selector.model, selector.reasoning_effort), ("gpt-5.6-sol", "high"))
+        self.assertEqual((selector.model, selector.reasoning_effort), ("gpt-5.6-sol", "medium"))
         self.assertEqual(selector.source, "project-recommendation")
 
     def test_unknown_role_has_no_implicit_selector(self) -> None:
