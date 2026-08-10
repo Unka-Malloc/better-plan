@@ -12,54 +12,6 @@ Four guarantees define the workflow:
 4. An independent Python stage runs the complete regression; only afterward does one writable
    Reviewer audit its diagnostics and repair the delivery.
 
-## Workflow at a glance
-
-1. Inspect the repository and bundle every non-discoverable outcome choice into one Decision
-   Dossier.
-2. Dispatch one Designer with the confirmed requirements. It writes `Design.md`, chooses the
-   architecture, creates mutually independent Tasks, and exposes parallel Node branches.
-3. Python archives the pristine draft and compiles it into `Plan.json`. The native main repairs any
-   precisely located conversion issue in `Plan.json`; the Designer is never redispatched.
-4. Authorize the exact semantic Plan once, then dispatch every independent Task and every ready Node
-   branch concurrently. Python accepts each Task through focused regression.
-5. After all Tasks are terminal, run the independent complete-regression stage. It stores only a
-   receipt and returns privacy-safe diagnostics without consuming Reviewer model time.
-6. Dispatch one writable Reviewer after that regression. It audits source, tests, evidence, and
-   diagnostics, then directly repairs in-scope defects without running or waiting for the complete
-   regression.
-7. Reuse unchanged green evidence or rerun the independent regression after repairs. Resume the
-   same Reviewer on failure, then close the delivery without a second Reviewer or approval gate.
-
-The [end-to-end workflow guide](references/workflow.md) lists every command, role handoff, prompt,
-state transition, repair path, and final close step.
-
-## Designer draft compilation
-
-Better Plan should spend scarce, expensive model intelligence on one structured solution plan with
-the fewest constraints compatible with authority, safety, privacy, scope, and semantic correctness.
-Python automation should convert that proposal into the canonical Better Plan structure, derive and
-validate mechanical fields, and let the native main complete or repair the Plan when conversion is
-incomplete or invalid. The automation must preserve the model's design intent while keeping
-`Plan.json` as the sole semantic source.
-
-The compiler also owns diagnostic localization: every conversion error reports the exact Design
-line and canonical Plan field, while unmapped content reports its exact line range. Agents should be
-able to repair from one compiler report without reparsing the draft to rediscover the failure.
-
-The Designer creates one parallel Task frontier directly from the confirmed requirements. Dependent
-implementation work is grouped inside the same Task; different Tasks are mutually independent and
-dispatch immediately after authorization. Python keeps the v3 `prerequisites` and `inputs` fields
-empty. Inside each Task, the Designer declares a minimal Node DAG; Python generates and validates
-its `NODE-*` references, and the Worker runs every ready Node concurrently, waiting only at real
-branch joins. Nodes add no role, approval, or persistent execution state.
-
-`open-designer-session` precreates `Design.md` as a field-only skeleton with no example solution;
-an untouched skeleton preserves the direct-write fallback. After the Designer returns, a completed
-`Design.md` is read-only. Conversion issues are returned to the native
-main to complete `Plan.json`; the expensive Designer is never redispatched. See the
-[draft format](references/design-format.md) and
-[general design principles](references/design-principles.md).
-
 ## Canonical workspace
 
 ```text
@@ -131,8 +83,7 @@ python3 scripts/manifest_tool.py open-reviewer-session ...
 python3 scripts/manifest_tool.py close-reviewer-session ...
 ```
 
-See the [end-to-end workflow guide](references/workflow.md), [SKILL.md](SKILL.md), the
-[general design principles](references/design-principles.md), and the
+See [SKILL.md](SKILL.md), the [general design principles](references/design-principles.md), and the
 [state protocol](references/state.md) for the complete contract and its rationale.
 
 ## Installation
@@ -164,3 +115,25 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 The Better Plan source repository uses its ordinary native development workflow and never requires
 a repository-local Plan workspace for self-maintenance.
+
+## Workflow at a glance
+
+1. Inspect the repository and resolve every non-discoverable outcome choice in one Decision
+   Dossier.
+2. Dispatch one Designer with the confirmed requirements. It writes `Design.md`, chooses the
+   architecture, creates mutually independent Tasks, and exposes parallel Node branches.
+3. Python archives the pristine draft and compiles it into `Plan.json`. The native main repairs any
+   precisely located conversion issue in `Plan.json`; the Designer is never redispatched.
+4. Authorize the exact semantic Plan once, then dispatch every independent Task and every ready Node
+   branch concurrently. Python accepts each Task through focused regression.
+5. After all Tasks are terminal, run the independent complete-regression stage. It stores only a
+   receipt and returns privacy-safe diagnostics without consuming Reviewer model time.
+6. Dispatch one writable Reviewer after that regression. It audits source, tests, evidence, and
+   diagnostics, then directly repairs in-scope defects without running or waiting for the complete
+   regression.
+7. Reuse unchanged green evidence or rerun the independent regression after repairs. Resume the
+   same Reviewer on failure, then close the delivery without a second Reviewer or approval gate.
+
+The [end-to-end workflow guide](references/workflow.md) lists every command, role handoff, prompt,
+state transition, repair path, and final close step. Designer draft syntax and deterministic
+compilation are documented separately in the [Design format](references/design-format.md).
