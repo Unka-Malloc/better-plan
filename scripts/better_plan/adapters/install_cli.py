@@ -111,6 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
         add_common_arguments(command)
         if name != "doctor":
             command.add_argument("--dry-run", action="store_true")
+        if name in {"install", "update"}:
+            command.add_argument(
+                "--preserve-native-roles",
+                action="store_true",
+                help="update skills, hooks, and adapters without changing native role files or receipts",
+            )
         if name == "uninstall":
             command.add_argument("--remove-shared", action="store_true")
         command.set_defaults(func=handler)
@@ -122,7 +128,12 @@ def install_command(args: argparse.Namespace) -> int:
     agents = parse_agents(args.agents)
     if _skills.existing_install_paths(paths, agents):
         print("existing Better Plan install found; switching installer to update")
-    for message in _service.install_agents(paths, agents, dry_run=args.dry_run):
+    for message in _service.install_agents(
+        paths,
+        agents,
+        dry_run=args.dry_run,
+        preserve_native_roles=args.preserve_native_roles,
+    ):
         print(message)
     return 0
 
@@ -130,7 +141,12 @@ def install_command(args: argparse.Namespace) -> int:
 def update_command(args: argparse.Namespace) -> int:
     paths = default_paths(args)
     agents = parse_agents(args.agents)
-    for message in _service.install_agents(paths, agents, dry_run=args.dry_run):
+    for message in _service.install_agents(
+        paths,
+        agents,
+        dry_run=args.dry_run,
+        preserve_native_roles=args.preserve_native_roles,
+    ):
         print(message)
     return 0
 

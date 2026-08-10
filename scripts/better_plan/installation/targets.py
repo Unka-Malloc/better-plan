@@ -712,7 +712,12 @@ def wsl_source_path(wsl: str, runtime: _WslOpenCodeRuntime, source: Path) -> str
     return path
 
 
-def install_wsl_opencode(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
+def install_wsl_opencode(
+    paths: _InstallPaths,
+    *,
+    dry_run: bool,
+    preserve_native_roles: bool = False,
+) -> list[str]:
     wsl = wsl_executable()
     if wsl is None:
         return []
@@ -723,7 +728,10 @@ def install_wsl_opencode(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
             continue
         source = wsl_source_path(wsl, runtime, paths.repo_root)
         installer = posixpath.join(source, "scripts", "install.py")
-        script = f"python3 {shlex.quote(installer)} update --agents codex,opencode"
+        preserve = " --preserve-native-roles" if preserve_native_roles else ""
+        script = (
+            f"python3 {shlex.quote(installer)} update --agents codex,opencode{preserve}"
+        )
         result = run_wsl_script(wsl, runtime.distro, script, timeout=120)
         if result.returncode != 0:
             raise _InstallError("failed to update Better Plan in the WSL runtime")
@@ -731,35 +739,51 @@ def install_wsl_opencode(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
     return messages
 
 
-def install_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
+def install_target(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    dry_run: bool,
+    preserve_native_roles: bool = False,
+) -> list[str]:
     """Apply only the target-specific side effects for one normalized target."""
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    role_messages: list[str] = []
+    if target in NATIVE_ROLE_FILES:
+        if preserve_native_roles:
+            role_messages.append(f"native: preserved {target} role templates")
+        else:
+            role_messages.extend(install_role_templates(paths, target, dry_run=dry_run))
     if target == "codex":
-        messages = install_role_templates(paths, target, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [*messages, f"codex hooks: {action} managed handlers"]
+        return [*role_messages, f"codex hooks: {action} managed handlers"]
     if target == "claude":
-        messages = install_role_templates(paths, target, dry_run=dry_run)
         install_claude_plugin(paths, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
         return [
-            *messages,
+            *role_messages,
             f"claude: {'would update' if dry_run else 'updated'} plugin",
             f"claude hooks: {action} managed handlers",
         ]
     if target == "opencode":
-        messages = install_role_templates(paths, target, dry_run=dry_run)
         if not dry_run:
             write_text(paths.opencode_agent, opencode_agent_text())
-        return [*messages, f"opencode: {'would update' if dry_run else 'updated'} agent", *install_wsl_opencode(paths, dry_run=dry_run)]
+        return [
+            *role_messages,
+            f"opencode: {'would update' if dry_run else 'updated'} agent",
+            *install_wsl_opencode(
+                paths,
+                dry_run=dry_run,
+                preserve_native_roles=preserve_native_roles,
+            ),
+        ]
     if target == "cursor":
-        messages = install_role_templates(paths, target, dry_run=dry_run)
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [*messages, f"cursor hooks: {action} managed handlers"]
+        return [*role_messages, f"cursor hooks: {action} managed handlers"]
     if target == "kimi":
         _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
         action = "would update" if dry_run and changed else "updated" if changed else "already current"

@@ -109,7 +109,8 @@ def _privacy_issues(path: Path, value: Any, prefix: str = "plan") -> list[Issue]
         for index, child in enumerate(value):
             issues.extend(_privacy_issues(path, child, "%s[%d]" % (prefix, index)))
     elif isinstance(value, str):
-        if ABSOLUTE_PATH_PATTERN.search(value):
+        opaque_host_id = prefix.endswith(".host_agent_id")
+        if ABSOLUTE_PATH_PATTERN.search(value) and not opaque_host_id:
             issues.append(_issue(path, prefix, "must not expose an absolute local path"))
         if NETWORK_ENDPOINT_PATTERN.search(value):
             issues.append(_issue(path, prefix, "must not expose a runtime endpoint"))

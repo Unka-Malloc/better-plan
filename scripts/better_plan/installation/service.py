@@ -12,7 +12,13 @@ from .models import AGENTS, InstallPaths as _InstallPaths
 _MANAGED_HOOK_AGENTS = {"codex", "claude", "cursor", "kimi"}
 
 
-def install_agents(paths: _InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]:
+def install_agents(
+    paths: _InstallPaths,
+    agents: list[str],
+    *,
+    dry_run: bool,
+    preserve_native_roles: bool = False,
+) -> list[str]:
     """Install selected agents through one deterministic composition path."""
     _skills.validate_source_tree(paths.repo_root)
     messages: list[str] = []
@@ -39,7 +45,14 @@ def install_agents(paths: _InstallPaths, agents: list[str], *, dry_run: bool) ->
         if agent in scan_targets:
             kind, _ = scan_targets[agent]
             messages.append(f"{agent}: {'would use' if dry_run else 'using'} {kind} skill")
-        messages.extend(_targets.install_target(paths, agent, dry_run=dry_run))
+        messages.extend(
+            _targets.install_target(
+                paths,
+                agent,
+                dry_run=dry_run,
+                preserve_native_roles=preserve_native_roles,
+            )
+        )
 
     messages.extend(
         _skills.remove_shared_scan_duplicates(paths, scan_targets, dry_run=dry_run)

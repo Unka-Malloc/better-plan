@@ -12,7 +12,11 @@ from typing import Any
 from . import protocols
 
 
-AGENTS = ("codex", "claude", "cursor", "kimi")
+AGENTS = tuple(
+    agent
+    for agent in protocols.AGENTS
+    if protocols.config_shape(agent) in {"nested-json", "flat-json", "toml"}
+)
 MANAGED_MARKER = "--managed-by better-plan"
 PORTABLE_PYTHON = "python" if os.name == "nt" else "python3"
 HOOK_TIMEOUT_SECONDS = 30
@@ -65,37 +69,12 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def skill_root_expressions(agent: str) -> list[str]:
-    shared = "Path(os.environ.get('BETTER_PLAN_SHARED_HOME') or h/'.agents')/'skills'/'better-plan'"
-    if agent == "codex":
-        native = "Path(os.environ.get('CODEX_HOME') or h/'.codex')/'skills'/'better-plan'"
-        return [shared, native]
-    if agent == "claude":
-        plugin = (
-            "Path(os.environ.get('CLAUDE_HOME') or h/'.claude')/"
-            "'skills'/'better-plan'/'skills'/'better-plan'"
-        )
-        return [plugin]
-    if agent == "cursor":
-        native = "Path(os.environ.get('CURSOR_HOME') or h/'.cursor')/'skills'/'better-plan'"
-        return [shared, native]
-    if agent == "antigravity":
-        plugin = (
-            "Path(os.environ.get('ANTIGRAVITY_HOME') or h/'.gemini'/'config')/"
-            "'plugins'/'better-plan'/'skills'/'better-plan'"
-        )
-        return [plugin]
-    if agent == "kimi":
-        native = (
-            "Path(os.environ.get('KIMI_CODE_HOME') or h/'.kimi-code')/"
-            "'skills'/'better-plan'"
-        )
-        return [shared, native]
-    raise HookConfigError(f"unsupported Hook agent: {agent}")
+    return list(protocols.skill_root_expressions(agent))
 
 
 def hook_launcher_code(agent: str, event: str) -> str:
     roots = ",".join(skill_root_expressions(agent))
-    missing_skill_response = "None" if agent == "kimi" else "print('{}')"
+    missing_skill_response = protocols.missing_skill_response(agent)
     return (
         "import os,runpy,sys;from pathlib import Path;h=Path.home();"
         f"roots=[{roots}];"
@@ -229,19 +208,19 @@ def is_managed_handler(value: Any) -> bool:
 
 
 def _nested_host_events(agent: str) -> dict[str, str]:
-    if agent not in {"codex", "claude"}:
+    if protocols.config_shape(agent) != "nested-json":
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     return dict(protocols.host_events(agent))
 
 
 def _cursor_host_events(agent: str) -> dict[str, str]:
-    if agent != "cursor":
+    if protocols.config_shape(agent) != "flat-json":
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     return dict(protocols.host_events(agent))
 
 
 def clean_nested_hooks(data: dict[str, Any], agent: str) -> dict[str, Any]:
-    if agent not in {"codex", "claude"}:
+    if protocols.config_shape(agent) != "nested-json":
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     nested_events = _nested_host_events(agent)
     cleaned = dict(data)
@@ -315,7 +294,7 @@ def clean_flat_hooks(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def nested_handlers(agent: str) -> dict[str, list[dict[str, Any]]]:
-    if agent not in {"codex", "claude"}:
+    if protocols.config_shape(agent) != "nested-json":
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     handlers: dict[str, list[dict[str, Any]]] = {}
     for host_event, normalized_event in _nested_host_events(agent).items():
@@ -336,7 +315,7 @@ def nested_handlers(agent: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def flat_handlers(agent: str) -> dict[str, list[dict[str, Any]]]:
-    if agent != "cursor":
+    if protocols.config_shape(agent) != "flat-json":
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     handlers: dict[str, list[dict[str, Any]]] = {}
     for host_event, normalized_event in _cursor_host_events(agent).items():
@@ -349,7 +328,8 @@ def flat_handlers(agent: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def merged_config(current: dict[str, Any], agent: str) -> dict[str, Any]:
-    if agent in {"codex", "claude"}:
+    shape = protocols.config_shape(agent)
+    if shape == "nested-json":
         merged = clean_nested_hooks(current, agent)
         hooks = dict(merged.get("hooks") or {})
         for event, groups in nested_handlers(agent).items():
@@ -358,7 +338,7 @@ def merged_config(current: dict[str, Any], agent: str) -> dict[str, Any]:
         merged["hooks"] = hooks
         return merged
 
-    if agent == "cursor":
+    if shape == "flat-json":
         merged = clean_flat_hooks(current)
         merged.setdefault("version", 1)
         hooks = dict(merged.get("hooks") or {})
@@ -372,9 +352,10 @@ def merged_config(current: dict[str, Any], agent: str) -> dict[str, Any]:
 
 
 def removed_config(current: dict[str, Any], agent: str) -> dict[str, Any]:
-    if agent in {"codex", "claude"}:
+    shape = protocols.config_shape(agent)
+    if shape == "nested-json":
         return clean_nested_hooks(current, agent)
-    if agent == "cursor":
+    if shape == "flat-json":
         return clean_flat_hooks(current)
     raise HookConfigError(f"unsupported Hook agent: {agent}")
 
@@ -458,7 +439,8 @@ def _managed_handlers_flat(data: dict[str, Any], agent: str) -> dict[str, list[d
 
 def _managed_events_outside_current(data: dict[str, Any], agent: str) -> set[str]:
     current_events: set[str]
-    if agent in {"codex", "claude"}:
+    shape = protocols.config_shape(agent)
+    if shape == "nested-json":
         current_events = set(_nested_host_events(agent))
         hooks = data.get("hooks")
         if not isinstance(hooks, dict):
@@ -476,7 +458,7 @@ def _managed_events_outside_current(data: dict[str, Any], agent: str) -> set[str
                     break
         return outside
 
-    if agent == "cursor":
+    if shape == "flat-json":
         current_events = set(_cursor_host_events(agent))
         hooks = data.get("hooks")
         if not isinstance(hooks, dict):
@@ -497,15 +479,16 @@ def configured_commands(data: dict[str, Any], agent: str) -> dict[str, list[str]
         raise HookConfigError(f"unsupported Hook agent: {agent}")
     if not isinstance(data, dict):
         raise HookConfigError("Hook configuration must be an object")
-    if agent in {"codex", "claude"}:
+    shape = protocols.config_shape(agent)
+    if shape == "nested-json":
         return _extract_event_commands_nested(data, agent)
-    if agent == "cursor":
+    if shape == "flat-json":
         return _extract_event_commands_flat(data, agent)
     raise HookConfigError(f"unsupported Hook agent: {agent}")
 
 
 def install_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
-    if agent == "kimi":
+    if protocols.config_shape(agent) == "toml":
         return install_kimi_hook_config(path, dry_run=dry_run)
     current = read_json_object(path)
     updated = merged_config(current, agent)
@@ -516,7 +499,7 @@ def install_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
 
 
 def uninstall_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
-    if agent == "kimi":
+    if protocols.config_shape(agent) == "toml":
         return uninstall_kimi_hook_config(path, dry_run=dry_run)
     if not path.exists():
         return False
@@ -531,7 +514,8 @@ def uninstall_hook_config(path: Path, agent: str, *, dry_run: bool) -> bool:
 def hook_config_status(path: Path, agent: str) -> tuple[bool, str]:
     if not path.is_file():
         return False, "managed Hook configuration is missing"
-    if agent == "kimi":
+    shape = protocols.config_shape(agent)
+    if shape == "toml":
         try:
             current = path.read_text(encoding="utf-8")
         except OSError:
@@ -541,9 +525,9 @@ def hook_config_status(path: Path, agent: str) -> tuple[bool, str]:
         return True, "managed Hook configuration verified"
     try:
         data = read_json_object(path)
-        if agent in {"codex", "claude"}:
+        if shape == "nested-json":
             clean_nested_hooks(data, agent)
-        elif agent == "cursor":
+        elif shape == "flat-json":
             clean_flat_hooks(data)
             if data.get("version") != 1:
                 return False, "expected Cursor Hook configuration version 1"
@@ -557,7 +541,7 @@ def hook_config_status(path: Path, agent: str) -> tuple[bool, str]:
     if outside:
         return False, "managed Better Plan handler exists outside the current lifecycle event set"
 
-    if agent in {"codex", "claude"}:
+    if shape == "nested-json":
         current_groups = _managed_groups_nested(data, agent)
         expected_groups = nested_handlers(agent)
         for host_event in host_events:
