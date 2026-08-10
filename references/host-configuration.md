@@ -10,9 +10,9 @@ Better Plan installs four delivery roles per supported host:
 
 | 角色 | 用途 | 推荐选择器 |
 |---|---|---|
-| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-5.6-sol / max` |
+| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-5.6-sol / xhigh` |
 | `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
-| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / high` |
+| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / medium` |
 | `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
 
 A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
@@ -89,6 +89,19 @@ Bind the canonical `task_name` returned by Codex spawn, for example `/root/backe
 normalization. It is the sole Better Plan host identity; a UI task/thread UUID is not equivalent.
 Wait for the exact final callback from that spawned task, then have the native main invoke
 `agent-complete` with the same canonical task name.
+
+Codex may deliver the Task body as encrypted content after a plaintext `Payload:` marker. A Worker
+that cannot see an actionable Task after that marker must fail closed with `payload-delivery-failed`;
+it must not infer a Task by scanning the workspace or selecting a nearby Plan.
+
+Codex Multi-Agent V2 is not plain OpenAI-compatible message forwarding. It relies on Responses API
+extensions that carry an encrypted tool argument into an `agent_message` containing
+`encrypted_content`. A provider or model that implements only basic OpenAI-compatible plaintext
+Chat Completions or Responses requests is therefore ineligible for Codex role dispatch. Compatibility
+must be proven end to end for this exact exchange; an OpenAI-compatible label alone is insufficient.
+Better Plan never strips, decrypts, or downgrades this payload to plaintext. When the configured role
+cannot consume the exchange, preserve the exact role, fail closed through the normal delegation
+lifecycle, and return the Task to the native main after retry exhaustion.
 
 Codex has no Better Plan completion Hook. Its current subagent-stop event identifies the child by a
 thread UUID rather than the canonical task name returned by spawn, so a Hook cannot correlate the

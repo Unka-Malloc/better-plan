@@ -35,9 +35,9 @@ INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "designer": ("designer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
+        "designer": ("designer", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
         "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "worker-complex": ("worker", "gpt-5.6-sol", "high", "codex-gpt-5-6-sol-high"),
+        "worker-complex": ("worker", "gpt-5.6-sol", "medium", "codex-gpt-5-6-sol-medium"),
         "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
     }
 )
