@@ -27,55 +27,83 @@ actually requires reasoning about Better Plan's cross-cutting design.
    Reviewer knows its exact authority, prohibitions, evidence duties, and completion contract.
    Minimize irrelevant context so role attention stays on the assigned work.
 
-3. **Match orchestration depth to delivery risk.** Handle one small, directly understandable closure
-   with the native workflow. Activate Better Plan only when complete migration, elevated risk,
-   multiple independently acceptable Tasks, real handoffs, or long-lived recovery justify its cost.
+3. **Spend scarce model intelligence on solution design and automate representation work.** When a
+   planning stage uses an especially capable or expensive model, constrain it only where user
+   authority, safety, privacy, scope, or semantic correctness requires a hard boundary. Let that
+   model produce one structured solution plan in the form that best preserves its reasoning,
+   tradeoffs, architecture, risks, and delivery strategy; do not spend its context and attention on
+   stable codes, receipt mechanics, schema boilerplate, graph normalization, or other work that
+   deterministic tooling can perform. Python automation should convert that structured proposal into
+   the canonical Better Plan representation, derive mechanical fields, validate the result, and
+   report conversion defects precisely. If conversion is incomplete, ambiguous, or invalid, the
+   native main takes ownership of completing and repairing `Plan.json` instead of constraining or
+   redispatching the expensive model. After the Designer returns, `Design.md` is a read-only source
+   record: never repair conversion by changing or deleting its content. Keep `Plan.json` as the sole
+   semantic source.
 
-4. **Discover facts before requesting decisions.** Inspect repository contracts, tests, schemas,
+4. **Make deterministic tools finish diagnostic work.** A compiler error must identify the exact
+   source line or line range, the canonical target field, and the specific failed condition. Missing
+   values point to their owning section and absent field; unexpected internal failures report the
+   nearest compiler phase, source line, and field. Never collapse distinct defects into a generic
+   summary that forces the native main, Designer, or another agent to parse and validate the same
+   material again. Diagnostics must remain privacy-safe while making one-pass repair possible.
+
+5. **Match orchestration depth to delivery risk.** Handle one small, directly understandable closure
+   with the native workflow. Activate Better Plan only when complete migration, elevated risk,
+   multiple independently acceptable parallel Tasks, or long-lived recovery justify its cost.
+
+6. **Discover facts before requesting decisions.** Inspect repository contracts, tests, schemas,
    state owners, failure behavior, and tooling first. Ask the user only for outcome-changing choices
    that cannot be discovered, and consolidate them into one coherent Decision Dossier.
 
-5. **Give each phase one accountable authority.** Resolve decisions once, use one direct-write
-   Designer, authorize one exact Plan revision, and use one writable Reviewer. Repair within the
-   current Task or Reviewer session instead of creating recursive planning and repair roles.
+7. **Give each phase one accountable authority.** Resolve decisions once, use one Designer for the
+   solution draft and one deterministic compiler write path for its Plan representation, authorize
+   one exact revision, and use one writable Reviewer. Repair within the native main, current Task,
+   or Reviewer session instead of creating recursive planning and repair roles.
 
-6. **Keep one semantic source for each kind of truth.** `Plan.json` owns delivery semantics,
+8. **Keep one semantic source for each kind of truth.** `Plan.json` owns delivery semantics,
    `Manifest.json` indexes Plans, `Checkpoints.json` owns execution state, and `Plan.md` is a
    render-only projection. Derive secondary views instead of synchronizing competing ledgers.
 
-7. **Compile plans into independently acceptable outcomes.** A Task represents one observable
-   result, not a file list, role, or development phase. Freeze its scope, direct inputs, guaranteed
-   outputs, ownership, risk, design decisions, acceptance oracle, evidence, and focused regression
-   so a fresh-context Worker can execute it without the original conversation.
+9. **Compile plans into independently acceptable outcomes.** A Task represents one observable
+   result, not a file list, role, or development phase. Freeze its scope, guaranteed outputs,
+   ownership, risk, design decisions, acceptance oracle, evidence, and focused regression so a
+   fresh-context Worker can execute it without the original conversation.
 
-8. **Use one dependency graph and prove safe parallelism.** `prerequisites` is the sole scheduling
-   graph; input/output mappings explain and validate its edges. Run Tasks concurrently only when
-   reachability, write ownership, and exclusive resources prove independence.
+10. **Execute every available parallel frontier.** The native main passes requirements, not a
+    predesigned Task graph. The Designer makes all Tasks mutually independent, then gives each Task
+    a minimal Node DAG: declare an edge only for a real ordering or data dependency, branch every
+    independent Node, and join only where its prerequisites converge. Python compiles and validates
+    that structure; Workers run every ready Node concurrently, and the native main runs focused
+    acceptance concurrently for every awaiting independent Task. Long-running work never holds the
+    global state lock. No Node receives a separate role, approval, or persistent execution ledger.
 
-9. **Bind authorization to exact semantics.** Seal authorization to a revision and semantic digest.
+11. **Bind authorization to exact semantics.** Seal authorization to a revision and semantic digest.
    Freeze started Task contracts and evidence. Continuations may revise only unstarted in-scope work
    and must not silently expand goal, scope, user decisions, elevated risk, or irreversible authority.
 
-10. **Continue autonomously after authorization.** Do not return ordinary implementation decisions
+12. **Continue autonomously after authorization.** Do not return ordinary implementation decisions
     to the user. Apply selected decisions, authorized intent, public repository contracts, the safest
     reversible behavior, and the simplest adequate implementation in that order. Isolate hard
     authority or environment blockers and continue independent safe branches.
 
-11. **Define completion with executable evidence.** Complete each Task only through its focused
-    regression and close the delivery only through the sole Reviewer's full regression. Require real
+13. **Define completion with executable evidence.** Complete each Task only through its focused
+    regression. Run the complete regression as an independent Python stage before Reviewer
+    dispatch; Reviewer session commands must never own or execute it. Give the Reviewer its
+    diagnostics, and reuse green evidence unless Reviewer repairs change covered paths. Require real
     rendered evidence for visual behavior; source inspection, snapshots, or build success are not
     substitutes for the declared oracle.
 
-12. **Make delegation precise and recovery explicit.** Bind every live dispatch to one host agent
+14. **Make delegation precise and recovery explicit.** Bind every live dispatch to one host agent
     identity and consume only an exact final callback. Spawn is not completion, silence is not
     failure, and context loss must be recoverable from canonical state, receipts, and bounded briefs.
 
-13. **Protect privacy and fail closed.** Keep secrets, machine identity, absolute local paths,
+15. **Protect privacy and fail closed.** Keep secrets, machine identity, absolute local paths,
     runtime endpoints, and backend runtime data out of state, prompts, evidence, and reports. Reject
     ambiguous callbacks, invalid state, unknown ownership, and unsupported generations instead of
     guessing, translating, or broadening authority.
 
-14. **Integrate additively with native hosts.** Use each host's native skill, role, Hook, and plugin
+16. **Integrate additively with native hosts.** Use each host's native skill, role, Hook, and plugin
     formats. Manage only Better Plan-owned artifacts and namespaced entries, preserve unrelated local
     configuration, and verify the installed generation, selectors, receipts, structure, and Doctor
     result after installation changes.

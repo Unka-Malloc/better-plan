@@ -121,11 +121,10 @@ def _architecture(spec: Mapping[str, Any]) -> list[str]:
 def _task(task: Mapping[str, Any]) -> list[str]:
     scope = task.get("scope", {}) if isinstance(task.get("scope"), Mapping) else {}
     ownership = task.get("ownership", {}) if isinstance(task.get("ownership"), Mapping) else {}
-    prerequisites = _lines(task.get("prerequisites")) or ["none"]
     lines = ["", "### %s %s" % (task.get("code"), task.get("title")), ""]
     lines.append(
-        "Tier: %s · Verification: %s · Prerequisites: %s"
-        % (task.get("difficulty"), task.get("verification"), ", ".join(prerequisites))
+        "Tier: %s · Verification: %s · Frontier: parallel"
+        % (task.get("difficulty"), task.get("verification"))
     )
     lines.extend(["", "Outcome: %s" % task.get("outcome"), ""])
     lines.append("Risks: %s" % (", ".join(_lines(task.get("risks"))) or "none"))
@@ -138,12 +137,6 @@ def _task(task: Mapping[str, Any]) -> list[str]:
     lines.extend(_bullets(scope.get("in")))
     lines.extend(["", "Out of scope"])
     lines.extend(_bullets(scope.get("out")))
-    inputs = task.get("inputs") if isinstance(task.get("inputs"), list) else []
-    if inputs:
-        lines.extend(["", "Inputs"])
-        for item in inputs:
-            if isinstance(item, Mapping):
-                lines.append("- %s from %s: %s" % (item.get("output"), item.get("from"), item.get("guarantee")))
     outputs = task.get("outputs") if isinstance(task.get("outputs"), list) else []
     if outputs:
         lines.extend(["", "Outputs"])
@@ -152,6 +145,16 @@ def _task(task: Mapping[str, Any]) -> list[str]:
                 lines.append(
                     "- %s %s (`%s`): %s"
                     % (item.get("code"), item.get("title"), item.get("artifact"), item.get("guarantee"))
+                )
+    nodes = task.get("nodes") if isinstance(task.get("nodes"), list) else []
+    if nodes:
+        lines.extend(["", "Internal Node graph"])
+        for node in nodes:
+            if isinstance(node, Mapping):
+                prerequisites = ", ".join(_lines(node.get("prerequisites"))) or "none"
+                lines.append(
+                    "- %s %s · after: %s · %s"
+                    % (node.get("code"), node.get("title"), prerequisites, node.get("outcome"))
                 )
     design = task.get("design") if isinstance(task.get("design"), Mapping) else {}
     if design:
@@ -187,7 +190,7 @@ def _tasks(spec: Mapping[str, Any]) -> list[str]:
     if not tasks:
         lines.append("None recorded yet.")
         return lines
-    lines.append("Prerequisites are the sole execution graph; independent Tasks may run concurrently.")
+    lines.append("Every Task belongs to the same mutually independent parallel frontier.")
     for task in tasks:
         if isinstance(task, Mapping):
             lines.extend(_task(task))

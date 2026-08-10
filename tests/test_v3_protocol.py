@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 import tempfile
 import unittest
@@ -121,6 +120,24 @@ class V3ProtocolTests(unittest.TestCase):
         issues = validate_plan_document(self.path, plan)
         self.assertTrue(any("requires its continuation receipt" in issue.message for issue in issues))
 
+    def test_compile_receipt_rejects_errors_without_line_and_field_locations(self) -> None:
+        plan = complete_plan()
+        plan["lifecycle"]["designer_session"]["compile"] = {
+            "pristine_digest": "0" * 64,
+            "compiled_spec_digest": "1" * 64,
+            "applied_at": "2026-01-01T00:00:00Z",
+            "sections_from_plan": [],
+            "issues": [{
+                "kind": "structure",
+                "message": "Task outcome is missing",
+                "status": "open",
+            }],
+            "unmapped": [],
+        }
+
+        issues = validate_plan_document(self.path, plan)
+        self.assertTrue(any("missing diagnostic fields field, line" in issue.message for issue in issues))
+
     def test_dossier_resolution_requires_selection_and_one_ledger_record(self) -> None:
         plan = complete_plan()
         plan["ledger"]["unresolved"] = [
@@ -176,30 +193,44 @@ class V3ProtocolTests(unittest.TestCase):
         issues = validate_plan_document(self.path, plan)
         self.assertTrue(any("share exclusive resources" in issue.message for issue in issues))
 
-    def test_prerequisites_are_the_only_graph_and_every_edge_maps_one_input(self) -> None:
+    def test_parallel_frontier_rejects_every_cross_task_dependency(self) -> None:
         plan = complete_plan()
         consumer = task(
             "TASK-002",
             write_paths=["other.txt"],
             prerequisites=["TASK-001"],
+            inputs=[
+                {
+                    "from": "TASK-001",
+                    "output": "OUT-001",
+                    "guarantee": "The other Task completed first.",
+                }
+            ],
             acceptance_code="AC-002",
         )
-        plan["spec"]["tasks"].append(deepcopy(consumer))
+        plan["spec"]["tasks"].append(consumer)
         issues = validate_plan_document(self.path, plan)
-        self.assertTrue(any("must map at least one input" in issue.message for issue in issues))
+        self.assertTrue(any("dependent work belongs inside one parallel-safe Task" in issue.message for issue in issues))
+        self.assertTrue(any("parallel Tasks never consume another Task's output" in issue.message for issue in issues))
 
-        consumer["inputs"] = [
-            {"from": "TASK-001", "output": "OUT-001", "guarantee": "The upstream behavior holds."}
+    def test_task_internal_nodes_support_parallel_branches_and_joins_but_reject_cycles(self) -> None:
+        plan = complete_plan()
+        plan["spec"]["tasks"][0]["nodes"] = [
+            {"code": "NODE-001", "title": "start", "outcome": "Prepare shared inputs.", "prerequisites": []},
+            {"code": "NODE-002", "title": "branch-a", "outcome": "Complete branch A.", "prerequisites": ["NODE-001"]},
+            {"code": "NODE-003", "title": "branch-b", "outcome": "Complete branch B.", "prerequisites": ["NODE-001"]},
+            {
+                "code": "NODE-004",
+                "title": "join",
+                "outcome": "Integrate both branches.",
+                "prerequisites": ["NODE-002", "NODE-003"],
+            },
         ]
-        plan["spec"]["tasks"][1] = consumer
         self.assertEqual(validate_plan_document(self.path, plan), [])
 
-        plan["spec"]["tasks"][0]["prerequisites"] = ["TASK-002"]
-        plan["spec"]["tasks"][0]["inputs"] = [
-            {"from": "TASK-002", "output": "OUT-002", "guarantee": "The downstream behavior holds."}
-        ]
+        plan["spec"]["tasks"][0]["nodes"][0]["prerequisites"] = ["NODE-004"]
         issues = validate_plan_document(self.path, plan)
-        self.assertTrue(any("dependency cycle" in issue.message for issue in issues))
+        self.assertTrue(any("Node dependency cycle" in issue.message for issue in issues))
 
     def test_elevated_risk_requires_the_strong_worker_tier(self) -> None:
         plan = complete_plan()
@@ -273,6 +304,7 @@ class V3ProtocolTests(unittest.TestCase):
                 "dispatch-task",
                 "accept-task",
                 "main-complete",
+                "run-full-regression",
                 "open-reviewer-session",
             }.issubset(commands)
         )

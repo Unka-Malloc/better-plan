@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Complete-delivery planning with one Designer and one Reviewer"
-  default_prompt: "Use the native workflow when maintaining the Better Plan source repository. Elsewhere, use $better-plan only for large, high-risk, migration, or real multi-Task delivery: consolidate user decisions once, run one direct-write Designer, authorize once, then execute without mid-delivery questions and close through one writable Reviewer."
+  default_prompt: "Use the native workflow when maintaining the Better Plan source repository. Elsewhere, use $better-plan only for large, high-risk, migration, or real multi-Task delivery: consolidate user decisions once, have one Designer turn confirmed requirements into a mutually independent parallel Task frontier with a minimal Node DAG inside each Task, compile that structured draft into the Plan, let Workers execute every ready Node concurrently, let the native main complete Plan.json without changing the returned draft if conversion is incomplete, authorize once, then execute without mid-delivery questions and close through one writable Reviewer."
