@@ -34,6 +34,10 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
 
 - Keep secrets, personal or machine identity, absolute local paths, runtime endpoints, and backend
   runtime data out of state, prompts, evidence, and reports.
+- Treat existing native role files and receipts as immutable local configuration. Better Plan may
+  install a missing role matrix once, but no later install, update, repair, Doctor result, or user
+  request authorizes editing, replacing, adopting, re-signing, or regenerating it. Receipt drift is
+  report-only; continue skill, Hook, plugin, and adapter updates around the local roles.
 - `Plan.json` is the sole semantic source; `Manifest.json` indexes Plans; `Checkpoints.json` holds
   execution state only; `Plan.md` is a render-only projection that is never parsed back. `Design.md`
   and its pristine archive are pre-authorization compiler inputs, never semantic state.

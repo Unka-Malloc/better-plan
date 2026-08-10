@@ -90,18 +90,18 @@ See [SKILL.md](SKILL.md), the [general design principles](references/design-prin
 
 Better Plan installs one receipt-managed generation of native role templates, skill files, and
 optional host Hooks. Updates fail closed on unowned same-name files and never displace unrelated
-agents. An explicit replacement removes only an older Better Plan generation, installs the complete
-current matrix, and creates a fresh receipt.
+agents. Native roles are installed only when no same-name role configuration or receipt exists;
+afterward every role file and receipt is immutable, including when Doctor reports drift.
 
 ```sh
 python3 scripts/install.py install --agents codex
 python3 scripts/install.py doctor --agents codex
-python3 scripts/install.py update --agents all --preserve-native-roles
+python3 scripts/install.py update --agents all
 ```
 
-Use `--preserve-native-roles` when updating skills, Hooks, and adapters without changing native role
-files or their receipts. Host-neutral lifecycle invariants remain in the framework; only native API,
-event, payload, response, and configuration differences live in isolated host adapters.
+Updates always preserve native role files and receipts while refreshing skills, Hooks, plugins, and
+adapters. Host-neutral lifecycle invariants remain in the framework; only native API, event,
+payload, response, and configuration differences live in isolated host adapters.
 
 Codex, Claude Code, OpenCode, Cursor, Copilot, Antigravity, Kimi, and supported plugin targets use
 their native role and Hook formats. Installed selectors remain authoritative; package selectors are

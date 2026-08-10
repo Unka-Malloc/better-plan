@@ -111,12 +111,6 @@ def build_parser() -> argparse.ArgumentParser:
         add_common_arguments(command)
         if name != "doctor":
             command.add_argument("--dry-run", action="store_true")
-        if name in {"install", "update"}:
-            command.add_argument(
-                "--preserve-native-roles",
-                action="store_true",
-                help="update skills, hooks, and adapters without changing native role files or receipts",
-            )
         if name == "uninstall":
             command.add_argument("--remove-shared", action="store_true")
         command.set_defaults(func=handler)
@@ -132,7 +126,6 @@ def install_command(args: argparse.Namespace) -> int:
         paths,
         agents,
         dry_run=args.dry_run,
-        preserve_native_roles=args.preserve_native_roles,
     ):
         print(message)
     return 0
@@ -145,7 +138,6 @@ def update_command(args: argparse.Namespace) -> int:
         paths,
         agents,
         dry_run=args.dry_run,
-        preserve_native_roles=args.preserve_native_roles,
     ):
         print(message)
     return 0
