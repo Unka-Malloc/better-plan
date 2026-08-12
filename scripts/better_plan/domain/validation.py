@@ -31,6 +31,7 @@ from .models import (
     VALID_AUTHORIZATION_SOURCES,
     VALID_DIFFICULTIES,
     VALID_RISKS,
+    VALID_WORKLOADS,
     VALID_VERIFICATIONS,
     Issue,
     is_code,
@@ -49,6 +50,7 @@ TASK_REQUIRED_FIELDS = {
     "prerequisites",
     "ownership",
     "difficulty",
+    "workload",
     "verification",
     "requirements",
     "risks",
@@ -428,8 +430,8 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
         issues.extend(_validate_nodes(path, nodes, index, require_design))
     if task.get("difficulty") not in VALID_DIFFICULTIES:
         issues.append(_issue(path, "%s.difficulty" % label, "must be standard or complex"))
-    elif isinstance(risks, list) and set(risks) & ELEVATED_RISKS and task.get("difficulty") != "complex":
-        issues.append(_issue(path, "%s.difficulty" % label, "an elevated risk tag requires the complex tier"))
+    if task.get("workload") not in VALID_WORKLOADS:
+        issues.append(_issue(path, "%s.workload" % label, "must be light, medium, or heavy"))
     if task.get("verification") not in VALID_VERIFICATIONS:
         issues.append(_issue(path, "%s.verification" % label, "must be code, visual, or hybrid"))
     ownership = task.get("ownership")

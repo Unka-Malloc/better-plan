@@ -24,6 +24,7 @@ Owns:
 - published
 Exclusive:
 Difficulty: standard
+Workload: heavy
 Verification: code
 Risks:
 - public_interface
@@ -71,6 +72,7 @@ EXPECTED_SPEC = {
         }],
         "ownership": {"write_paths": ["relative/path"], "shared_exclusive": []},
         "difficulty": "standard",
+        "workload": "medium",
         "verification": "code",
         "requirements": ["REQ-001"],
         "risks": [],
@@ -130,7 +132,7 @@ class DesignCompileTests(unittest.TestCase):
         self.assertEqual(result["unmapped"], [])
         self.assertEqual(result["spec"], EXPECTED_SPEC)
 
-    def test_alias_defaults_risk_tier_and_parallel_fields_are_derived(self) -> None:
+    def test_alias_defaults_designer_tier_and_parallel_fields_are_preserved(self) -> None:
         aliased_task = SECOND_TASK.replace(
             "Owns:\n- published",
             "Write paths: published",
@@ -146,21 +148,29 @@ class DesignCompileTests(unittest.TestCase):
 
         self.assertEqual(result["issues"], [])
         first, second = result["spec"]["tasks"]
-        self.assertEqual(second["difficulty"], "complex")
+        self.assertEqual(second["difficulty"], "standard")
+        self.assertEqual(second["workload"], "heavy")
         self.assertEqual(first["prerequisites"], [])
         self.assertEqual(first["inputs"], [])
         self.assertEqual(second["prerequisites"], [])
         self.assertEqual(second["inputs"], [])
 
         defaults = DESIGN_TEMPLATE.replace("Scope out:\n- Unrelated capabilities.\n", "").replace(
-            "Difficulty: standard\nVerification: code\nRisks:\n",
+            "Difficulty: standard\n",
             "",
-        )
+        ).replace("Verification: code\nRisks:\n", "")
         default_task = compile_design(defaults, complete_plan()["spec"])["spec"]["tasks"][0]
         self.assertEqual(default_task["scope"]["out"], [])
         self.assertEqual(default_task["risks"], [])
         self.assertEqual(default_task["difficulty"], "standard")
+        self.assertEqual(default_task["workload"], "medium")
         self.assertEqual(default_task["verification"], "code")
+
+        complex_task = compile_design(
+            draft.replace("Tier: standard", "Tier: complex"),
+            complete_plan()["spec"],
+        )["spec"]["tasks"][1]
+        self.assertEqual(complex_task["difficulty"], "complex")
 
     def test_representative_structure_residue_is_reported(self) -> None:
         duplicate_task = DESIGN_TEMPLATE.replace(
@@ -243,6 +253,9 @@ class DesignCompileTests(unittest.TestCase):
             "Outcome: The requested behavior passes its focused oracle.",
             "Outcome:",
         ).replace(
+            "Workload: medium",
+            "Workload: enormous",
+        ).replace(
             "Risks:\n",
             "Risks:\n- unknown-risk\n",
         ).replace(
@@ -258,6 +271,10 @@ class DesignCompileTests(unittest.TestCase):
             self.assertTrue(issue["field"])
         self.assertTrue(any(
             issue["field"] == "spec.tasks[0].outcome"
+            for issue in result["issues"]
+        ))
+        self.assertTrue(any(
+            issue["field"] == "spec.tasks[0].workload"
             for issue in result["issues"]
         ))
         self.assertTrue(any(

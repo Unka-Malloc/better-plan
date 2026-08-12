@@ -155,10 +155,14 @@ contract. Together, a Task's criteria must cover every requirement and output it
 entry naming an unowned `REQ-*` or `OUT-*` is rejected as a typo. Focused regression is the only
 Task completion path.
 
-Risk tags come from one fixed vocabulary. An elevated tag — migration, removal, security, privacy,
-irreversible_side_effect, release, public_interface, schema, protocol, persistent_state,
-concurrency, shared_resource, performance, operations — requires the `complex` Worker tier.
-`observability` and `quality` do not.
+Risk tags come from one fixed vocabulary. They describe the Task and protect continuation boundaries;
+they do not select the Worker tier mechanically. The Designer chooses `standard` or `complex`
+holistically from the Task's coupling, unknowns, tradeoffs, failure consequences and reversibility,
+and verification difficulty.
+
+Every Task also records `workload: light|medium|heavy`. This is the Designer's relative estimate of
+execution volume across touchpoints, change breadth, critical-path depth, integration, and
+verification. It is not an elapsed-time estimate and does not select the Worker tier.
 
 ## Privacy boundary
 

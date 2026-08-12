@@ -49,7 +49,7 @@ its short state snapshot and result commit.
 | --- | --- | --- |
 | `designer` | high | writes one complete structured solution draft |
 | `worker-standard` | economical | one ordinary bounded Task |
-| `worker-complex` | strong | one elevated-risk or coupled Task |
+| `worker-complex` | strong | one Task the Designer judges to need stronger reasoning |
 | `reviewer` | high | post-regression source, test, evidence, and diagnostic audit |
 
 ## Quick schema inspection
@@ -85,6 +85,18 @@ python3 scripts/manifest_tool.py close-reviewer-session ...
 
 See [SKILL.md](SKILL.md), the [general design principles](references/design-principles.md), and the
 [state protocol](references/state.md) for the complete contract and its rationale.
+
+## Reference skills
+
+The repository includes [效率督查](skills/efficiency-inspector/SKILL.md), an audit skill for
+studying the main thread's resource economy across the complete Better Plan lifecycle. It samples
+Token usage, supervision effectiveness, child workload, waits, and real execution durations so
+Better Plan can be optimized from observed behavior rather than intuition. Token and time remain
+separate measurement dimensions. It is prompt-led: child auditors interpret Codex conversations,
+record their reasoning as normalized observations, and use two small optional calculators for
+repetitive arithmetic. Broad searches prefer concurrent disjoint shards while smaller or
+capacity-limited audits may run serially. Current raw-evidence support is Codex-only; future Agents
+receive dedicated observation recipes or adapters while reusing the generic calculators.
 
 ## Installation
 

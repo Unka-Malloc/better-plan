@@ -67,6 +67,7 @@ Owns:
 Exclusive:
 - shared resource name
 Difficulty: standard
+Workload: medium
 Verification: code
 Risks:
 - quality
@@ -90,11 +91,24 @@ Paths:
 ```
 
 `Scope out` and risks default to empty, `Difficulty` to `standard`, and `Verification` to `code`.
-Any elevated risk automatically raises the Task to `complex`. Python always emits empty
-`prerequisites` and `inputs`. If one Task needs another Task's result or ordering, merge that work
-into one Task; every separate Task must be safe to dispatch concurrently. One acceptance criterion
-may omit `Covers`, in which case it covers every requirement and output owned by that Task. Multiple
-criteria must state `Covers`.
+The Designer chooses `Difficulty` holistically, not by matching risk names or counting files. Use
+`standard` when the path is clear, invariants are local, and failures are easy to detect and recover.
+Use `complex` when stronger reasoning is materially useful because one dominant factor or several
+combined factors create broad causal coupling, important unknowns, non-obvious tradeoffs, latent or
+hard-to-reverse failure, or demanding verification. Risk tags and surface size are evidence, not
+automatic triggers: a bounded, reversible, strongly tested migration may be `standard`, while an
+untagged but coupled or hard-to-verify Task may be `complex`.
+
+`Workload` is a separate, required execution-volume estimate. Choose `light`, `medium`, or `heavy`
+from the breadth and number of touchpoints, amount of inspection and change, critical-path depth,
+integration work, and verification volume. It is relative workload, not a clock-time estimate and
+does not select the Worker tier. A broad repetitive change may be `heavy` but `standard`; a small
+subtle change may be `light` but `complex`.
+
+Python always emits empty `prerequisites` and `inputs`. If one Task needs another Task's result or
+ordering, merge that work into one Task; every separate Task must be safe to dispatch concurrently.
+One acceptance criterion may omit `Covers`, in which case it covers every requirement and output
+owned by that Task. Multiple criteria must state `Covers`.
 
 ## Internal Node DAG
 

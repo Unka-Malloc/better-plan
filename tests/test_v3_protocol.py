@@ -232,11 +232,10 @@ class V3ProtocolTests(unittest.TestCase):
         issues = validate_plan_document(self.path, plan)
         self.assertTrue(any("Node dependency cycle" in issue.message for issue in issues))
 
-    def test_elevated_risk_requires_the_strong_worker_tier(self) -> None:
+    def test_risk_tags_do_not_override_the_designer_worker_tier(self) -> None:
         plan = complete_plan()
         plan["spec"]["tasks"][0]["risks"] = ["migration"]
-        issues = validate_plan_document(self.path, plan)
-        self.assertTrue(any("requires the complex tier" in issue.message for issue in issues))
+        self.assertEqual(validate_plan_document(self.path, plan), [])
         plan["spec"]["tasks"][0]["difficulty"] = "complex"
         self.assertEqual(validate_plan_document(self.path, plan), [])
 

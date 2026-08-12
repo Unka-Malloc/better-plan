@@ -132,8 +132,9 @@ The assignment has this operational meaning:
 Write the complete solution design to the returned draft_path before returning.
 Group dependent work inside one Task so every Task is mutually parallel-safe.
 Inside each Task, design a minimal Node DAG: branch independent Nodes, declare only real
-dependencies, and list every predecessor at joins. Do not edit Plan.json.spec while the draft path
-is available. Use the direct-write path only when the host cannot create the draft.
+dependencies, and list every predecessor at joins. Mark each Task's relative Workload as light,
+medium, or heavy without estimating clock time. Do not edit Plan.json.spec while the draft path is
+available. Use the direct-write path only when the host cannot create the draft.
 ```
 
 The native main passes the confirmed goal, scope, success conditions, risk boundary, requirements,

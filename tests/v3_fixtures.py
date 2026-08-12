@@ -31,6 +31,7 @@ def task(
     requirements: list[str] | None = None,
     acceptance_code: str = "AC-001",
     difficulty: str = "standard",
+    workload: str = "medium",
     verification: str = "code",
     command: str = PASSING_COMMAND,
 ) -> dict[str, Any]:
@@ -72,6 +73,7 @@ def task(
         "outputs": outputs,
         "ownership": {"write_paths": owned, "shared_exclusive": []},
         "difficulty": difficulty,
+        "workload": workload,
         "verification": verification,
         "requirements": requirements,
         "risks": [],
