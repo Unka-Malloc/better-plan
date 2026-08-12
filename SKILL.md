@@ -71,6 +71,28 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   an unchanged green receipt; rerun the independent stage only after Reviewer repairs change
   covered paths or the prior run failed, and resume the same Reviewer from new diagnostics if needed.
 
+## Delivery guardrails
+
+- Protect machine identity, personal data, credentials, ciphertext, backend runtime data, and other
+  private operational details in every prompt, state file, command result, evidence item, screenshot,
+  and report. Persist and return only privacy-safe summaries and repository-relative paths.
+- Keep every proposal and change minimal, value-driven, and tied to the user's explicit outcome.
+  Avoid speculative scope, redundant hashes, defensive layers, fallback branches, repeated
+  validation, and broad regression that do not materially improve the delivered behavior.
+- When algorithms or data structures materially affect the solution, study suitable proven
+  open-source implementations and choose the simplest applicable practice that reduces complexity,
+  repeated computation, memory use, or scheduling cost while improving caching and concurrency.
+- When the authorized work is a refactor or migration, complete the migration in one coherent
+  delivery and remove the superseded implementation, documentation, and compatibility path. Prove
+  removal with a one-time targeted script or command; do not preserve it as a permanent test or gate.
+- Close work through the smallest independently acceptable capability, module, or scenario. Keep
+  edits and focused checks inside that closure, then move to the next closure without absorbing
+  unrelated work.
+- Use the narrowest useful checks during delivery. Run the complete regression once only after all
+  changes are integrated and focused evidence is green; do not repeatedly consume shared resources
+  or disturb concurrent Workers. Before authorization, return only genuinely material,
+  undiscoverable decisions to the user in the single Dossier.
+
 ## Delivery sequence
 
 ### 1. Explore before asking

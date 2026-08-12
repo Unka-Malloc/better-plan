@@ -128,6 +128,40 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("heavy or early-stage work longer windows", skill)
         self.assertIn("re-estimate after every progress signal or expired wait", skill)
 
+    def test_delivery_guardrails_are_disclosed_by_role(self) -> None:
+        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
+        designer = " ".join(
+            (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower().split()
+        )
+        worker = " ".join(
+            (ROOT / "references" / "worker.md").read_text(encoding="utf-8").lower().split()
+        )
+        reviewer = " ".join(
+            (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower().split()
+        )
+
+        self.assertIn("backend runtime data", skill)
+        self.assertIn("suitable proven open-source implementations", skill)
+        self.assertIn("one-time targeted script or command", skill)
+        self.assertIn("complete regression once only after all changes are integrated", skill)
+        self.assertIn("smallest independently acceptable capability, module, or scenario", skill)
+        self.assertIn("redundant hashes", skill)
+
+        self.assertIn("backend runtime data", designer)
+        self.assertIn("suitable proven open-source implementations", designer)
+        self.assertIn("complete transition", designer)
+        self.assertIn("one smallest independently acceptable", designer)
+
+        self.assertIn("backend runtime data", worker)
+        self.assertIn("suitable proven open-source implementations", worker)
+        self.assertIn("one-time targeted script or command", worker)
+        self.assertIn("never run the complete regression", worker)
+
+        self.assertIn("backend runtime data", reviewer)
+        self.assertIn("suitable proven open-source approaches", reviewer)
+        self.assertIn("one-time targeted residue script or command", reviewer)
+        self.assertIn("remove speculative abstractions", reviewer)
+
     def test_general_design_principles_preserve_progressive_role_disclosure(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         principles = (ROOT / "references" / "design-principles.md").read_text(
@@ -228,6 +262,9 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("risk tags and surface size are evidence, not automatic triggers", template)
                 self.assertIn("mark workload as light, medium, or heavy", plain_template)
                 self.assertIn("never estimate clock time", template)
+                self.assertIn("backend runtime data", template)
+                self.assertIn("suitable proven open-source implementations", template)
+                self.assertIn("one-time targeted residue script or command", template)
                 self.assertRegex(template, r"empty .*prerequisites.*inputs")
 
     def test_every_native_worker_template_is_a_fresh_context_task_contract(self) -> None:
@@ -245,6 +282,10 @@ class AgentTemplateTests(unittest.TestCase):
                     self.assertIn("no local guidance is forbidden", template)
                     self.assertIn("do not ask the user", template)
                     self.assertIn("every ready task node concurrently", template)
+                    self.assertIn("backend runtime data", template)
+                    self.assertIn("suitable proven open-source implementations", template)
+                    self.assertIn("one-time residue script or command", template)
+                    self.assertIn("never run the complete regression", template)
                     expected_tier = "economical tier" if stem == "worker-standard" else "strong tier"
                     self.assertIn(expected_tier, template)
 
@@ -262,6 +303,9 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("separate full-regression stage has already completed", template)
                 self.assertIn("reviewer session commands never run it", template)
                 self.assertIn("do not run or wait for the complete regression", template)
+                self.assertIn("backend runtime", template)
+                self.assertIn("suitable proven open-source approaches", template)
+                self.assertIn("one-time residue script or command", template)
 
     def test_installer_renders_and_pins_codex_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
