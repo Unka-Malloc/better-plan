@@ -3,7 +3,7 @@
 The model table ranks Designer and Reviewer by Intelligence Index.  The Coding
 Agent table independently routes the two Worker tiers by task difficulty and
 cost: `standard` carries ordinary bounded work at the lowest qualifying price,
-and `complex` carries elevated-risk or structurally coupled work.  Runtime
+and `complex` carries work the Designer judged to need stronger reasoning. Runtime
 dispatch never calls this module: assignments are selected once while native
 Better Plan agents are created and are then persisted by the installer.
 """

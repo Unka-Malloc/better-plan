@@ -1,0 +1,75 @@
+{
+  "schema": "efficiency-inspector/timeout-catalog/v1",
+  "policies": [
+    {
+      "key": "role.designer.poll",
+      "scope": "role",
+      "policy_kind": "observation_window",
+      "role": "designer",
+      "stage": "designing",
+      "sample_unit": "one Designer session",
+      "configured_timeout_source": "parent wait_agent timeout_ms",
+      "default_timeout_ms": null
+    },
+    {
+      "key": "role.worker.poll",
+      "scope": "role",
+      "policy_kind": "observation_window",
+      "role": "worker",
+      "stage": "authorized task delivery",
+      "sample_unit": "one Worker dispatch or correction dispatch",
+      "configured_timeout_source": "parent wait_agent timeout_ms",
+      "default_timeout_ms": null
+    },
+    {
+      "key": "role.reviewer.poll",
+      "scope": "role",
+      "policy_kind": "observation_window",
+      "role": "reviewer",
+      "stage": "post-regression review",
+      "sample_unit": "one Reviewer session",
+      "configured_timeout_source": "parent wait_agent timeout_ms",
+      "default_timeout_ms": null
+    },
+    {
+      "key": "fsm.authorize.verify-command",
+      "scope": "fsm",
+      "policy_kind": "execution_deadline",
+      "role": null,
+      "stage": "ready to authorized",
+      "sample_unit": "one authorize verification command",
+      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
+      "default_timeout_ms": 1800000
+    },
+    {
+      "key": "fsm.task.focused-regression",
+      "scope": "fsm",
+      "policy_kind": "execution_deadline",
+      "role": null,
+      "stage": "awaiting acceptance to accepted or correction",
+      "sample_unit": "one focused-regression command attempt",
+      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
+      "default_timeout_ms": 1800000
+    },
+    {
+      "key": "fsm.delivery.full-regression",
+      "scope": "fsm",
+      "policy_kind": "execution_deadline",
+      "role": null,
+      "stage": "all tasks terminal to reviewer-ready",
+      "sample_unit": "one full-regression command attempt",
+      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
+      "default_timeout_ms": 1800000
+    },
+    {
+      "key": "framework.lifecycle-hook",
+      "scope": "framework",
+      "policy_kind": "execution_deadline",
+      "role": null,
+      "stage": "supported lifecycle Hook invocation",
+      "sample_unit": "one Hook invocation on a host with an explicit timeout",
+      "configured_timeout_source": "Hook configuration timeout",
+      "default_timeout_ms": 30000
+    }
+  ]
+}

@@ -140,6 +140,17 @@ Before the first role dispatch, apply the native host's exact spawn, capacity, i
 completion rules from `references/host-configuration.md`. Host-imposed batching never changes Task
 contracts or authorizes an unconfigured fallback role.
 
+Before every host wait or sleep, explicitly set an adaptive timeout instead of using the system
+default. Estimate completion percentage and remaining work from `Difficulty`, `Workload`, observed
+progress, elapsed time, and prior comparable experience; give heavy or early-stage work longer
+windows, shorten only when completion is plausibly near, and re-estimate after every progress signal
+or expired wait.
+
+Optional helpers, when useful: run `python3 scripts/task_shape.py <Plan.json> --task TASK-001` after
+a Task is compiled to summarize its DAG and verification shape. Before choosing a wait window, run
+`python3 scripts/wait_hint.py --workload heavy --elapsed 1800 --progress 35 --history 4800` to combine
+your progress estimate with prior durations. Both tools are read-only suggestions and may be skipped.
+
 After Workers return, run `accept-task` concurrently for the entire awaiting Task frontier. Python
 locks only the short state snapshot and result commit; each Task's declared command list keeps its
 own order. If focused regression fails the Task enters `worker_correction`: repair it in the native
@@ -178,17 +189,23 @@ closes, no production code may change.
 
 Every Task freezes a stable `TASK-*` code, title, outcome, in/out scope, `OUT-*` outputs with
 guarantees, write ownership and exclusive shared resources, tier
-(`standard` or `complex`), verification (`code`, `visual`, or `hybrid`), requirements, risk tags,
-design decisions, `AC-*` Given/When/Then acceptance with an exact oracle and evidence, and focused
-regression commands with fingerprint paths. Python emits empty `prerequisites` and `inputs`
+(`standard` or `complex`), workload (`light`, `medium`, or `heavy`), verification (`code`, `visual`,
+or `hybrid`), requirements, risk tags, design decisions, `AC-*` Given/When/Then acceptance with an
+exact oracle and evidence, and focused regression commands with fingerprint paths. Python emits
+empty `prerequisites` and `inputs`
 compatibility fields; the workflow has no cross-Task scheduling edges. Each Task also contains a
 non-empty static `NODE-*` DAG of `{code, title, outcome, prerequisites}`.
 
 Record only the design dimensions a Worker actually needs. Every requirement and output the Task
-owns must be covered by executable acceptance. An elevated risk tag requires the `complex` tier.
+owns must be covered by executable acceptance. The Designer chooses `standard` or `complex`
+holistically from causal coupling, unknowns, tradeoffs, failure impact and reversibility, and
+verification difficulty. Risk tags and surface size are evidence, never automatic tier triggers.
+It separately marks relative execution workload from breadth, touchpoints, critical-path depth,
+integration work, and verification volume without estimating clock time; workload does not select
+the Worker tier.
 The Designer must merge coupled work until every Task has disjoint write ownership and exclusive
-resources. It then minimizes each Task's Node edges so every ready branch can run concurrently.
-Nodes share the Task's Worker, ownership, acceptance, and Checkpoint; they add no orchestration state.
+resources. It then minimizes each Task's Node edges so every ready branch can run concurrently. Nodes
+share the Task's Worker, ownership, acceptance, and Checkpoint; they add no orchestration state.
 
 ## Command entry points
 
@@ -219,3 +236,5 @@ dispatch — do not exist. Their absence is part of the v3 contract.
 - Main-thread conversion repair: `references/structure-repair.md`
 - Designer pattern decisions, when a structural choice is non-trivial: `references/design-patterns.md`
 - Host roles, installation, and Doctor: `references/host-configuration.md`
+- Token-only main-thread waste, timeout statistics, and parallel efficiency audits:
+  `skills/efficiency-inspector/SKILL.md`

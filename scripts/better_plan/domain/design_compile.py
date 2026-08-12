@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 import hashlib
 import re
 
-from .models import ELEVATED_RISKS, VALID_RISKS, safe_summary_issue, sha256_value
+from .models import VALID_RISKS, safe_summary_issue, sha256_value
 
 
 _HEADING = re.compile(r"^\s*(#{1,4})\s+(.+?)\s*$")
@@ -29,6 +29,7 @@ Outputs:
 Owns:
 Exclusive:
 Difficulty:
+Workload:
 Verification:
 Risks:
 Nodes:
@@ -66,6 +67,7 @@ Owns:
 - relative/path
 Exclusive:
 Difficulty: standard
+Workload: medium
 Verification: code
 Risks:
 Nodes:
@@ -212,6 +214,7 @@ _TASK_ALIASES = {
     "exclusive": "exclusive",
     "difficulty": "difficulty",
     "tier": "difficulty",
+    "workload": "workload",
     "verification": "verification",
     "risks": "risks",
     "nodes": "nodes",
@@ -887,8 +890,16 @@ def _compile_design(
                 difficulty_entries[0][0] if difficulty_entries else section["line"],
                 task_prefix + ".difficulty",
             ))
-        if set(risks) & ELEVATED_RISKS and difficulty != "complex":
-            difficulty = "complex"
+        workload_entries = blocks.get("workload", [])
+        requested_workload = ([value for _, value in workload_entries] or [""])[0].lower()
+        workload = requested_workload if requested_workload in {"light", "medium", "heavy"} else "medium"
+        if requested_workload not in {"light", "medium", "heavy"}:
+            issues.append(_issue(
+                "structure",
+                "Workload must be light, medium, or heavy",
+                workload_entries[0][0] if workload_entries else section["line"],
+                task_prefix + ".workload",
+            ))
         verification_entries = blocks.get("verification", [])
         verification = ([value for _, value in verification_entries] or ["code"])[0].lower()
         if verification not in {"code", "visual", "hybrid"}:
@@ -949,6 +960,7 @@ def _compile_design(
                 "shared_exclusive": _block_values(blocks, "exclusive"),
             },
             "difficulty": difficulty,
+            "workload": workload,
             "verification": verification,
             "requirements": task_requirement_codes,
             "risks": risks,
