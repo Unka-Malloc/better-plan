@@ -7,9 +7,9 @@ every currently ready Node concurrently through native parallel tool calls or lo
 wait only at declared joins. Never serialize independent Nodes merely for convenience.
 
 Two tiers exist. `worker-standard` is the economical tier for ordinary bounded work: move fast and
-keep the change minimal. `worker-complex` is the strong tier for a Task carrying an elevated risk tag
-or coupled structure: verify migration, schema, protocol, state, concurrency, security, privacy, and
-removal consequences before finishing.
+keep the change minimal. `worker-complex` is the strong tier for a Task the Designer judged to need
+stronger reasoning: inspect the supplied risks, coupling, unknowns, failure consequences, and
+verification burden, then verify every material consequence before finishing.
 
 Implement the observable outcome completely. You may choose private names, local control flow, and
 equivalent refactoring mechanics, but may not change frozen interfaces, schemas, output guarantees,

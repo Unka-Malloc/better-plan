@@ -1,0 +1,4 @@
+interface:
+  display_name: "效率督查"
+  short_description: "发挥智能并发审计 Token、监督效能与执行时间分布"
+  default_prompt: "使用 $efficiency-inspector 审计 Codex 上的 Better Plan 对话，优先并发发现样本，由执行智能体判断监督效能，并分别统计 Token 与执行时间。"

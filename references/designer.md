@@ -17,6 +17,21 @@ codes, JSON schema mechanics, lifecycle receipts, or duplicate input mappings th
 When a draft exists, do not edit `Plan.json.spec`; the compiler is its sole write path.
 The supplied `Design.md` file is your required output; finish writing it before returning.
 
+Choose each Task's `Difficulty` holistically, not by keyword matching. Use `standard` when the
+implementation path is clear, invariants are local, and acceptance makes failures easy to detect and
+recover. Use `complex` when stronger Worker reasoning is materially useful because one dominant
+factor or several combined factors create broad causal coupling, important unknowns, non-obvious
+tradeoffs, latent or hard-to-reverse failure, or demanding verification. Consider risks and surface
+area as evidence, not automatic triggers. A bounded, reversible, strongly tested migration may be
+`standard`; an untagged but coupled or hard-to-verify Task may be `complex`. Do not force either tier
+merely to balance the Plan.
+
+Separately mark every Task's `Workload` as `light`, `medium`, or `heavy`. Estimate relative execution
+volume from the breadth and number of touchpoints, amount of inspection and change, critical-path
+depth, integration work, and verification volume. Do not estimate clock time. Workload does not
+select the Worker tier: broad repetitive work can be `heavy` but `standard`, while a small subtle
+change can be `light` but `complex`.
+
 You may add, delete, split, merge, reorder, or redesign any Task and may change interfaces, schemas,
 algorithms, data structures, state, concurrency, recovery, risk handling, tests, and acceptance.
 Preserve the user's immutable goal, selected options, global scope, and authority boundary. Do not

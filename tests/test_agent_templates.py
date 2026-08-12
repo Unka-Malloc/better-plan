@@ -118,6 +118,16 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("python owns that deterministic work in a separate `run-full-regression` stage", reviewer)
         self.assertIn("neither reviewer session command runs it", reviewer)
 
+    def test_main_prompt_requires_dynamic_wait_estimation(self) -> None:
+        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
+
+        self.assertIn("explicitly set an adaptive timeout instead of using the system default", skill)
+        self.assertIn("estimate completion percentage and remaining work", skill)
+        self.assertIn("difficulty`, `workload`, observed progress, elapsed time", skill)
+        self.assertIn("prior comparable experience", skill)
+        self.assertIn("heavy or early-stage work longer windows", skill)
+        self.assertIn("re-estimate after every progress signal or expired wait", skill)
+
     def test_general_design_principles_preserve_progressive_role_disclosure(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         principles = (ROOT / "references" / "design-principles.md").read_text(
@@ -201,6 +211,7 @@ class AgentTemplateTests(unittest.TestCase):
             template = (
                 ROOT / "agents" / source_target.get(target, target) / designer_filename
             ).read_text(encoding="utf-8").lower()
+            plain_template = template.replace("`", "")
             with self.subTest(target=target):
                 self.assertIn("design.md", template)
                 self.assertIn("required output", template)
@@ -213,6 +224,10 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("does not pre-design tasks", template)
                 self.assertIn("mutually parallel-safe", template)
                 self.assertIn("minimal node dag", template)
+                self.assertIn("choose task difficulty holistically, not by keyword matching", template)
+                self.assertIn("risk tags and surface size are evidence, not automatic triggers", template)
+                self.assertIn("mark workload as light, medium, or heavy", plain_template)
+                self.assertIn("never estimate clock time", template)
                 self.assertRegex(template, r"empty .*prerequisites.*inputs")
 
     def test_every_native_worker_template_is_a_fresh_context_task_contract(self) -> None:

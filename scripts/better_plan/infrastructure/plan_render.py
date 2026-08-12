@@ -123,8 +123,8 @@ def _task(task: Mapping[str, Any]) -> list[str]:
     ownership = task.get("ownership", {}) if isinstance(task.get("ownership"), Mapping) else {}
     lines = ["", "### %s %s" % (task.get("code"), task.get("title")), ""]
     lines.append(
-        "Tier: %s · Verification: %s · Frontier: parallel"
-        % (task.get("difficulty"), task.get("verification"))
+        "Tier: %s · Workload: %s · Verification: %s · Frontier: parallel"
+        % (task.get("difficulty"), task.get("workload"), task.get("verification"))
     )
     lines.extend(["", "Outcome: %s" % task.get("outcome"), ""])
     lines.append("Risks: %s" % (", ".join(_lines(task.get("risks"))) or "none"))
