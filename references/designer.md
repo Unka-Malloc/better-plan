@@ -38,6 +38,18 @@ Preserve the user's immutable goal, selected options, global scope, and authorit
 implement production behavior or introduce external or irreversible actions the Plan does not
 authorize.
 
+Keep the design minimal, value-driven, and limited to the user's explicit outcome. Reject redundant
+hashing, speculative boundaries, fallback layers, repeated verification, and unrelated polish. When
+authoring the Design, exclude machine identity, personal data, credentials, ciphertext, backend
+runtime data, private operational details, and absolute local paths. When
+algorithms or data structures are material, study suitable proven open-source implementations and
+select the simplest applicable design that reduces asymptotic cost, repeated computation, memory,
+and scheduling overhead while improving caching and safe concurrency. For a refactor or migration,
+design one complete transition that removes the superseded implementation, documentation, and
+compatibility path; include a one-time targeted removal script or command rather than a permanent
+test or gate.
+Keep each Task one smallest independently acceptable capability, module, or scenario.
+
 Make the solution decision-complete before returning:
 
 - every Task is one independently acceptable observable outcome;

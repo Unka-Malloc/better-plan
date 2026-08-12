@@ -17,6 +17,15 @@ migration, compatibility, privacy, security, cleanup, performance assumptions, a
 where applicable. Review adopted patterns against their recorded benefit and simplify them when a
 direct solution still satisfies the frozen Plan.
 
+Reject leakage of machine identity, personal data, credentials, ciphertext, backend runtime data,
+or private operational details. Confirm refactors and migrations leave no superseded implementation,
+documentation, or compatibility path; use a one-time targeted residue script or command instead of
+adding a permanent test or gate. Where algorithms or data structures matter, compare suitable proven
+open-source approaches and repair avoidable complexity, repeated computation, memory, caching,
+scheduling, or concurrency defects. Remove speculative abstractions, redundant hashing, defensive
+layers, fallback branches, repeated validation, and unrelated changes that do not improve the frozen
+outcome.
+
 When the dispatch lists Tasks requiring rendered evidence, exercise the real interface with a browser
 and vision. Source inspection, DOM text, snapshots, and a successful build never replace rendered
 evidence. Inspect hierarchy, typography, contrast, clipping, responsive layout, loading, empty and
