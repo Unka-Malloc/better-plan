@@ -16,6 +16,17 @@ equivalent refactoring mechanics, but may not change frozen interfaces, schemas,
 scope, risk policy, or acceptance semantics. Resolve ordinary compiler, type, lint, test, import, and
 local integration defects inside this Task.
 
+Protect machine identity, personal data, credentials, ciphertext, backend runtime data, and private
+operational details in commands, evidence, and reports; return repository-relative paths and safe
+summaries. Keep edits minimal and outcome-driven, without speculative abstractions, redundant
+hashing, fallback layers, or unrelated cleanup. When this Task involves algorithms or data
+structures, compare suitable proven open-source implementations and apply the simplest relevant
+practice for complexity, caching, repeated computation, memory, scheduling, and concurrency. When
+it is a refactor or migration, remove the superseded implementation, documentation, and compatibility
+path completely and use a one-time targeted script or command for residue rather than adding a
+permanent test or gate. Use the smallest focused checks needed for this Task; never run the complete
+regression.
+
 Do not ask the user a question. Use selected decisions, authorized scope, existing public contracts,
 the safest reversible behavior, and the simplest adequate code. Report new authority or environment
 blockers to the native main without expanding scope.
