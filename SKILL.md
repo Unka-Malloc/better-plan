@@ -59,6 +59,11 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
 - Dispatch exactly one Reviewer. It directly repairs code, tests, documentation, and generated
   artifacts after Python runs the complete regression, receives its precise diagnostics, obtains
   rendered evidence when required, and never spends model time supervising that regression.
+- Task ownership never limits Reviewer repair authority inside the authorized Plan. The Reviewer
+  leaves confirmed defects outside that Plan untouched and returns the complete structured
+  `out_of_scope_findings` array after every response. The native main records it before regression
+  or close; only after the current Plan closes does Python create separate unapproved draft repair
+  Plans, which the native main must report to the user rather than silently discard or execute.
 - After authorization, never ask the user another question. Apply the frozen decision precedence,
   revise unstarted in-scope work autonomously, continue independent branches, and report hard
   authority or environment blockers only at final handoff.
@@ -190,7 +195,9 @@ When implementation reveals a plan defect, resolve it in this order:
 For an in-scope change, open a continuation, revise only unstarted work, reseal, and continue
 without Designer or user interaction. If it requires new scope, credentials, irreversible action, or
 unavailable infrastructure, mark only that Task `blocked_by_authority` or
-`blocked_by_environment`, continue independent Tasks, and report it once at final handoff.
+`blocked_by_environment`, continue independent Tasks, and report it once at final handoff. This
+blocker rule applies when the authorized outcome depends on that action; an unrelated confirmed
+defect outside the Plan follows the Reviewer finding handoff below.
 
 ### 6. Review once and finish
 
@@ -202,10 +209,14 @@ its compiled audit brief. Forward the immediately preceding diagnostics with tha
 Reviewer audits source and tests, directly repairs every in-scope defect, and never runs or waits
 for the complete regression.
 
-After the Reviewer returns, `next-action` either closes against an unchanged green receipt or names
-`run_full_regression`. A failed independent rerun yields diagnostics for the same Reviewer session;
-never dispatch a second Reviewer. `close-reviewer-session` performs no tests. Once the session
-closes, no production code may change.
+After every Reviewer return, persist its complete findings array, including `[]`, with
+`record-reviewer-findings`; this receipt is required before regression or close. `next-action` then
+either closes against an unchanged green receipt or names `run_full_regression`. A failed
+independent rerun yields diagnostics for the same Reviewer session; never dispatch a second
+Reviewer. The resumed Reviewer returns the complete findings array again and the native main
+re-records it. `close-reviewer-session` performs no tests. Once the session closes, no production
+code may change. The close result lists every generated draft repair Plan; include those unapproved
+pending defects in the final user handoff.
 
 ## Task contract
 
@@ -239,7 +250,8 @@ All commands use `scripts/manifest_tool.py`.
 - Continuation: `begin-continuation`, `close-continuation`.
 - Delivery: `next-action`, `dispatch-task`, `bind-agent`, `agent-complete`, `delegation-failed`,
   `main-complete`, `accept-task`, `block-task`.
-- Closure: `run-full-regression`, `open-reviewer-session`, `close-reviewer-session`.
+- Closure: `run-full-regression`, `open-reviewer-session`, `record-reviewer-findings`,
+  `close-reviewer-session`.
 - Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints|design`.
 
 Removed v1 and v2 top-level commands — Node, Gate, capability, rewire, repair-plan, decision-session,

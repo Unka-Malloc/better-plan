@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 import hashlib
 import json
 import os
@@ -239,14 +239,21 @@ def discover_workspaces(root: Path) -> list[Path]:
     return sorted(candidates)
 
 
-def fingerprint_paths(project_root: Path, paths: list[str]) -> str:
+def fingerprint_paths(
+    project_root: Path,
+    paths: list[str],
+    *,
+    excluded_paths: Iterable[Path] = (),
+) -> str:
     """Hash declared paths as a receipt, never as a gate.
 
     A path a Task has not produced yet is recorded as absent rather than raising,
     so a greenfield Task can be dispatched and accepted normally. Symlinks and
     non-relative paths remain hard errors because they break the safety boundary.
+    Exact excluded paths contribute neither their name nor their content.
     """
 
+    excluded = set(excluded_paths)
     digest = hashlib.sha256()
     for relative in sorted(set(paths)):
         if not is_relative_workspace_path(relative):
@@ -254,13 +261,21 @@ def fingerprint_paths(project_root: Path, paths: list[str]) -> str:
         path = project_root / relative
         if path.is_symlink():
             raise ToolError("fingerprint path is unsafe: %s" % relative)
+        if path in excluded:
+            continue
         digest.update(relative.encode("utf-8"))
         if not path.exists():
             digest.update(b"\x00absent")
         elif path.is_file():
             digest.update(path.read_bytes())
         else:
-            for child in sorted(item for item in path.rglob("*") if item.is_file() and not item.is_symlink()):
+            for child in sorted(
+                item
+                for item in path.rglob("*")
+                if item.is_file()
+                and not item.is_symlink()
+                and item not in excluded
+            ):
                 digest.update(child.relative_to(project_root).as_posix().encode("utf-8"))
                 digest.update(child.read_bytes())
     return digest.hexdigest()

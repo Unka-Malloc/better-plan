@@ -12,6 +12,7 @@ from scripts.better_plan.installation import targets as install_targets
 from scripts.better_plan.installation.assignments import (
     CODEX_DEFAULT_MATRIX,
     CODEX_FINDER_MATRIX,
+    CURSOR_DEFAULT_MATRIX,
     OPENCODE_GO_DEFAULT_MATRIX,
     select_role_assignments,
 )
@@ -117,6 +118,9 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("browser and vision", reviewer)
         self.assertIn("python owns that deterministic work in a separate `run-full-regression` stage", reviewer)
         self.assertIn("neither reviewer session command runs it", reviewer)
+        self.assertIn("task ownership is not the plan scope boundary", reviewer)
+        self.assertIn("out_of_scope_findings", reviewer)
+        self.assertIn("separate unapproved draft repair plans", reviewer)
 
     def test_main_prompt_requires_dynamic_wait_estimation(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
@@ -303,6 +307,9 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("separate full-regression stage has already completed", template)
                 self.assertIn("reviewer session commands never run it", template)
                 self.assertIn("do not run or wait for the complete regression", template)
+                self.assertIn("task ownership is not a scope boundary", template)
+                self.assertIn("out_of_scope_findings", template)
+                self.assertIn("unapproved draft repair plans", template)
                 self.assertIn("backend runtime", template)
                 self.assertIn("suitable proven open-source approaches", template)
                 self.assertIn("one-time residue script or command", template)
@@ -520,17 +527,61 @@ class AgentTemplateTests(unittest.TestCase):
             after = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
             self.assertEqual(before, after)
 
-    def test_cursor_defaults_recommend_measured_grok_workers(self) -> None:
+    def test_cursor_defaults_pin_grok_4_6_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            assignments = select_role_assignments(paths(Path(tmpdir)), "cursor")
-            self.assertEqual(set(assignments), {"worker-standard", "worker-complex"})
-            for role in assignments:
+            install_paths = paths(Path(tmpdir))
+            assignments = select_role_assignments(install_paths, "cursor")
+            self.assertEqual(set(assignments), DELIVERY_ROLE_NAMES)
+            expected = {
+                "designer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6", "designer"),
+                "worker-standard": (
+                    "cursor-grok-4.6-high-fast",
+                    "high",
+                    "grok-build-grok-4-5-high",
+                    "worker",
+                ),
+                "worker-complex": (
+                    "cursor-grok-4.6-xhigh-fast",
+                    "xhigh",
+                    "grok-build-grok-4-5-high",
+                    "worker",
+                ),
+                "reviewer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6", "reviewer"),
+            }
+            for role, values in expected.items():
                 assignment = assignments[role]
                 self.assertEqual(
-                    (assignment.model, assignment.reasoning_effort, assignment.benchmark_id),
-                    ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+                    (
+                        assignment.model,
+                        assignment.reasoning_effort,
+                        assignment.benchmark_id,
+                        assignment.role,
+                    ),
+                    values,
                 )
                 self.assertEqual(assignment.source, "cursor-default-matrix")
+            self.assertEqual(
+                {
+                    agent_name: (values[1], values[2], values[3])
+                    for agent_name, values in CURSOR_DEFAULT_MATRIX.items()
+                },
+                {
+                    agent_name: (assignment.model, assignment.reasoning_effort, assignment.benchmark_id)
+                    for agent_name, assignment in assignments.items()
+                },
+            )
+            install_role_templates(install_paths, "cursor", dry_run=False)
+            directory = install_paths.cursor_home / "agents"
+            self.assertEqual(
+                {path.name for path in directory.iterdir()},
+                {"designer.md", "reviewer.md", "worker-complex.md", "worker-standard.md"},
+            )
+            standard = (directory / "worker-standard.md").read_text(encoding="utf-8")
+            complex_worker = (directory / "worker-complex.md").read_text(encoding="utf-8")
+            self.assertIn("model: cursor-grok-4.6-high-fast", standard)
+            self.assertIn("reasoning_effort: high", standard)
+            self.assertIn("model: cursor-grok-4.6-xhigh-fast", complex_worker)
+            self.assertIn("reasoning_effort: xhigh", complex_worker)
 
     def test_unmeasured_host_difficulty_is_omitted_instead_of_guessed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

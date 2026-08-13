@@ -305,6 +305,7 @@ class V3ProtocolTests(unittest.TestCase):
                 "main-complete",
                 "run-full-regression",
                 "open-reviewer-session",
+                "record-reviewer-findings",
             }.issubset(commands)
         )
         self.assertTrue(

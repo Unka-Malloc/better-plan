@@ -207,8 +207,9 @@ class HookToolTests(unittest.TestCase):
         self.assertIn("target TASK-001", value)
         self.assertIn("focused acceptance", value)
         self.assertIn("dispatch-task once more", value)
-        reviewer = hook_context.agent_completion_context("PLAN-001", "active", "close_reviewer_session")
+        reviewer = hook_context.agent_completion_context("PLAN-001", "active", "record_reviewer_findings")
         self.assertIn("sole write-capable Reviewer", reviewer)
+        self.assertIn("out_of_scope_findings", reviewer)
         self.assertIn("never dispatch a second Reviewer", reviewer)
 
 
