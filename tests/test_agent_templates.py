@@ -117,6 +117,9 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("browser and vision", reviewer)
         self.assertIn("python owns that deterministic work in a separate `run-full-regression` stage", reviewer)
         self.assertIn("neither reviewer session command runs it", reviewer)
+        self.assertIn("task ownership is not the plan scope boundary", reviewer)
+        self.assertIn("out_of_scope_findings", reviewer)
+        self.assertIn("separate unapproved draft repair plans", reviewer)
 
     def test_main_prompt_requires_dynamic_wait_estimation(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
@@ -303,6 +306,9 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("separate full-regression stage has already completed", template)
                 self.assertIn("reviewer session commands never run it", template)
                 self.assertIn("do not run or wait for the complete regression", template)
+                self.assertIn("task ownership is not a scope boundary", template)
+                self.assertIn("out_of_scope_findings", template)
+                self.assertIn("unapproved draft repair plans", template)
                 self.assertIn("backend runtime", template)
                 self.assertIn("suitable proven open-source approaches", template)
                 self.assertIn("one-time residue script or command", template)

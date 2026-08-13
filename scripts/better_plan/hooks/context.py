@@ -35,12 +35,13 @@ def agent_completion_context(target: str, phase: str, action: str) -> str:
             "awaiting independent Task. If it fails, repair it in the native main and rerun "
             "accept-task, or dispatch-task once more for a correction Worker."
         )
-    elif action == "close_reviewer_session":
+    elif action == "record_reviewer_findings":
         duty = (
             "The sole write-capable Reviewer returned after auditing the pre-dispatch regression. "
-            "Read next-action: close against unchanged green evidence, or run the separate full-"
-            "regression stage outside Reviewer model time and resume this same Reviewer only if new "
-            "diagnostics are returned; never dispatch a second Reviewer."
+            "Persist its complete privacy-safe out_of_scope_findings array, including an empty "
+            "array, before reading next-action. Then close against unchanged green evidence, or run "
+            "the separate full-regression stage outside Reviewer model time and resume this same "
+            "Reviewer only if new diagnostics are returned; never dispatch a second Reviewer."
         )
     else:
         duty = "Read next-action and handle the current state in the native main."

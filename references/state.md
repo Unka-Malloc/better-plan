@@ -85,6 +85,20 @@ the immediately preceding diagnostics with the dispatch brief. A green receipt i
 covered paths stay unchanged; a failed baseline or Reviewer repair makes `next-action` select the
 independent regression stage again before the session can close.
 
+Every final Reviewer return resets `reviewer_session.findings_recorded` to `false`.
+`record-reviewer-findings` replaces the session's complete `out_of_scope_findings` array, adds a
+null `followup_plan` receipt to each item, and marks that return recorded. An empty array is an
+explicit receipt, not an omitted step. Neither post-review regression nor close may proceed until
+the current return is recorded; a resumed Reviewer must return the complete array again.
+
+Each finding contains exactly `title`, `summary`, `impact`, `evidence`, non-empty relative `paths`,
+`scope_reason`, non-empty `success`, non-empty `risk_boundary`, and the tool-owned
+`followup_plan`. Strings remain subject to the global privacy boundary. On close, after any required
+green covered-path fingerprint has been checked, Python creates one separate unapproved `draft`
+Plan per cohesive finding, records its `PLAN-*` code in `followup_plan`, and returns the pending
+Plans for final user handoff. Creating the shell grants no authorization and starts no execution.
+The close result sets `user_handoff_required` whenever any pending repair Plan exists.
+
 The optional `designer_session.compile` receipt contains the pristine and compiled spec digests,
 applied time, sections retained from the prior Plan, safe structure/content issues, and unmapped
 line ranges and digests. It is lifecycle evidence and never enters the semantic digest. Any open
@@ -181,7 +195,9 @@ forbidden in every semantic, diagnostic, and report field.
 
 Declared-path fingerprints are receipts, never gates. A path a Task has not produced yet is recorded
 as absent, so a greenfield Task dispatches and completes normally; only symlinks and non-relative
-paths are hard errors.
+paths are hard errors. Full-regression freshness excludes the current Plan's mutable `Plan.json`
+and `Checkpoints.json`; their lifecycle and receipt writes are validated as workflow state and must
+not invalidate the covered delivery inputs they describe.
 
 ## Authorization and uninterrupted continuation
 
@@ -223,6 +239,7 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `block-task` | record an authority or environment blocker for exactly one independent Task |
 | `run-full-regression` | independently run the complete regression outside the lock, persist only its receipt, and return ephemeral safe diagnostics plus the next action |
 | `open-reviewer-session` | validate current regression evidence and dispatch the sole Reviewer without executing tests |
+| `record-reviewer-findings` | persist the complete structured out-of-scope finding array for the latest Reviewer return, including an explicit empty array |
 | `close-reviewer-session` | close only against current green regression evidence; execute no tests |
 | `validate`, `status`, `tree`, `schema` | inspect v3 workspace truth and the Design.md skeleton |
 
