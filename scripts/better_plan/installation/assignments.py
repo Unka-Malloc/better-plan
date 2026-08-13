@@ -47,10 +47,12 @@ CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
         "fallback_finder": ("gpt-5.4-mini", "xhigh"),
     }
 )
-CURSOR_DEFAULT_WORKER_MATRIX: Final[Mapping[str, tuple[str, str, str]]] = MappingProxyType(
+CURSOR_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "worker-standard": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
-        "worker-complex": ("cursor-grok-4.5-high-fast", "high", "grok-build-grok-4-5-high"),
+        "designer": ("designer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6"),
+        "worker-standard": ("worker", "cursor-grok-4.6-high-fast", "high", "grok-build-grok-4-5-high"),
+        "worker-complex": ("worker", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-build-grok-4-5-high"),
+        "reviewer": ("reviewer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6"),
     }
 )
 OPENCODE_GO_DEFAULT_MATRIX: Final[
@@ -164,30 +166,42 @@ def _codex_finder_assignments() -> dict[str, RoleAssignment]:
     }
 
 
-def _cursor_default_worker_assignments(
+def _cursor_default_delivery_assignments(
     agent_catalog: CodingAgentCatalog,
+    model_catalog: ModelCatalog,
 ) -> dict[str, RoleAssignment]:
-    """Resolve the curated Cursor Worker defaults against measured benchmark rows.
+    """Resolve curated Cursor defaults against packaged benchmark rows.
 
-    The Grok rows reference the grok-build measurement, the nearest measured
-    row for the same model and reasoning setting; no cursor-cli measurement
-    exists for that combination yet.
+    Worker selectors use Grok 4.6. The Coding Agent rows still reference the
+    grok-build Grok 4.5 (high) measurement, the nearest published grok-build
+    row; no cursor-cli or Grok 4.6 grok-build measurement exists yet.
+    Designer and Reviewer use the Grok 4.6 Intelligence Index row.
     """
 
     variants = {variant.variant_id: variant for variant in agent_catalog.variants}
+    models = {model.model_id: model for model in model_catalog.models}
     assignments: dict[str, RoleAssignment] = {}
-    for agent_name, (model, effort, benchmark_id) in CURSOR_DEFAULT_WORKER_MATRIX.items():
-        benchmark = variants.get(benchmark_id)
-        if benchmark is None:
-            raise ToolError("the Cursor default Worker benchmark is unavailable")
+    for agent_name, (role, configured_model, effort, benchmark_id) in CURSOR_DEFAULT_MATRIX.items():
+        if role == "worker":
+            benchmark = variants.get(benchmark_id)
+            if benchmark is None:
+                raise ToolError("the Cursor default Worker benchmark is unavailable")
+            index_score = benchmark.index_score
+            cost_per_task_usd = benchmark.cost_per_task_usd
+        else:
+            benchmark = models.get(benchmark_id)
+            if benchmark is None or benchmark.intelligence_index is None:
+                raise ToolError("the Cursor default intelligence benchmark is unavailable")
+            index_score = int(benchmark.intelligence_index)
+            cost_per_task_usd = None
         assignments[agent_name] = RoleAssignment(
-            role="worker",
+            role=role,
             agent_name=agent_name,
-            model=model,
+            model=configured_model,
             reasoning_effort=effort,
             benchmark_id=benchmark_id,
-            index_score=benchmark.index_score,
-            cost_per_task_usd=benchmark.cost_per_task_usd,
+            index_score=index_score,
+            cost_per_task_usd=cost_per_task_usd,
             source="cursor-default-matrix",
         )
     return assignments
@@ -412,7 +426,7 @@ def select_role_assignments(
         assignments.update(_codex_finder_assignments())
         return assignments
     if target == "cursor" and not local_models:
-        return _cursor_default_worker_assignments(agent_catalog)
+        return _cursor_default_delivery_assignments(agent_catalog, model_catalog)
     eligible_variants = _matching_variants(harness_variants, local_models)
     source = "local-config" if local_models and eligible_variants else "catalog-fallback"
     if local_models and not eligible_variants:

@@ -52,12 +52,13 @@ def reduce_agent_completion(
             plan = read_json(paths["plan"])
             for name, action in (
                 ("designer_session", "close_designer_session"),
-                ("reviewer_session", "close_reviewer_session"),
+                ("reviewer_session", "record_reviewer_findings"),
             ):
                 session = plan.get("lifecycle", {}).get(name)
                 if (
                     isinstance(session, Mapping)
                     and session.get("status") == "active"
+                    and session.get("agent_returned") is not True
                     and session.get("host_agent_id") == agent_id
                     and (dispatch_id is None or session.get("id") == dispatch_id)
                     and (target_id is None or plan.get("code") == target_id)
@@ -86,6 +87,9 @@ def reduce_agent_completion(
             session = document["lifecycle"][name]
             session["agent_returned"] = True
             session["agent_returned_at"] = _now()
+            if name == "reviewer_session":
+                session["findings_recorded"] = False
+                session.pop("findings_recorded_at", None)
             write_json(path, document)
             return CompletionDirective(target, "agent_returned", action)
         dispatch = state["dispatch"]

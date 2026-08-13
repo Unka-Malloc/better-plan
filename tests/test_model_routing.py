@@ -29,11 +29,13 @@ class RoleRoutingTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 3)
         self.assertEqual(payload["selection_policy"], "intelligence_rank_for_non_worker_roles")
         self.assertNotIn("difficulty_floors", payload)
-        self.assertEqual(payload["model_count"], 260)
-        self.assertEqual(catalog.model_count, 260)
+        self.assertEqual(payload["model_count"], 252)
+        self.assertEqual(catalog.model_count, 252)
         by_id = {model.model_id: model for model in catalog.models}
+        self.assertEqual(by_id["claude-opus-5"].intelligence_index, 63)
+        self.assertEqual(by_id["grok-4-6"].intelligence_index, 61)
         self.assertEqual(by_id["gemini-3-5-flash"].intelligence_index, 50)
-        self.assertEqual(by_id["gemini-3-6-flash"].intelligence_index, 50)
+        self.assertEqual(by_id["gemini-3-6-flash"].intelligence_index, 52)
 
     def test_coding_agent_table_is_the_worker_reference_with_task_floors(self) -> None:
         payload = json.loads(AGENT_PATH.read_text(encoding="utf-8"))
@@ -77,8 +79,8 @@ class RoleRoutingTests(unittest.TestCase):
     def test_non_worker_roles_rank_intelligence_without_cost(self) -> None:
         designer = select_intelligence_model("designer")
         reviewer = select_intelligence_model("reviewer")
-        self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5", 61))
-        self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5", 61))
+        self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5", 63))
+        self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5", 63))
 
     def test_only_designer_and_reviewer_are_intelligence_roles(self) -> None:
         for role in ("verifier", "visual-reviewer", "worker"):

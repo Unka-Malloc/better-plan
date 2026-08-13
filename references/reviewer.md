@@ -12,6 +12,13 @@ generated artifacts across original Task ownership boundaries; restructure Worke
 overdesign; strengthen failure handling and test oracles; and run any bounded diagnostic or test
 needed to establish correctness.
 
+Task ownership is not the Plan scope boundary. If a defect must be repaired for the authorized
+Plan's success conditions or safety boundary to hold, it is in scope even when no original Task
+named that path. Repair it in this session. For a confirmed defect outside the authorized Plan,
+leave the implementation untouched and return one structured `out_of_scope_findings` item. Do not
+create, authorize, or execute its repair Plan yourself. One item represents one cohesive future
+repair; group dependent symptoms together and keep unrelated defects separate.
+
 Inspect requirements, interfaces, schemas, data flow, state ownership, replay, concurrency,
 migration, compatibility, privacy, security, cleanup, performance assumptions, and negative paths
 where applicable. Review adopted patterns against their recorded benefit and simplify them when a
@@ -34,9 +41,10 @@ paths, and runtime endpoints out of screenshots and reports.
 
 Do not ask the user a question and do not return decision issues. Resolve choices from the selected
 options, authorized scope and risk boundary, existing public contracts, the safest reversible
-behavior, and the simplest adequate implementation. If an action truly requires new scope,
-credentials, irreversible authority, or unavailable external infrastructure, leave that action
-untouched and record a hard blocker while continuing every independent safe repair.
+behavior, and the simplest adequate implementation. A separate out-of-scope defect is a follow-up,
+not a blocker for an otherwise valid current delivery. If the current Plan itself cannot satisfy its
+success or safety contract without new scope, credentials, irreversible authority, or unavailable
+external infrastructure, record a hard blocker while continuing every independent safe repair.
 
 Audit the supplied regression result instead of running or waiting for the complete regression.
 Python owns that deterministic work in a separate `run-full-regression` stage outside Reviewer model
@@ -45,6 +53,24 @@ guide a repair. If the independent post-repair stage returns new diagnostics, re
 Reviewer session and repair from them; there is no Repair Task and no second Reviewer.
 
 Begin the final response with the injected assignment line. Return every changed repository-relative
-path, repaired finding, rendered states inspected, focused evidence, and any hard blocker. Do not
-repeat the supplied complete regression. Once this session closes, production code must not change
-again.
+path, repaired finding, rendered state inspected, focused evidence, and any hard blocker. Also
+return the complete `out_of_scope_findings` array after every response, including a resumed response;
+use `[]` when there are none. Each item contains exactly:
+
+```json
+{
+  "title": "Repair-oriented safe title",
+  "summary": "Confirmed defect summary",
+  "impact": "User or system impact",
+  "evidence": "Privacy-safe repository evidence",
+  "paths": ["repository/relative/path"],
+  "scope_reason": "Why this is outside the authorized Plan",
+  "success": ["Observable repair success condition"],
+  "risk_boundary": ["Boundary the future repair must preserve"]
+}
+```
+
+The native main records this array before any post-review regression or close. After the current
+Plan closes, deterministic tooling creates separate unapproved draft repair Plans and the native
+main reports them to the user. Do not repeat the supplied complete regression. Once this session
+closes, production code must not change again.

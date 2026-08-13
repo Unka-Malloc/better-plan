@@ -43,6 +43,7 @@ from ..domain.models import (
 from ..domain.validation import (
     authority_expansion_issues,
     plan_readiness_issues,
+    reviewer_findings_issues,
     validate_checkpoints_document,
     validate_plan_document,
 )
@@ -886,6 +887,27 @@ def _state_by_code(checkpoints: Mapping[str, Any], code: str) -> dict[str, Any]:
     return matches[0]
 
 
+def _full_regression_fingerprint(
+    project: Path,
+    plan: Mapping[str, Any],
+    paths: Mapping[str, Path],
+) -> str:
+    """Fingerprint delivery inputs without hashing Better Plan's mutable receipts."""
+
+    return fingerprint_paths(
+        project,
+        plan["spec"]["full_regression"]["paths"],
+        excluded_paths=(paths["plan"], paths["checkpoints"]),
+    )
+
+
+def _reviewer_findings_recorded(session: Mapping[str, Any]) -> bool:
+    return (
+        session.get("findings_recorded") is True
+        and isinstance(session.get("out_of_scope_findings"), list)
+    )
+
+
 PRE_DELIVERY_ACTIONS = {
     "draft": "open_designer_session",
     "designing": "close_designer_session",
@@ -951,7 +973,7 @@ def next_action(args: Any) -> int:
     regression = checkpoints.get("full_regression")
     regression_current = isinstance(regression, Mapping) and regression.get(
         "content_fingerprint"
-    ) == fingerprint_paths(project, plan["spec"]["full_regression"]["paths"])
+    ) == _full_regression_fingerprint(project, plan, paths)
     if eligible:
         action = "dispatch_tasks"
     elif corrections:
@@ -967,6 +989,8 @@ def next_action(args: Any) -> int:
     else:
         if reviewer_active and reviewer.get("agent_returned") is not True:
             action = "await_reviewer"
+        elif reviewer_active and not _reviewer_findings_recorded(reviewer):
+            action = "record_reviewer_findings"
         elif regression_current and regression.get("passed") is True:
             action = "close_reviewer_session"
         else:
@@ -1195,9 +1219,15 @@ def agent_complete(args: Any) -> int:
             if (
                 isinstance(session, dict)
                 and session.get("status") == "active"
+                and session.get("agent_returned") is not True
                 and session.get("host_agent_id") == agent_id
             ):
-                matches.append(("close_%s" % name, session, "plan"))
+                action = (
+                    "record_reviewer_findings"
+                    if name == "reviewer_session"
+                    else "close_designer_session"
+                )
+                matches.append((action, session, "plan"))
         for state in checkpoints.get("tasks", []):
             dispatch = state.get("dispatch")
             if (
@@ -1213,6 +1243,9 @@ def agent_complete(args: Any) -> int:
         if owner == "plan":
             target["agent_returned"] = True
             target["agent_returned_at"] = _now()
+            if target.get("role") == "reviewer":
+                target["findings_recorded"] = False
+                target.pop("findings_recorded_at", None)
             write_json(paths["plan"], plan)
             print(json.dumps({"consumed": True, "action": action}))
             return 0
@@ -1238,6 +1271,7 @@ def main_complete(args: Any) -> int:
                     and item.get("id") == args.dispatch_id
                     and item.get("status") == "active"
                     and item.get("main_thread_fallback") is True
+                    and item.get("agent_returned") is not True
                 ),
                 None,
             )
@@ -1245,9 +1279,12 @@ def main_complete(args: Any) -> int:
                 raise ToolError("main completion requires an active exhausted Plan-role delegation")
             target["agent_returned"] = True
             target["agent_returned_at"] = _now()
+            if target.get("role") == "reviewer":
+                target["findings_recorded"] = False
+                target.pop("findings_recorded_at", None)
             write_json(paths["plan"], plan)
             action = (
-                "close_reviewer_session"
+                "record_reviewer_findings"
                 if target.get("role") in {"reviewer"}
                 else "close_designer_session"
             )
@@ -1266,6 +1303,60 @@ def main_complete(args: Any) -> int:
             write_json(paths["checkpoints"], checkpoints)
             action = "accept_task"
     print(json.dumps({"completed_by_main": True, "action": action, "target": args.target}))
+    return 0
+
+
+def record_reviewer_findings(args: Any) -> int:
+    """Persist the sole Reviewer's complete privacy-safe out-of-scope handoff."""
+
+    findings = _read_input(args.input)
+    finding_issues = reviewer_findings_issues(
+        Path("ReviewerFindings.json"),
+        findings,
+        persisted=False,
+    )
+    if finding_issues:
+        raise ToolError(
+            "invalid Reviewer findings: %s"
+            % "; ".join(issue.message for issue in finding_issues)
+        )
+    persisted = [
+        {**deepcopy(dict(finding)), "followup_plan": None}
+        for finding in findings
+    ]
+    root = workspace_root(Path(args.root))
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        session = plan.get("lifecycle", {}).get("reviewer_session")
+        if (
+            not isinstance(session, dict)
+            or session.get("status") != "active"
+            or session.get("id") != args.dispatch_id
+        ):
+            raise ToolError("Reviewer session correlation mismatch")
+        if session.get("agent_returned") is not True:
+            raise ToolError("Reviewer findings require a final role return")
+        if session.get("findings_recorded") is True:
+            raise ToolError("Reviewer findings are already recorded for this return")
+        session["out_of_scope_findings"] = persisted
+        session["findings_recorded"] = True
+        session["findings_recorded_at"] = _now()
+        issues = validate_plan_document(paths["plan"], plan)
+        if issues:
+            raise ToolError(
+                "refusing invalid Reviewer findings: %s"
+                % "; ".join(issue.message for issue in issues)
+            )
+        write_json(paths["plan"], plan)
+    print(
+        json.dumps(
+            {
+                "recorded": len(persisted),
+                "dispatch_id": args.dispatch_id,
+                "action": "next_action",
+            }
+        )
+    )
     return 0
 
 
@@ -1342,7 +1433,9 @@ def block_task(args: Any) -> int:
 
 
 def _execute_full_regression(
-    project: Path, plan: Mapping[str, Any]
+    project: Path,
+    plan: Mapping[str, Any],
+    paths: Mapping[str, Path],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     regression = plan["spec"]["full_regression"]
     passed, receipts, diagnostics = _run_commands_with_diagnostics(
@@ -1352,7 +1445,7 @@ def _execute_full_regression(
         {
             "passed": passed,
             "commands": receipts,
-            "content_fingerprint": fingerprint_paths(project, regression["paths"]),
+            "content_fingerprint": _full_regression_fingerprint(project, plan, paths),
             "recorded_at": _now(),
         },
         diagnostics,
@@ -1379,9 +1472,32 @@ def _reviewer_brief(
             ),
         },
         "rendered_evidence_tasks": list(rendered),
+        "out_of_scope_finding_contract": {
+            "rule": (
+                "Return one item per cohesive confirmed defect outside the authorized Plan; "
+                "return an empty array when there are none."
+            ),
+            "fields": [
+                "title",
+                "summary",
+                "impact",
+                "evidence",
+                "paths",
+                "scope_reason",
+                "success",
+                "risk_boundary",
+            ],
+            "handoff": (
+                "The native main records the complete array after every Reviewer return. "
+                "Only close-reviewer-session creates separate draft repair Plans."
+            ),
+        },
         "execution_policy": [
             "Audit the current source, tests, Task evidence, and supplied full-regression diagnostics.",
-            "Directly repair every in-scope defect; do not merely recommend a patch.",
+            "Directly repair every defect inside the authorized Plan, across all Task ownership boundaries.",
+            "Do not repair a confirmed defect outside the authorized Plan or create its repair Plan yourself.",
+            "A defect required for this Plan's success or safety is in scope, not a follow-up.",
+            "Return the complete structured out_of_scope_findings array after every response, including resumes.",
             "Do not run or wait for the full regression; Python runs it outside Reviewer model time.",
             "Use bounded focused checks only when they materially guide a repair.",
             "Do not ask the user or create another Reviewer or Repair Task.",
@@ -1403,10 +1519,12 @@ def run_full_regression(args: Any) -> int:
             reviewer.get("status") != "active" or reviewer.get("agent_returned") is not True
         ):
             raise ToolError("full regression cannot run while the Reviewer is working")
+        if isinstance(reviewer, Mapping) and not _reviewer_findings_recorded(reviewer):
+            raise ToolError("record Reviewer out-of-scope findings before full regression")
         plan_digest = semantic_digest(plan)
         checkpoints_digest = sha256_value(checkpoints)
 
-    regression, diagnostics = _execute_full_regression(project, plan)
+    regression, diagnostics = _execute_full_regression(project, plan, paths)
 
     with workspace_lock(root):
         plan, paths, checkpoints = _execution_context(root, args.plan)
@@ -1467,8 +1585,8 @@ def open_reviewer_session(args: Any) -> int:
         regression = checkpoints.get("full_regression")
         if not isinstance(regression, Mapping):
             raise ToolError("run the independent full regression before opening the Reviewer")
-        if regression.get("content_fingerprint") != fingerprint_paths(
-            project, plan["spec"]["full_regression"]["paths"]
+        if regression.get("content_fingerprint") != _full_regression_fingerprint(
+            project, plan, paths
         ):
             raise ToolError("full regression evidence is stale; run it again before opening the Reviewer")
         rendered = [
@@ -1488,6 +1606,8 @@ def open_reviewer_session(args: Any) -> int:
             "attempts": 1,
             "selector": selector,
             "main_thread_fallback": selector.get("main_thread_fallback", False),
+            "out_of_scope_findings": [],
+            "findings_recorded": False,
         }
         write_json(paths["plan"], plan)
     payload = {
@@ -1501,16 +1621,116 @@ def open_reviewer_session(args: Any) -> int:
     return 0
 
 
+def _materialize_reviewer_followups(
+    root: Path,
+    manifest: dict[str, Any],
+    source_plan: Mapping[str, Any],
+    session: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Create one unapproved draft Plan per cohesive out-of-scope finding."""
+
+    findings = session.get("out_of_scope_findings", [])
+    if not isinstance(findings, list):
+        raise ToolError("Reviewer findings must be recorded before close")
+    entries = manifest.get("plans", [])
+    used_codes = {
+        str(entry.get("code")) for entry in entries if isinstance(entry, Mapping)
+    }
+    used_directories = {
+        str(entry.get("directory")) for entry in entries if isinstance(entry, Mapping)
+    }
+    next_code_number = len(used_codes) + 1
+    next_directory_number = 1
+    source_reference = "%s/%s" % (source_plan["directory"], PLAN_NAME)
+    pending_writes: list[tuple[dict[str, Any], dict[str, Path]]] = []
+    handoff: list[dict[str, Any]] = []
+
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise ToolError("Reviewer findings must be valid objects")
+        while True:
+            code = "PLAN-%03d" % next_code_number
+            next_code_number += 1
+            if code not in used_codes:
+                used_codes.add(code)
+                break
+        while True:
+            directory = "%s-review-followup-%02d" % (
+                source_plan["directory"],
+                next_directory_number,
+            )
+            next_directory_number += 1
+            if directory not in used_directories and not (root / directory).exists():
+                used_directories.add(directory)
+                break
+
+        draft = plan_template()
+        draft["code"] = code
+        draft["title"] = finding["title"]
+        draft["directory"] = directory
+        draft["intent"]["goal"] = finding["summary"]
+        draft["intent"]["scope"] = {
+            "in": [finding["summary"], *finding["paths"]],
+            "out": ["Changes unrelated to %s's confirmed repair outcome." % code],
+        }
+        draft["intent"]["success"] = deepcopy(finding["success"])
+        draft["intent"]["risk_boundary"] = deepcopy(finding["risk_boundary"])
+        primary_path = finding["paths"][0]
+        draft["ledger"]["observed"] = [
+            {"fact": finding["summary"], "source": primary_path},
+            {"fact": finding["impact"], "source": primary_path},
+            {"fact": finding["evidence"], "source": primary_path},
+            {"fact": finding["scope_reason"], "source": source_reference},
+        ]
+        draft_paths = {
+            "directory": root / directory,
+            "plan": root / directory / PLAN_NAME,
+            "checkpoints": root / directory / CHECKPOINTS_NAME,
+        }
+        issues = validate_plan_document(draft_paths["plan"], draft)
+        if issues:
+            raise ToolError(
+                "cannot materialize Reviewer follow-up: %s"
+                % "; ".join(issue.message for issue in issues)
+            )
+        entry = {
+            "code": code,
+            "title": draft["title"],
+            "directory": directory,
+            "plan": "%s/%s" % (directory, PLAN_NAME),
+        }
+        entries.append(entry)
+        finding["followup_plan"] = code
+        pending_writes.append((draft, draft_paths))
+        handoff.append(
+            {
+                "code": code,
+                "title": draft["title"],
+                "directory": directory,
+                "phase": "draft",
+                "authorization_required": True,
+                "impact": finding["impact"],
+            }
+        )
+
+    for draft, draft_paths in pending_writes:
+        _save_plan(draft_paths, draft)
+    return handoff
+
+
 def close_reviewer_session(args: Any) -> int:
     root = workspace_root(Path(args.root))
     project = _project_root(root)
     with workspace_lock(root):
+        manifest = load_manifest(root)
         plan, paths, checkpoints = _execution_context(root, args.plan)
         session = plan.get("lifecycle", {}).get("reviewer_session")
         if not isinstance(session, dict) or session.get("status") != "active" or session.get("id") != args.dispatch_id:
             raise ToolError("Reviewer session correlation mismatch")
         if session.get("agent_returned") is not True:
             raise ToolError("Reviewer session has not reached a final role boundary")
+        if not _reviewer_findings_recorded(session):
+            raise ToolError("record Reviewer out-of-scope findings before close")
         if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
             raise ToolError("closing review requires every Task terminal")
         blocked = [
@@ -1528,27 +1748,53 @@ def close_reviewer_session(args: Any) -> int:
                 "targets": [item.get("code") for item in blocked],
             }
             plan["phase"] = "blocked"
+            followup_plans = _materialize_reviewer_followups(
+                root, manifest, plan, session
+            )
             _save_plan(paths, plan)
             checkpoints["delivery_status"] = "blocked"
             write_json(paths["checkpoints"], checkpoints)
-            print(json.dumps({"blocked": True, "reviewer_session_count": 1}))
+            if followup_plans:
+                write_json(root / MANIFEST_NAME, manifest)
+            print(
+                json.dumps(
+                    {
+                        "blocked": True,
+                        "reviewer_session_count": 1,
+                        "followup_plans": followup_plans,
+                        "pending_repair_plans": len(followup_plans),
+                        "user_handoff_required": bool(followup_plans),
+                    }
+                )
+            )
             return 0
         if blocked:
             raise ToolError("blocked Tasks require --blocked-reason and cannot be reported as completed")
         regression = checkpoints.get("full_regression")
         if not isinstance(regression, Mapping):
             raise ToolError("run the independent full regression before closing the Reviewer")
-        current_fingerprint = fingerprint_paths(
-            project, plan["spec"]["full_regression"]["paths"]
-        )
+        current_fingerprint = _full_regression_fingerprint(project, plan, paths)
         if regression.get("passed") is not True or current_fingerprint != regression.get("content_fingerprint"):
             raise ToolError("Reviewer repairs require the independent full regression before close")
         session.pop("repair_required", None)
         session["status"] = "completed"
         session["closed_at"] = _now()
         plan["phase"] = "completed"
+        followup_plans = _materialize_reviewer_followups(root, manifest, plan, session)
         _save_plan(paths, plan)
         checkpoints["delivery_status"] = "completed"
         write_json(paths["checkpoints"], checkpoints)
-    print(json.dumps({"completed": True, "reviewer_session_count": 1}))
+        if followup_plans:
+            write_json(root / MANIFEST_NAME, manifest)
+    print(
+        json.dumps(
+            {
+                "completed": True,
+                "reviewer_session_count": 1,
+                "followup_plans": followup_plans,
+                "pending_repair_plans": len(followup_plans),
+                "user_handoff_required": bool(followup_plans),
+            }
+        )
+    )
     return 0
