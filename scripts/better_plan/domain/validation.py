@@ -65,6 +65,16 @@ LIFECYCLE_REQUIRED_FIELDS = {
     "continuation_receipts",
 }
 LIFECYCLE_OPTIONAL_FIELDS = {"continuation_session", "verification"}
+REVIEWER_FINDING_FIELDS = {
+    "title",
+    "summary",
+    "impact",
+    "evidence",
+    "paths",
+    "scope_reason",
+    "success",
+    "risk_boundary",
+}
 
 
 def _issue(path: Path, prefix: str, message: str) -> Issue:
@@ -118,6 +128,74 @@ def _privacy_issues(path: Path, value: Any, prefix: str = "plan") -> list[Issue]
             issues.append(_issue(path, prefix, "must not expose a runtime endpoint"))
         if SENSITIVE_TOKEN_PATTERN.search(value):
             issues.append(_issue(path, prefix, "must not contain secret-shaped data"))
+    return issues
+
+
+def reviewer_findings_issues(
+    path: Path,
+    findings: Any,
+    *,
+    persisted: bool,
+) -> list[Issue]:
+    """Validate the bounded handoff for confirmed defects outside one Plan."""
+
+    prefix = "reviewer_findings"
+    if not isinstance(findings, list):
+        return [_issue(path, prefix, "must be an array")]
+    issues: list[Issue] = []
+    required = REVIEWER_FINDING_FIELDS | ({"followup_plan"} if persisted else set())
+    for index, finding in enumerate(findings):
+        item_prefix = "%s[%d]" % (prefix, index)
+        if not _mapping(finding):
+            issues.append(_issue(path, item_prefix, "must be an object"))
+            continue
+        missing = required - set(finding)
+        if missing:
+            issues.append(
+                _issue(
+                    path,
+                    item_prefix,
+                    "missing fields %s" % ", ".join(sorted(missing)),
+                )
+            )
+        issues.extend(_unknown_fields(path, item_prefix, finding, required))
+        for field in ("title", "summary", "impact", "evidence", "scope_reason"):
+            if safe_summary_issue(finding.get(field)) is not None:
+                issues.append(
+                    _issue(
+                        path,
+                        "%s.%s" % (item_prefix, field),
+                        "must be a concrete safe summary",
+                    )
+                )
+        paths = finding.get("paths")
+        if not _relative_paths(paths, False) or len(set(paths or [])) != len(paths or []):
+            issues.append(
+                _issue(
+                    path,
+                    item_prefix + ".paths",
+                    "must contain unique repository-relative paths",
+                )
+            )
+        for field in ("success", "risk_boundary"):
+            if not _safe_lines(finding.get(field)):
+                issues.append(
+                    _issue(
+                        path,
+                        "%s.%s" % (item_prefix, field),
+                        "must be a non-empty array of concrete safe summaries",
+                    )
+                )
+        if persisted:
+            followup = finding.get("followup_plan")
+            if followup is not None and not is_code(followup, "PLAN"):
+                issues.append(
+                    _issue(
+                        path,
+                        item_prefix + ".followup_plan",
+                        "must be null or a PLAN-* code",
+                    )
+                )
     return issues
 
 
@@ -839,6 +917,80 @@ def _validate_lifecycle(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     issues.extend(_validate_session(path, "reviewer_session", reviewer))
     if _mapping(designer):
         issues.extend(_validate_compile_receipt(path, designer.get("compile")))
+    if _mapping(reviewer):
+        if "out_of_scope_findings" in reviewer:
+            findings = reviewer.get("out_of_scope_findings")
+            issues.extend(
+                reviewer_findings_issues(
+                    path,
+                    findings,
+                    persisted=True,
+                )
+            )
+            if isinstance(findings, list):
+                materialized = [
+                    finding.get("followup_plan")
+                    for finding in findings
+                    if _mapping(finding)
+                ]
+                if reviewer.get("status") == "active" and any(
+                    value is not None for value in materialized
+                ):
+                    issues.append(
+                        _issue(
+                            path,
+                            "lifecycle.reviewer_session.out_of_scope_findings",
+                            "active findings cannot name a follow-up Plan",
+                        )
+                    )
+                if reviewer.get("status") in {"completed", "blocked"} and any(
+                    value is None for value in materialized
+                ):
+                    issues.append(
+                        _issue(
+                            path,
+                            "lifecycle.reviewer_session.out_of_scope_findings",
+                            "closed findings require a materialized follow-up Plan",
+                        )
+                    )
+        if "findings_recorded" in reviewer and type(reviewer.get("findings_recorded")) is not bool:
+            issues.append(
+                _issue(
+                    path,
+                    "lifecycle.reviewer_session.findings_recorded",
+                    "must be a boolean",
+                )
+            )
+        if reviewer.get("findings_recorded") is True and "out_of_scope_findings" not in reviewer:
+            issues.append(
+                _issue(
+                    path,
+                    "lifecycle.reviewer_session.out_of_scope_findings",
+                    "is required after findings are recorded",
+                )
+            )
+        if reviewer.get("findings_recorded") is True and safe_summary_issue(
+            reviewer.get("findings_recorded_at")
+        ) is not None:
+            issues.append(
+                _issue(
+                    path,
+                    "lifecycle.reviewer_session.findings_recorded_at",
+                    "is required and must be a safe timestamp",
+                )
+            )
+        if (
+            reviewer.get("status") in {"completed", "blocked"}
+            and "findings_recorded" in reviewer
+            and reviewer.get("findings_recorded") is not True
+        ):
+            issues.append(
+                _issue(
+                    path,
+                    "lifecycle.reviewer_session.findings_recorded",
+                    "a closed Reviewer requires its final findings receipt",
+                )
+            )
     phase = plan.get("phase")
     sealed = lifecycle.get("sealed")
     authorization = lifecycle.get("authorization")

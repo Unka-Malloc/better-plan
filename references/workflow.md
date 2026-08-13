@@ -51,7 +51,8 @@ flowchart TD
     L -- "Yes" --> M["Independent complete regression"]
     M --> N["Open the sole Reviewer"]
     N --> O["Reviewer audits and directly repairs"]
-    O --> P{"Green current regression receipt?"}
+    O --> X["Record complete out-of-scope findings array"]
+    X --> P{"Green current regression receipt?"}
     P -- "No" --> Q["Independent complete regression rerun"]
     Q -- "Failed" --> O
     Q -- "Passed" --> R["Close Reviewer and delivery"]
@@ -404,9 +405,11 @@ The native main attaches the ephemeral diagnostics returned by the immediately p
 You are this Plan's sole writable Reviewer. The independent complete-regression stage has already
 finished; do not run or wait for it. Audit the current source, tests, authorized Plan, Task evidence,
 regression receipt, and supplied diagnostics. Directly repair every in-scope defect instead of only
-recommending a patch. Use bounded focused checks only when they materially guide a repair. If later
-independent verification fails, resume this same session; do not create a Repair Task or a second
-Reviewer.
+recommending a patch; Task ownership does not limit repairs inside the authorized Plan. Leave a
+confirmed defect outside that Plan untouched and return it in the complete structured
+out_of_scope_findings array, using an empty array when there are none. Do not create its repair Plan.
+Use bounded focused checks only when they materially guide a repair. If later independent
+verification fails, resume this same session; do not create a Repair Task or a second Reviewer.
 ```
 
 For visual or hybrid Tasks, the Reviewer also exercises the real rendered interface with browser
@@ -426,9 +429,25 @@ python3 scripts/manifest_tool.py agent-complete <root> \
   --final
 ```
 
+The Reviewer returns the complete `out_of_scope_findings` array defined in
+`references/reviewer.md`. Persist that exact privacy-safe array, including `[]`, before choosing the
+next action:
+
+```sh
+python3 scripts/manifest_tool.py record-reviewer-findings <root> \
+  --plan <plan> \
+  --dispatch-id <dispatch-id> \
+  --input -
+```
+
+Pass the JSON array through standard input so no temporary workspace artifact enters a covered
+path. This records findings only. It does not edit their implementation, create a Plan, authorize
+work, or invalidate a current regression receipt.
+
 ## 12. Verify Reviewer repairs and close
 
-After the Reviewer returns, call `next-action` again.
+After the Reviewer returns, `next-action` first returns `record_reviewer_findings` until the command
+above records that return. Then call `next-action` again.
 
 If the prior regression passed and the Reviewer did not change any covered path, the existing green
 receipt is current and the action is `close_reviewer_session`.
@@ -443,11 +462,12 @@ ephemeral diagnostics. Send them to the already bound Reviewer agent with this f
 ```text
 Resume the current Reviewer session. The independent complete regression still fails. Directly
 repair the supplied diagnostics, run only bounded focused checks, and return. Do not run or wait for
-the complete regression.
+the complete regression. Return the complete out_of_scope_findings array again.
 ```
 
-Never create another Reviewer. Repeat the independent verification and same-session repair loop
-until it is green or the Reviewer proves a hard authority or environment blocker.
+Never create another Reviewer. Record the complete findings array after every resumed return, then
+repeat the independent verification and same-session repair loop until it is green or the Reviewer
+proves a hard authority or environment blocker.
 
 Close a green delivery:
 
@@ -459,7 +479,10 @@ python3 scripts/manifest_tool.py close-reviewer-session <root> \
 
 `close-reviewer-session` executes no tests. It closes only against current green independent
 regression evidence, marks the Reviewer `completed`, marks Checkpoints `completed`, and moves the
-Plan to `completed`. Production code must not change afterward.
+Plan to `completed`. Only after checking that green covered-path fingerprint, it creates one
+separate unapproved `draft` Plan per recorded out-of-scope finding and returns those Plans in
+`followup_plans`; `user_handoff_required` is then true. Production code must not change afterward,
+and no follow-up starts without its own authorization.
 
 For a proven hard blocker, close with a privacy-safe public summary:
 
@@ -470,7 +493,8 @@ python3 scripts/manifest_tool.py close-reviewer-session <root> \
   --blocked-reason "Safe public blocker summary"
 ```
 
-The Plan then ends in `blocked` rather than pretending delivery succeeded.
+The Plan then ends in `blocked` rather than pretending delivery succeeded. Recorded unrelated
+findings still become separate unapproved draft repair Plans.
 
 ## 13. Final handoff
 
@@ -484,7 +508,9 @@ python3 scripts/manifest_tool.py tree <root> --plan <plan> --details
 
 The final user report summarizes the delivered outcome, completed or blocked Tasks, complete
 regression result, Reviewer repairs, rendered evidence when applicable, and any hard blocker. It
-does not dispatch another role, rerun a green complete regression, or introduce a new approval.
+also lists every `followup_plans` entry as a confirmed pending defect with its impact and states that
+the draft repair Plan remains unapproved. It does not dispatch another role, execute a follow-up,
+rerun a green complete regression, or introduce a new approval.
 
 ## Recovery and fail-closed rules
 
