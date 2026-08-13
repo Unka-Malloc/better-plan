@@ -59,7 +59,9 @@ actually requires reasoning about Better Plan's cross-cutting design.
 7. **Give each phase one accountable authority.** Resolve decisions once, use one Designer for the
    solution draft and one deterministic compiler write path for its Plan representation, authorize
    one exact revision, and use one writable Reviewer. Repair within the native main, current Task,
-   or Reviewer session instead of creating recursive planning and repair roles.
+   or Reviewer session instead of creating recursive planning and repair roles. Confirmed defects
+   outside the authorized Plan are structured handoffs: close the current delivery first, then let
+   deterministic tooling create separate unapproved draft Plans for later user authorization.
 
 8. **Keep one semantic source for each kind of truth.** `Plan.json` owns delivery semantics,
    `Manifest.json` indexes Plans, `Checkpoints.json` owns execution state, and `Plan.md` is a

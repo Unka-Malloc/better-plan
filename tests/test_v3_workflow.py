@@ -28,13 +28,19 @@ class V3WorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def cli(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def cli(
+        self,
+        *arguments: str,
+        check: bool = True,
+        input_text: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(TOOL), *arguments],
             cwd=str(ROOT),
             text=True,
             capture_output=True,
             check=check,
+            input=input_text,
         )
 
     def payload(self, *arguments: str) -> dict:
@@ -72,11 +78,30 @@ class V3WorkflowTests(unittest.TestCase):
         self.cli("bind-agent", code, str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", agent)
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", agent, "--final")
 
+    def record_review_findings(
+        self,
+        dispatch_id: str,
+        findings: list[dict] | None = None,
+    ) -> dict:
+        completed = self.cli(
+            "record-reviewer-findings",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            dispatch_id,
+            "--input",
+            "-",
+            input_text=json.dumps(findings or []),
+        )
+        return json.loads(completed.stdout)
+
     def close_review(self, agent: str, *extra: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         self.payload("run-full-regression", str(self.root), "--plan", PLAN)
         review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
         self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"], "--agent-id", agent)
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", agent, "--final")
+        self.record_review_findings(review["dispatch_id"])
         return self.cli(
             "close-reviewer-session",
             str(self.root),
@@ -151,6 +176,131 @@ class V3WorkflowTests(unittest.TestCase):
         checkpoints = json.loads((self.root / "delivery" / "Checkpoints.json").read_text(encoding="utf-8"))
         self.assertTrue(checkpoints["full_regression"]["passed"])
         self.assertEqual((self.root / "full-count.txt").read_text(encoding="utf-8"), "1")
+        self.assertEqual(self.cli("validate", str(self.root)).returncode, 0)
+
+    def test_full_regression_fingerprint_ignores_its_state_but_detects_repairs(self) -> None:
+        value = self.read_plan()
+        value["spec"]["full_regression"]["paths"] = ["delivery", "source.txt"]
+        self.write_plan(value)
+        self.design_and_authorize()
+        self.run_worker("TASK-001", "worker.covered-state")
+        self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+
+        baseline = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        self.assertTrue(baseline["passed"])
+        review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
+        self.cli(
+            "bind-agent", PLAN, str(self.root), "--plan", PLAN,
+            "--dispatch-id", review["dispatch_id"], "--agent-id", "reviewer.covered-state",
+        )
+
+        (self.root / "source.txt").write_text("reviewer repair\n", encoding="utf-8")
+        self.cli(
+            "agent-complete", str(self.root), "--plan", PLAN,
+            "--agent-id", "reviewer.covered-state", "--final",
+        )
+        self.record_review_findings(review["dispatch_id"])
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "run_full_regression",
+        )
+
+        verified = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        self.assertEqual(verified["action"], "close_reviewer_session")
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "close_reviewer_session",
+        )
+        closed = self.payload(
+            "close-reviewer-session", str(self.root), "--plan", PLAN,
+            "--dispatch-id", review["dispatch_id"],
+        )
+        self.assertTrue(closed["completed"])
+
+    def test_out_of_scope_reviewer_finding_becomes_a_separate_draft_plan(self) -> None:
+        self.design_and_authorize()
+        self.run_worker("TASK-001", "worker.followup")
+        self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+        self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
+        self.cli(
+            "bind-agent",
+            PLAN,
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            review["dispatch_id"],
+            "--agent-id",
+            "reviewer.followup",
+        )
+        returned = self.payload(
+            "agent-complete",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--agent-id",
+            "reviewer.followup",
+            "--final",
+        )
+        self.assertEqual(returned["action"], "record_reviewer_findings")
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "record_reviewer_findings",
+        )
+        refused = self.cli(
+            "close-reviewer-session",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            review["dispatch_id"],
+            check=False,
+        )
+        self.assertIn("record Reviewer out-of-scope findings", refused.stderr)
+
+        finding = {
+            "title": "Repair orphaned recovery state",
+            "summary": "Recovery leaves an obsolete state record after a process restart.",
+            "impact": "A later recovery attempt can select stale state.",
+            "evidence": "The restart branch removes the active record but retains its recovery index.",
+            "paths": ["recovery.py"],
+            "scope_reason": "The recovery subsystem is outside this Plan's authorized delivery intent.",
+            "success": ["Restart cleanup removes both the active record and its recovery index."],
+            "risk_boundary": ["Do not change recovery behavior unrelated to stale-state cleanup."],
+        }
+        recorded = self.record_review_findings(review["dispatch_id"], [finding])
+        self.assertEqual(recorded["recorded"], 1)
+        self.assertEqual(
+            self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
+            "close_reviewer_session",
+        )
+        closed = self.payload(
+            "close-reviewer-session",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            review["dispatch_id"],
+        )
+        self.assertEqual(closed["pending_repair_plans"], 1)
+        self.assertTrue(closed["user_handoff_required"])
+        followup = closed["followup_plans"][0]
+        self.assertEqual(
+            (followup["code"], followup["phase"], followup["authorization_required"]),
+            ("PLAN-002", "draft", True),
+        )
+
+        source = self.read_plan()
+        persisted = source["lifecycle"]["reviewer_session"]["out_of_scope_findings"][0]
+        self.assertEqual((source["phase"], persisted["followup_plan"]), ("completed", "PLAN-002"))
+        manifest = json.loads((self.root / "Manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual([entry["code"] for entry in manifest["plans"]], ["PLAN-001", "PLAN-002"])
+        draft_path = self.root / followup["directory"] / "Plan.json"
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+        self.assertEqual((draft["code"], draft["phase"]), ("PLAN-002", "draft"))
+        self.assertIsNone(draft["lifecycle"]["authorization"])
+        self.assertEqual(draft["intent"]["success"], finding["success"])
         self.assertEqual(self.cli("validate", str(self.root)).returncode, 0)
 
     def test_incomplete_design_closes_and_reports_issues_instead_of_trapping_the_session(self) -> None:
@@ -457,6 +607,20 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(review["brief"]["plan"]["code"], PLAN)
         self.assertEqual(review["brief"]["checkpoints"]["tasks"][0]["status"], "completed")
         self.assertTrue(review["brief"]["full_regression"]["result"]["passed"])
+        self.assertEqual(
+            review["brief"]["out_of_scope_finding_contract"]["fields"],
+            [
+                "title",
+                "summary",
+                "impact",
+                "evidence",
+                "paths",
+                "scope_reason",
+                "success",
+                "risk_boundary",
+            ],
+        )
+        self.assertIn("out_of_scope_findings", json.dumps(review["brief"]))
         self.assertEqual(regression["action"], "open_reviewer_session")
 
     def test_authorization_can_prove_the_host_harness_without_mutating_inputs(self) -> None:
@@ -481,6 +645,42 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual((directive.action, directive.phase), ("accept_task", "awaiting_acceptance"))
         self.assertIsNone(
             reduce_agent_completion(self.root / "Manifest.json", agent_id="unbound.agent", final=True)
+        )
+        self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+        self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
+        self.cli(
+            "bind-agent",
+            PLAN,
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--dispatch-id",
+            review["dispatch_id"],
+            "--agent-id",
+            "callback.reviewer",
+        )
+        reviewer_directive = reduce_agent_completion(
+            self.root / "Manifest.json",
+            agent_id="callback.reviewer",
+            final=True,
+            target_id=PLAN,
+            dispatch_id=review["dispatch_id"],
+        )
+        assert reviewer_directive is not None
+        self.assertEqual(
+            (reviewer_directive.action, reviewer_directive.phase),
+            ("record_reviewer_findings", "agent_returned"),
+        )
+        self.assertFalse(
+            self.read_plan()["lifecycle"]["reviewer_session"]["findings_recorded"]
+        )
+        self.assertIsNone(
+            reduce_agent_completion(
+                self.root / "Manifest.json",
+                agent_id="callback.reviewer",
+                final=True,
+            )
         )
 
     def test_reviewer_cannot_open_during_a_continuation_or_close_with_pending_work(self) -> None:
@@ -532,6 +732,7 @@ class V3WorkflowTests(unittest.TestCase):
             "--dispatch-id", review["dispatch_id"], "--agent-id", "reviewer.retry",
         )
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.retry", "--final")
+        self.record_review_findings(review["dispatch_id"])
         self.assertEqual(
             self.payload("next-action", str(self.root), "--plan", PLAN)["action"],
             "run_full_regression",
@@ -546,6 +747,7 @@ class V3WorkflowTests(unittest.TestCase):
         # The same Reviewer repairs and the very same session closes; no second Reviewer.
         (self.root / "marker.txt").write_text("repaired\n", encoding="utf-8")
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.retry", "--final")
+        self.record_review_findings(review["dispatch_id"])
         verified = self.payload("run-full-regression", str(self.root), "--plan", PLAN)
         self.assertEqual(verified["action"], "close_reviewer_session")
         result = self.cli(
@@ -789,6 +991,8 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "await_reviewer")
         self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"], "--agent-id", "rev.phase")
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "rev.phase", "--final")
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "record_reviewer_findings")
+        self.record_review_findings(review["dispatch_id"])
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "close_reviewer_session")
         self.cli("close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"])
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "delivery_complete")
