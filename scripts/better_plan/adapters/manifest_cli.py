@@ -246,6 +246,15 @@ def build_parser() -> argparse.ArgumentParser:
     _add_host(open_reviewer)
     open_reviewer.set_defaults(func=workflow.open_reviewer_session)
 
+    record_findings = subparsers.add_parser(
+        "record-reviewer-findings",
+        help="persist the Reviewer's complete out-of-scope handoff",
+    )
+    _add_plan(record_findings)
+    record_findings.add_argument("--dispatch-id", required=True)
+    record_findings.add_argument("--input", required=True)
+    record_findings.set_defaults(func=workflow.record_reviewer_findings)
+
     close_reviewer = subparsers.add_parser("close-reviewer-session", help="close after post-regression audit")
     _add_plan(close_reviewer)
     close_reviewer.add_argument("--dispatch-id", required=True)
