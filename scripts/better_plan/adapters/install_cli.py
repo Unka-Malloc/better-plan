@@ -19,6 +19,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 def default_paths(args: argparse.Namespace) -> _InstallPaths:
     home = Path.home()
     repo_root = Path(args.source).expanduser().resolve() if args.source else REPOSITORY_ROOT
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").expanduser()
     return _InstallPaths(
         repo_root=repo_root,
         codex_home=Path(args.codex_home or os.environ.get("CODEX_HOME") or home / ".codex").expanduser(),
@@ -39,6 +40,14 @@ def default_paths(args: argparse.Namespace) -> _InstallPaths:
         pi_home=Path(args.pi_home or os.environ.get("PI_HOME") or home / ".pi" / "agent").expanduser(),
         craft_home=Path(
             args.craft_home or os.environ.get("CRAFT_AGENT_HOME") or home / ".craft-agent"
+        ).expanduser(),
+        kilo_home=Path(
+            args.kilo_home or os.environ.get("KILO_HOME") or home / ".kilo"
+        ).expanduser(),
+        kilo_config=Path(
+            args.kilo_config
+            or os.environ.get("KILO_CONFIG_HOME")
+            or config_home / "kilo"
         ).expanduser(),
         kimi_home=Path(
             args.kimi_home or os.environ.get("KIMI_CODE_HOME") or home / ".kimi-code"
@@ -81,7 +90,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets: all, codex, claude, opencode, cursor, copilot, antigravity, pi, craft, kimi",
+        help="agent targets: all, codex, claude, opencode, cursor, copilot, antigravity, pi, craft, kilo, kimi",
     )
     parser.add_argument("--source", help="Better Plan source tree; defaults to this repository")
     parser.add_argument("--codex-home", help="Codex home directory")
@@ -93,6 +102,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--antigravity-home", help="Antigravity customization directory")
     parser.add_argument("--pi-home", help="Pi agent configuration directory")
     parser.add_argument("--craft-home", help="Craft Agents configuration directory")
+    parser.add_argument("--kilo-home", help="Kilo skill home directory")
+    parser.add_argument("--kilo-config", help="Kilo configuration directory")
     parser.add_argument("--kimi-home", help="Kimi Code configuration directory")
 
 

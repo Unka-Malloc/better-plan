@@ -52,6 +52,8 @@ def make_paths(root: Path, *, repo_root: Path = REPO_ROOT) -> object:
         antigravity_home=home / ".gemini" / "config",
         pi_home=home / ".pi" / "agent",
         craft_home=home / ".craft-agent",
+        kilo_home=home / ".kilo",
+        kilo_config=home / ".config" / "kilo",
         kimi_home=home / ".kimi-code",
     )
 
@@ -99,6 +101,78 @@ class InstallToolTests(unittest.TestCase):
     def test_retired_gemini_target_is_rejected(self) -> None:
         with self.assertRaises(install_models.InstallError):
             install_cli.parse_agents(["gemini"])
+
+    def test_kilo_target_is_selectable(self) -> None:
+        self.assertEqual(install_cli.parse_agents(["kilo"]), ["kilo"])
+
+    def test_kilo_matrix_is_installed_once_and_never_adopted_or_rewritten(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            messages = install_service.install_agents(paths, ["kilo"], dry_run=False)
+            receipt = paths.kilo_agents.with_name("agents.better-plan.json")
+            expected = set(install_targets.KILO_AGENT_FILES)
+
+            self.assertIn("native: installed kilo Agent matrix", messages)
+            self.assertEqual({path.name for path in paths.kilo_agents.iterdir()}, expected)
+            self.assertTrue((paths.shared_skill / "SKILL.md").is_file())
+            self.assertFalse(paths.kilo_skill.exists())
+            self.assertTrue(receipt.is_file())
+            listing = "\n".join(Path(name).stem for name in install_targets.KILO_AGENT_FILES)
+            with ExitStack() as stack:
+                stack.enter_context(
+                    mock.patch.object(install_doctor.shutil, "which", return_value="kilo")
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        install_targets,
+                        "run_text_command",
+                        return_value=subprocess.CompletedProcess(
+                            ["kilo", "agent", "list"],
+                            0,
+                            stdout=listing,
+                            stderr="",
+                        ),
+                    )
+                )
+                runtime_check = install_doctor.check_kilo_agents(paths)
+            self.assertEqual(runtime_check.status, "OK")
+            receipt_before = receipt.read_bytes()
+            role = paths.kilo_agents / "better-plan-worker-complex.md"
+            role.write_text("local Kilo customization\n", encoding="utf-8")
+            role_before = role.read_bytes()
+
+            update_messages = install_service.install_agents(paths, ["kilo"], dry_run=False)
+
+            self.assertIn("native: preserved kilo Agent matrix", update_messages)
+            self.assertEqual(role.read_bytes(), role_before)
+            self.assertEqual(receipt.read_bytes(), receipt_before)
+            check = install_doctor.check_kilo_agents(paths)
+            self.assertEqual(check.status, "WARN")
+            self.assertNotIn(tmpdir, check.message)
+
+            uninstall_messages = install_service.uninstall_agents(
+                paths,
+                ["kilo"],
+                remove_shared=True,
+                dry_run=False,
+            )
+            self.assertIn("kilo: preserved immutable native Agent matrix", uninstall_messages)
+            self.assertTrue(role.is_file())
+            self.assertTrue(receipt.is_file())
+            self.assertFalse(paths.shared_skill.exists())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            paths.kilo_agents.mkdir(parents=True)
+            local = paths.kilo_agents / "better-plan-designer.md"
+            local.write_text("user-owned Kilo Agent\n", encoding="utf-8")
+
+            messages = install_service.install_agents(paths, ["kilo"], dry_run=False)
+
+            self.assertIn("native: preserved kilo Agent matrix", messages)
+            self.assertEqual(local.read_text(encoding="utf-8"), "user-owned Kilo Agent\n")
+            self.assertEqual({path.name for path in paths.kilo_agents.iterdir()}, {local.name})
+            self.assertFalse(paths.kilo_agents.with_name("agents.better-plan.json").exists())
 
     def test_native_role_templates_use_exact_user_paths_are_idempotent_and_uninstall_selectively(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -278,6 +352,7 @@ class InstallToolTests(unittest.TestCase):
             self.assertTrue((paths.cursor_skill / "SKILL.md").is_file())
             self.assertTrue((paths.copilot_skill / "SKILL.md").is_file())
             self.assertTrue((paths.pi_skill / "SKILL.md").is_file())
+            self.assertTrue((paths.kilo_skill / "SKILL.md").is_file())
             self.assertTrue((paths.kimi_skill / "SKILL.md").is_file())
             self.assertFalse(paths.shared_skill.exists())
             self.assertTrue((paths.claude_plugin / ".claude-plugin" / "plugin.json").is_file())
@@ -295,6 +370,10 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(set(claude["hooks"]), {"SessionStart", "UserPromptSubmit", "SubagentStop"})
             self.assertEqual(set(cursor["hooks"].keys()), {"sessionStart", "beforeSubmitPrompt", "postToolUse"})
             self.assertTrue((paths.opencode_agent).is_file())
+            self.assertEqual(
+                {path.name for path in paths.kilo_agents.iterdir()},
+                set(install_targets.KILO_AGENT_FILES),
+            )
             self.assertTrue((paths.antigravity_plugin / "plugin.json").is_file())
             self.assertTrue((paths.antigravity_plugin / "hooks.json").is_file())
             self.assertTrue((craft_workspace / "skills" / "better-plan" / "SKILL.md").is_file())
@@ -721,6 +800,9 @@ class InstallToolTests(unittest.TestCase):
             expected_runtime_payload.update(
                 f"agents/{source_target}/{filename}" for filename in filenames
             )
+        expected_runtime_payload.update(
+            f"agents/kilo/{filename}" for filename in install_targets.KILO_AGENT_FILES
+        )
         self.assertTrue(
             expected_runtime_payload <= set(install_models.CURRENT_SKILL_FILES),
             sorted(expected_runtime_payload - set(install_models.CURRENT_SKILL_FILES)),
@@ -790,9 +872,12 @@ class InstallToolTests(unittest.TestCase):
             self.assertFalse(paths.cursor_skill.exists())
             self.assertFalse(paths.copilot_skill.exists())
             self.assertFalse(paths.pi_skill.exists())
+            self.assertFalse(paths.kilo_skill.exists())
             self.assertFalse(paths.antigravity_plugin.exists())
             self.assertFalse(paths.kimi_skill.exists())
             self.assertFalse((craft_workspace / "skills" / "better-plan").exists())
+            self.assertTrue((paths.kilo_agents / "better-plan.md").is_file())
+            self.assertTrue(paths.kilo_agents.with_name("agents.better-plan.json").is_file())
             self.assertNotIn("--managed-by better-plan", paths.codex_hooks.read_text(encoding="utf-8"))
             self.assertNotIn("--managed-by better-plan", paths.claude_settings.read_text(encoding="utf-8"))
             self.assertTrue((paths.cursor_home / "hooks.json").is_file())
@@ -1224,6 +1309,8 @@ command = "notify"
             antigravity_home = home / ".gemini" / "config"
             pi_home = home / ".pi" / "agent"
             craft_home = home / ".craft-agent"
+            kilo_home = home / ".kilo"
+            kilo_config = home / ".config" / "kilo"
             kimi_home = home / ".kimi-code"
             craft_workspace = craft_home / "workspaces" / "workspace"
             craft_workspace.mkdir(parents=True)
@@ -1235,7 +1322,7 @@ command = "notify"
                 sys.executable,
                 INSTALL_TOOL_PATH,
                 "--agents",
-                "codex,cursor,copilot,antigravity,pi,craft,kimi",
+                "codex,cursor,copilot,antigravity,pi,craft,kilo,kimi",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
@@ -1250,6 +1337,10 @@ command = "notify"
                 pi_home,
                 "--craft-home",
                 craft_home,
+                "--kilo-home",
+                kilo_home,
+                "--kilo-config",
+                kilo_config,
                 "--kimi-home",
                 kimi_home,
                 env=isolated_env,
@@ -1260,6 +1351,8 @@ command = "notify"
             self.assertIn("cursor: using shared skill", install_result.stdout)
             self.assertIn("copilot: using shared skill", install_result.stdout)
             self.assertIn("pi: using shared skill", install_result.stdout)
+            self.assertIn("kilo: using shared skill", install_result.stdout)
+            self.assertIn("native: installed kilo Agent matrix", install_result.stdout)
             self.assertIn("kimi: using shared skill", install_result.stdout)
             self.assertIn("kimi hooks: updated managed handlers", install_result.stdout)
             self.assertIn("antigravity: updated plugin", install_result.stdout)
@@ -1271,7 +1364,7 @@ command = "notify"
                 INSTALL_TOOL_PATH,
                 "doctor",
                 "--agents",
-                "codex,cursor,copilot,antigravity,pi,craft,kimi",
+                "codex,cursor,copilot,antigravity,pi,craft,kilo,kimi",
                 "--codex-home",
                 codex_home,
                 "--shared-home",
@@ -1286,6 +1379,10 @@ command = "notify"
                 pi_home,
                 "--craft-home",
                 craft_home,
+                "--kilo-home",
+                kilo_home,
+                "--kilo-config",
+                kilo_config,
                 "--kimi-home",
                 kimi_home,
                 env=isolated_env,
@@ -1299,6 +1396,8 @@ command = "notify"
             self.assertIn("OK: antigravity:", doctor_result.stdout)
             self.assertIn("OK: pi:", doctor_result.stdout)
             self.assertIn("OK: craft:", doctor_result.stdout)
+            self.assertIn("WARN: kilo native Agents:", doctor_result.stdout)
+            self.assertIn("OK: kilo:", doctor_result.stdout)
             self.assertIn("WARN: kimi:", doctor_result.stdout)
             self.assertIn("OK: kimi hooks:", doctor_result.stdout)
             self.assertNotIn("FAIL:", doctor_result.stdout)

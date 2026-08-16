@@ -71,11 +71,46 @@ def paths(root: Path) -> InstallPaths:
         antigravity_home=root / "antigravity",
         pi_home=root / "pi",
         craft_home=root / "craft",
+        kilo_home=root / "kilo-home",
+        kilo_config=root / "kilo-config",
         kimi_home=root / "kimi",
     )
 
 
 class AgentTemplateTests(unittest.TestCase):
+    def test_kilo_bundles_one_short_primary_and_four_namespaced_subagents(self) -> None:
+        directory = ROOT / "agents" / "kilo"
+        self.assertEqual(
+            {path.name for path in directory.iterdir()},
+            set(install_targets.KILO_AGENT_FILES),
+        )
+        primary = (directory / "better-plan.md").read_text(encoding="utf-8")
+        body = primary.split("\n---\n", 1)[1]
+        self.assertIn("mode: primary", primary)
+        self.assertLess(len(body.split()), 60)
+        self.assertIn("Handle simple tasks directly", body)
+        self.assertIn("load the `better-plan` Skill", body)
+        for filename in install_targets.KILO_SUBAGENTS:
+            agent_name = Path(filename).stem
+            text = (directory / filename).read_text(encoding="utf-8")
+            canonical = (
+                ROOT / "agents" / "opencode" / filename[len("better-plan-") :]
+            ).read_text(encoding="utf-8")
+            self.assertIn(f"    {agent_name}: allow", primary)
+            self.assertIn("mode: subagent", text)
+            self.assertIn("  task: deny", text)
+            self.assertIn("  question: deny", text)
+            self.assertIn(f"agent={agent_name}", text)
+            self.assertIn("model=parent-inherited", text)
+            self.assertIn("reasoning_effort=host-default", text)
+            self.assertNotRegex(text, r"(?m)^model:\s*")
+            self.assertNotRegex(text, r"(?m)^variant:\s*")
+            self.assertNotRegex(text, r"(?m)^reasoningEffort:\s*")
+            self.assertEqual(
+                text.split("\n---\n", 1)[1].split("\n", 3)[3],
+                canonical.split("\n---\n", 1)[1].split("\n", 3)[3],
+            )
+
     def test_each_native_host_bundles_the_complete_role_shape(self) -> None:
         source_target = {"claude": "claude-code"}
         for target, filenames in NATIVE_ROLE_FILES.items():
@@ -241,6 +276,10 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("an openai-compatible label alone is insufficient", guidance)
         self.assertIn("never strips, decrypts, or downgrades this payload to plaintext", guidance)
         self.assertIn("codex has no better plan completion hook", guidance)
+        self.assertIn("kilo task adapter", guidance)
+        self.assertIn("better-plan-designer", guidance)
+        self.assertIn("resume the same reviewer with task_id", guidance)
+        self.assertIn("inherits the invoking primary agent's model", guidance)
 
     def test_every_native_designer_template_owns_the_single_design_session(self) -> None:
         source_target = {"claude": "claude-code"}
