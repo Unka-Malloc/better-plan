@@ -78,6 +78,25 @@ host exposes at each boundary. Each host adapter is isolated; adding or changing
 another host's event inventory or completion parser. If a new host already satisfies the shared
 framework contract, its adapter stays declarative and minimal.
 
+## Kilo Task adapter
+
+Kilo installs one short user-selectable `better-plan` primary Agent and four namespaced Subagents:
+`better-plan-designer`, `better-plan-worker-standard`, `better-plan-worker-complex`, and
+`better-plan-reviewer`. The primary Agent's ordered Task permission map denies every other
+Subagent. Dispatch the exact role returned by Better Plan with the matching Kilo
+`subagent_type`; never substitute Kilo's generic or explore Subagent.
+
+Each Kilo Task call creates an isolated child session. Preserve its returned opaque task ID exactly
+for `bind-agent` and `agent-complete`. When post-repair regression returns `resume_reviewer`, resume
+the same Reviewer with task_id unchanged instead of creating another Reviewer. Completion is
+parent-driven because Better Plan installs no Kilo completion Hook.
+
+Issue separate Task calls for every independently eligible frontier member in the same primary turn
+so Kilo may run them concurrently. The packaged Subagents intentionally omit `model`, `variant`, and
+provider-specific reasoning options: each inherits the invoking primary Agent's model and uses that
+host selection's default reasoning behavior. Users may manually pin a Kilo-supported model and
+variant as local immutable host configuration; install, update, and Doctor never rewrite it.
+
 ## Codex collaboration adapter
 
 Codex configured roles require a fresh child context. For every Designer, Worker, or Reviewer

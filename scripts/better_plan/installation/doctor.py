@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import sys
+from pathlib import Path
 
 from ..hooks.config import hook_config_status as _hook_config_status
 from . import skills as _skills
@@ -88,6 +89,9 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_shared_scan_agent(paths, "pi"))
     if "craft" in agents:
         checks.append(check_craft(paths))
+    if "kilo" in agents:
+        checks.append(check_kilo_agents(paths))
+        checks.append(check_shared_scan_agent(paths, "kilo"))
     if "kimi" in agents:
         checks.append(check_shared_scan_agent(paths, "kimi"))
         checks.append(check_agent_hooks(paths, "kimi"))
@@ -104,6 +108,35 @@ def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
     else:
         status = "FAIL"
     return _Check(status, f"{target} native roles", message)
+
+
+def check_kilo_agents(paths: _InstallPaths) -> _Check:
+    ok, message = _targets.kilo_agent_status(paths)
+    if not ok:
+        if _targets.kilo_agent_configuration_exists(paths):
+            return _Check(
+                "WARN",
+                "kilo native Agents",
+                f"local Kilo Agents preserved; {message}",
+            )
+        return _Check("FAIL", "kilo native Agents", message)
+    kilo = shutil.which("kilo")
+    if kilo is None:
+        return _Check(
+            "WARN",
+            "kilo native Agents",
+            "Agent matrix verified; kilo CLI not found for runtime validation",
+        )
+    result = _targets.run_text_command([kilo, "agent", "list"], timeout=30)
+    if result.returncode != 0:
+        return _Check("FAIL", "kilo native Agents", "kilo agent list failed")
+    if any(Path(filename).stem not in result.stdout for filename in _targets.KILO_AGENT_FILES):
+        return _Check(
+            "FAIL",
+            "kilo native Agents",
+            "kilo agent list did not include the complete Better Plan matrix",
+        )
+    return _Check("OK", "kilo native Agents", "Agent matrix and runtime listing verified")
 
 
 def check_claude(paths: _InstallPaths) -> _Check:

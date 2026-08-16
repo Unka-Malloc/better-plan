@@ -109,6 +109,7 @@ afterward every role file and receipt is immutable, including when Doctor report
 
 ```sh
 python3 scripts/install.py install --agents codex
+python3 scripts/install.py install --agents kilo
 python3 scripts/install.py doctor --agents codex
 python3 scripts/install.py update --agents all
 ```
@@ -117,9 +118,15 @@ Updates always preserve native role files and receipts while refreshing skills, 
 adapters. Host-neutral lifecycle invariants remain in the framework; only native API, event,
 payload, response, and configuration differences live in isolated host adapters.
 
-Codex, Claude Code, OpenCode, Cursor, Copilot, Antigravity, Kimi, and supported plugin targets use
-their native role and Hook formats. Installed selectors remain authoritative; package selectors are
-fallbacks only.
+Codex, Claude Code, OpenCode, Cursor, Copilot, Antigravity, Kilo Code, Kimi, and supported plugin
+targets use their native role and Hook formats. Installed selectors remain authoritative; package
+selectors are fallbacks only.
+
+The Kilo target installs one short `better-plan` primary Agent and four exact namespaced Subagents.
+It uses Kilo's native or shared Agent Skills scan path, restricts the primary Agent to those four
+delegates, and leaves model and reasoning selection to the invoking primary Agent for provider
+portability. Kilo Agent files and their receipt are created only when no same-name local state
+exists and remain immutable afterward.
 
 ## Development
 

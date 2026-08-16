@@ -61,6 +61,8 @@ def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
         return paths.copilot_skill
     if agent == "pi":
         return paths.pi_skill
+    if agent == "kilo":
+        return paths.kilo_skill
     if agent == "kimi":
         return paths.kimi_skill
     raise _InstallError(f"{agent} does not have a native skill tree path")
@@ -163,6 +165,10 @@ def existing_install_paths(paths: _InstallPaths, agents: Iterable[str]) -> list[
         values.append(paths.pi_skill)
     if "craft" in selected:
         values.extend(paths.craft_skills)
+    if "kilo" in selected:
+        values.append(paths.kilo_skill)
+        values.append(paths.kilo_agents / "better-plan.md")
+        values.append(paths.kilo_agents.with_name("agents.better-plan.json"))
     if "kimi" in selected:
         values.append(paths.kimi_skill)
     return [path for path in values if path.exists()]

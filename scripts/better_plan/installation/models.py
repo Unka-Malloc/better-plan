@@ -17,9 +17,10 @@ AGENTS = (
     "antigravity",
     "pi",
     "craft",
+    "kilo",
     "kimi",
 )
-SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot", "pi", "kimi"})
+SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot", "pi", "kilo", "kimi"})
 ADAPTER_SKILL_AGENTS = frozenset({"opencode"})
 CURSOR_APP_BUNDLE_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
 OPTIONAL_CLIENT_CLI_COMMANDS = {
@@ -121,6 +122,11 @@ CURRENT_SKILL_FILES = (
     "agents/cursor/worker-standard.md",
     "agents/cursor/worker-complex.md",
     "agents/cursor/reviewer.md",
+    "agents/kilo/better-plan.md",
+    "agents/kilo/better-plan-designer.md",
+    "agents/kilo/better-plan-worker-standard.md",
+    "agents/kilo/better-plan-worker-complex.md",
+    "agents/kilo/better-plan-reviewer.md",
 )
 
 
@@ -140,6 +146,8 @@ class InstallPaths:
     antigravity_home: Path
     pi_home: Path
     craft_home: Path
+    kilo_home: Path
+    kilo_config: Path
     kimi_home: Path
 
     @property
@@ -208,6 +216,14 @@ class InstallPaths:
     @property
     def craft_skills(self) -> tuple[Path, ...]:
         return tuple(workspace / "skills" / SKILL_NAME for workspace in self.craft_workspaces)
+
+    @property
+    def kilo_skill(self) -> Path:
+        return self.kilo_home / "skills" / SKILL_NAME
+
+    @property
+    def kilo_agents(self) -> Path:
+        return self.kilo_config / "agents"
 
     @property
     def kimi_skill(self) -> Path:
