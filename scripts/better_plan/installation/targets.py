@@ -37,6 +37,14 @@ NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
     "opencode": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
     "cursor": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
 }
+KILO_AGENT_FILES = (
+    "better-plan.md",
+    "better-plan-designer.md",
+    "better-plan-worker-standard.md",
+    "better-plan-worker-complex.md",
+    "better-plan-reviewer.md",
+)
+KILO_SUBAGENTS = KILO_AGENT_FILES[1:]
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
 _OPENCODE_NO_TEMPERATURE = frozenset(
     {"opencode-go/gpt-5.6-luna", "opencode-go/kimi-k3"}
@@ -69,6 +77,144 @@ def _native_receipt_path(destination: Path) -> Path:
     """
 
     return destination.with_name(f"{destination.name}.better-plan.json")
+
+
+def _kilo_receipt_path(paths: _InstallPaths) -> Path:
+    return _native_receipt_path(paths.kilo_agents)
+
+
+def kilo_agent_configuration_exists(paths: _InstallPaths) -> bool:
+    """Return whether any same-name local Kilo Agent state already exists."""
+
+    receipt = _kilo_receipt_path(paths)
+    if receipt.exists() or receipt.is_symlink():
+        return True
+    return any(
+        (paths.kilo_agents / filename).exists()
+        or (paths.kilo_agents / filename).is_symlink()
+        for filename in KILO_AGENT_FILES
+    )
+
+
+def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
+    source = paths.repo_root / "agents" / "kilo"
+    payload: dict[str, bytes] = {}
+    try:
+        for filename in KILO_AGENT_FILES:
+            text = (source / filename).read_text(encoding="utf-8")
+            if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+                raise ValueError
+            if filename == "better-plan.md":
+                required = (
+                    "mode: primary",
+                    '"*": deny',
+                    "better-plan-designer: allow",
+                    "better-plan-worker-standard: allow",
+                    "better-plan-worker-complex: allow",
+                    "better-plan-reviewer: allow",
+                    "better-plan: allow",
+                    "Handle simple tasks directly",
+                )
+            else:
+                required = (
+                    "mode: subagent",
+                    "task: deny",
+                    "question: deny",
+                    "model=parent-inherited",
+                    "reasoning_effort=host-default",
+                )
+                if re.search(r"(?m)^model:\s*", text):
+                    raise ValueError
+            if any(value not in text for value in required):
+                raise ValueError
+            payload[filename] = text.encode("utf-8")
+    except (OSError, UnicodeError, ValueError):
+        raise _InstallError("Kilo Agent template source is missing or malformed")
+    return payload
+
+
+def _load_kilo_receipt(path: Path) -> dict[str, str] | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise _InstallError("Kilo Agent receipt is invalid")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise _InstallError("Kilo Agent receipt is invalid")
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema_version", "target", "files"}
+        or value.get("schema_version") != 1
+        or value.get("target") != "kilo"
+    ):
+        raise _InstallError("Kilo Agent receipt is invalid")
+    files = value.get("files")
+    if (
+        not isinstance(files, dict)
+        or set(files) != set(KILO_AGENT_FILES)
+        or any(
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            for digest in files.values()
+        )
+    ):
+        raise _InstallError("Kilo Agent receipt is invalid")
+    return {str(name): str(digest) for name, digest in files.items()}
+
+
+def _write_kilo_receipt(path: Path, payload: dict[str, bytes]) -> None:
+    value = {
+        "schema_version": 1,
+        "target": "kilo",
+        "files": {name: _content_digest(content) for name, content in payload.items()},
+    }
+    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        temp.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temp, path)
+    except OSError as exc:
+        if temp.exists():
+            temp.unlink()
+        raise _InstallError("could not write Kilo Agent receipt") from exc
+
+
+def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
+    """Install the namespaced Kilo matrix once without adopting local files."""
+
+    payload = _validate_kilo_sources(paths)
+    if kilo_agent_configuration_exists(paths):
+        return ["native: preserved kilo Agent matrix"]
+    destination = paths.kilo_agents
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+        raise _InstallError("Kilo Agent destination is not a managed directory")
+    if dry_run:
+        return ["native: would install kilo Agent matrix"]
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename, content in payload.items():
+        (destination / filename).write_bytes(content)
+    _write_kilo_receipt(_kilo_receipt_path(paths), payload)
+    return ["native: installed kilo Agent matrix"]
+
+
+def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
+    """Verify only the immutable Kilo matrix created by Better Plan."""
+
+    try:
+        files = _load_kilo_receipt(_kilo_receipt_path(paths))
+    except _InstallError:
+        return False, "Kilo Agent receipt is missing, obsolete, or invalid"
+    if files is None:
+        return False, "Kilo Agent receipt is missing"
+    try:
+        for filename, digest in files.items():
+            path = paths.kilo_agents / filename
+            if path.is_symlink() or not path.is_file() or _content_digest(path.read_bytes()) != digest:
+                return False, "Kilo Agent files do not match the managed receipt"
+    except OSError:
+        return False, "Kilo Agent files are unreadable"
+    return True, "current namespaced Kilo Agent matrix verified"
 
 
 def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
@@ -810,6 +956,8 @@ def install_target(
     """Apply only the target-specific side effects for one normalized target."""
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    if target == "kilo":
+        return install_kilo_agent_matrix(paths, dry_run=dry_run)
     role_messages: list[str] = []
     if target in NATIVE_ROLE_FILES:
         role_messages.extend(install_role_templates(paths, target, dry_run=dry_run))
@@ -860,6 +1008,14 @@ def install_target(
 def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    if target == "kilo":
+        if not dry_run:
+            _remove_path(paths.kilo_skill)
+        action = "would remove" if dry_run else "removed"
+        return [
+            f"kilo: {action} native skill",
+            "kilo: preserved immutable native Agent matrix",
+        ]
     native_messages = (
         remove_role_templates(paths, target, dry_run=dry_run)
         if target in NATIVE_ROLE_FILES
