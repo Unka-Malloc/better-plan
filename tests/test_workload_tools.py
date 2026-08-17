@@ -20,6 +20,7 @@ class WorkloadToolTests(unittest.TestCase):
         task = {
             "code": "TASK-001",
             "title": "Representative Task",
+            "worker": "general",
             "difficulty": "standard",
             "workload": "heavy",
             "nodes": [
@@ -46,6 +47,7 @@ class WorkloadToolTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         shape = json.loads(result.stdout)["tasks"][0]
+        self.assertEqual(shape["worker"], "general")
         self.assertEqual(shape["workload"], "heavy")
         self.assertEqual(shape["node_count"], 4)
         self.assertEqual(shape["critical_path_nodes"], 3)

@@ -265,8 +265,11 @@ python3 scripts/manifest_tool.py dispatch-task TASK-001 <root> \
 ```
 
 Run the command once per eligible Task. Each result contains the exact Worker tier, `dispatch_id`,
-and a compiled brief with the authorized scope, relevant decisions, complete Task contract, Node
-DAG, and execution policy.
+the selected `agent_type`, a byte-stable Worker `assignment`, and a compiled brief with the
+authorized scope, relevant decisions, complete Task contract, Node DAG, and execution policy. A
+Task marked `worker: frontend` first checks Codex's optional local `frontend-worker`; when that valid
+configuration exists it must be dispatched, and only its absence falls back to the Task's
+standard/complex tier.
 
 The Worker receives this operating prompt with the returned brief:
 
@@ -276,6 +279,11 @@ authorization. Execute every currently ready Task Node concurrently; wait only a
 and never serialize independent Nodes for convenience. Stay inside the Task's ownership and return
 changed repository-relative paths plus focused evidence.
 ```
+
+For all eligible Tasks with the same returned `agent_type`, forward the returned `assignment`
+byte-for-byte as the common prompt prefix and append each Task's own brief. The stable prefix is
+intentional: it improves prompt-cache hits and Token efficiency. Dispatch every Task separately and
+concurrently; prompt reuse never authorizes sharing one live agent ID or combining Task contracts.
 
 Bind each Worker agent id to exactly one dispatch using `bind-agent`. A spawn result is not a
 completion signal. Record a Worker only when its exact final callback arrives:

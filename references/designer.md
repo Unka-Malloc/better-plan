@@ -32,6 +32,10 @@ depth, integration work, and verification volume. Do not estimate clock time. Wo
 select the Worker tier: broad repetitive work can be `heavy` but `standard`, while a small subtle
 change can be `light` but `complex`.
 
+Mark every Task's `Worker` as `frontend` only when it owns frontend implementation, and `general`
+otherwise. This specialization is independent from Difficulty and Workload. It lets the native main
+prefer an optional locally configured Frontend Worker without weakening the Task's fallback tier.
+
 You may add, delete, split, merge, reorder, or redesign any Task and may change interfaces, schemas,
 algorithms, data structures, state, concurrency, recovery, risk handling, tests, and acceptance.
 Preserve the user's immutable goal, selected options, global scope, and authority boundary. Do not

@@ -239,6 +239,15 @@ class V3ProtocolTests(unittest.TestCase):
         plan["spec"]["tasks"][0]["difficulty"] = "complex"
         self.assertEqual(validate_plan_document(self.path, plan), [])
 
+    def test_worker_specialization_defaults_to_general_and_rejects_unknown_values(self) -> None:
+        plan = complete_plan()
+        plan["spec"]["tasks"][0].pop("worker")
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+
+        plan["spec"]["tasks"][0]["worker"] = "backend"
+        issues = validate_plan_document(self.path, plan)
+        self.assertTrue(any("must be general or frontend" in issue.message for issue in issues))
+
     def test_authorized_phase_binds_the_semantic_digest(self) -> None:
         plan = complete_plan()
         plan["phase"] = "authorized"

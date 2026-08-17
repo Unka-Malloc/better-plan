@@ -68,6 +68,7 @@ def analyze_task(task: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "task": task.get("code"),
         "title": task.get("title"),
+        "worker": task.get("worker", "general"),
         "difficulty": task.get("difficulty"),
         "workload": task.get("workload"),
         "node_count": len(nodes),

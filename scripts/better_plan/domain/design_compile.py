@@ -28,6 +28,7 @@ Scope out:
 Outputs:
 Owns:
 Exclusive:
+Worker:
 Difficulty:
 Workload:
 Verification:
@@ -66,6 +67,7 @@ Outputs:
 Owns:
 - relative/path
 Exclusive:
+Worker: general
 Difficulty: standard
 Workload: medium
 Verification: code
@@ -212,6 +214,7 @@ _TASK_ALIASES = {
     "owns": "owns",
     "write paths": "owns",
     "exclusive": "exclusive",
+    "worker": "worker",
     "difficulty": "difficulty",
     "tier": "difficulty",
     "workload": "workload",
@@ -880,6 +883,16 @@ def _compile_design(
                     ))
                 elif risk not in risks:
                     risks.append(risk)
+        worker_entries = blocks.get("worker", [])
+        requested_worker = ([value for _, value in worker_entries] or ["general"])[0].lower()
+        worker = requested_worker if requested_worker in {"general", "frontend"} else "general"
+        if requested_worker not in {"general", "frontend"}:
+            issues.append(_issue(
+                "structure",
+                "Worker must be general or frontend",
+                worker_entries[0][0] if worker_entries else section["line"],
+                task_prefix + ".worker",
+            ))
         difficulty_entries = blocks.get("difficulty", [])
         requested_difficulty = ([value for _, value in difficulty_entries] or ["standard"])[0].lower()
         difficulty = requested_difficulty if requested_difficulty in {"standard", "complex"} else "standard"
@@ -959,6 +972,7 @@ def _compile_design(
                 "write_paths": ownership,
                 "shared_exclusive": _block_values(blocks, "exclusive"),
             },
+            "worker": worker,
             "difficulty": difficulty,
             "workload": workload,
             "verification": verification,

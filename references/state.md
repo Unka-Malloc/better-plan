@@ -174,6 +174,10 @@ they do not select the Worker tier mechanically. The Designer chooses `standard`
 holistically from the Task's coupling, unknowns, tradeoffs, failure consequences and reversibility,
 and verification difficulty.
 
+Every Task records `worker: general|frontend`. This specialization is independent from its
+`difficulty` tier. A Codex frontend Task deterministically selects the valid local optional
+`frontend-worker` when present; absence preserves the standard/complex tier selection.
+
 Every Task also records `workload: light|medium|heavy`. This is the Designer's relative estimate of
 execution volume across touchpoints, change breadth, critical-path depth, integration, and
 verification. It is not an elapsed-time estimate and does not select the Worker tier.

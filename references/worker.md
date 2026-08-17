@@ -11,6 +11,11 @@ keep the change minimal. `worker-complex` is the strong tier for a Task the Desi
 stronger reasoning: inspect the supplied risks, coupling, unknowns, failure consequences, and
 verification burden, then verify every material consequence before finishing.
 
+A Task also declares `worker: general|frontend`. On Codex, a frontend Task uses the optional local
+`frontend-worker` whenever that valid configuration exists; if it is absent, the Task keeps its
+standard/complex tier. The specialization changes the selected implementation role, not the frozen
+scope, ownership, acceptance, or evidence contract.
+
 Implement the observable outcome completely. You may choose private names, local control flow, and
 equivalent refactoring mechanics, but may not change frozen interfaces, schemas, output guarantees,
 scope, risk policy, or acceptance semantics. Resolve ordinary compiler, type, lint, test, import, and
