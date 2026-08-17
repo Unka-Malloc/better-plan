@@ -15,6 +15,12 @@ Better Plan installs four delivery roles per supported host:
 | `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / medium` |
 | `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
 
+Codex may additionally define an unmanaged optional `frontend-worker`. Better Plan never installs,
+updates, receipts, or recommends a selector for it. For a Task compiled with `worker: frontend`, the
+native main checks that local role before doing frontend implementation. A valid configured role is
+mandatory for the dispatch; only its absence permits fallback to `worker-standard` or
+`worker-complex`.
+
 When the local OpenCode runtime exposes the complete curated OpenCode Go selector set, its first
 installation pins `designer` and `reviewer` to `opencode-go/kimi-k3 / max`, `worker-standard` to
 `opencode-go/deepseek-v4-flash / high`, and `worker-complex` to
@@ -104,6 +110,11 @@ spawn, pass the returned Better Plan `agent_type`, set `fork_turns` to `none`, a
 unique lower-snake `task_name`. Never combine `agent_type` with a full-history fork: Codex inherits
 the parent role in that mode and rejects the configured child role.
 
+For the Worker frontier, group dispatches by exact returned `agent_type` only to reuse the returned
+assignment as a byte-identical prompt prefix. Append each Task's compiled brief afterward. The
+stable prefix improves provider prompt-cache hits and Token efficiency without merging Tasks,
+serializing the frontier, or reusing one live agent ID.
+
 Codex collaboration capacity is bounded and includes the native main. Inspect current capacity
 before `dispatch-task`, then dispatch only the eligible Tasks that can be spawned immediately. Keep
 the rest pending until a slot opens. Capacity-limited batching is a host constraint, not permission
@@ -116,18 +127,14 @@ normalization. It is the sole Better Plan host identity; a UI task/thread UUID i
 Wait for the exact final callback from that spawned task, then have the native main invoke
 `agent-complete` with the same canonical task name.
 
-Codex may deliver the Task body as encrypted content after a plaintext `Payload:` marker. A Worker
-that cannot see an actionable Task after that marker must fail closed with `payload-delivery-failed`;
-it must not infer a Task by scanning the workspace or selecting a nearby Plan.
+A Worker that receives no visible actionable Task must return `payload-delivery-failed`; it must not
+infer a Task by scanning the workspace or selecting a nearby Plan. This checks the actual dispatch
+payload only and never rejects a provider or conversion layer in advance.
 
-Codex Multi-Agent V2 is not plain OpenAI-compatible message forwarding. It relies on Responses API
-extensions that carry an encrypted tool argument into an `agent_message` containing
-`encrypted_content`. A provider or model that implements only basic OpenAI-compatible plaintext
-Chat Completions or Responses requests is therefore ineligible for Codex role dispatch. Compatibility
-must be proven end to end for this exact exchange; an OpenAI-compatible label alone is insufficient.
-Better Plan never strips, decrypts, or downgrades this payload to plaintext. When the configured role
-cannot consume the exchange, preserve the exact role, fail closed through the normal delegation
-lifecycle, and return the Task to the native main after retry exhaustion.
+Better Plan does not pre-qualify or reject a configured Codex role based on provider wire format,
+conversion layers, or the presence of a particular encrypted message envelope. A locally resolved
+role remains eligible for dispatch; its actual runtime result follows the normal delegation
+lifecycle.
 
 Codex has no Better Plan completion Hook. Its current subagent-stop event identifies the child by a
 thread UUID rather than the canonical task name returned by spawn, so a Hook cannot correlate the

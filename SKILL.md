@@ -43,6 +43,10 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   and its pristine archive are pre-authorization compiler inputs, never semantic state.
 - Every Task belongs to one mutually independent parallel frontier. Dependent implementation work
   stays inside one Task; Python fixes the v3 `prerequisites` and `inputs` fields to empty arrays.
+- Every Task declares `worker: general|frontend` independently from its standard/complex tier. For
+  a Codex frontend Task, the native main checks the local `frontend-worker` before doing frontend
+  implementation: a valid configured role must be dispatched, while an absent optional role falls
+  back to the Task's exact standard/complex Worker.
 - Every Task contains one static Node DAG. The Designer exposes all safe concurrency, Python
   generates and validates `NODE-*` references, and the Worker executes every ready Node
   concurrently, waiting only at declared joins. Nodes never gain separate roles or lifecycle state.
@@ -163,6 +167,12 @@ Spawn return is not completion. Silence, elapsed time, or context compaction is 
 host-confirmed terminated child with no final callback. At the retry ceiling `next-action` reports
 `complete_in_main` and the native main completes that same role contract.
 
+Group eligible Tasks by the exact returned `agent_type` only for prompt construction. Reuse the
+returned Worker assignment byte-for-byte as each group's prompt prefix and append the individual
+compiled brief as its suffix. This stable prefix is specifically for higher prompt-cache hit rate
+and Token efficiency; Tasks still dispatch separately and concurrently, and never share one live
+host agent ID.
+
 Before the first role dispatch, apply the native host's exact spawn, capacity, identity, and
 completion rules from `references/host-configuration.md`. Host-imposed batching never changes Task
 contracts or authorizes an unconfigured fallback role.
@@ -223,7 +233,8 @@ pending defects in the final user handoff.
 Every Task freezes a stable `TASK-*` code, title, outcome, in/out scope, `OUT-*` outputs with
 guarantees, write ownership and exclusive shared resources, tier
 (`standard` or `complex`), workload (`light`, `medium`, or `heavy`), verification (`code`, `visual`,
-or `hybrid`), requirements, risk tags, design decisions, `AC-*` Given/When/Then acceptance with an
+or `hybrid`), Worker specialization (`general` or `frontend`), requirements, risk tags, design
+decisions, `AC-*` Given/When/Then acceptance with an
 exact oracle and evidence, and focused regression commands with fingerprint paths. Python emits
 empty `prerequisites` and `inputs`
 compatibility fields; the workflow has no cross-Task scheduling edges. Each Task also contains a

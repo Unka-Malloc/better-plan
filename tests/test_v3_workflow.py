@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from scripts.better_plan.application.agent_completion import reduce_agent_completion
+from scripts.better_plan.application.workflow import _task_worker_selector
 from scripts.better_plan.domain.design_compile import DESIGN_EXAMPLE, DESIGN_TEMPLATE
 from tests.v3_fixtures import MARKER_COMMAND, draft_plan, task, write_workspace
 
@@ -177,6 +178,46 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertTrue(checkpoints["full_regression"]["passed"])
         self.assertEqual((self.root / "full-count.txt").read_text(encoding="utf-8"), "1")
         self.assertEqual(self.cli("validate", str(self.root)).returncode, 0)
+
+    def test_frontend_task_prefers_the_optional_configured_codex_worker(self) -> None:
+        value = self.read_plan()
+        frontend_task = value["spec"]["tasks"][0]
+        frontend_task["worker"] = "frontend"
+        self.write_plan(value)
+        codex_home = self.root / "codex-home"
+
+        absent_role, _ = _task_worker_selector(frontend_task, "codex", str(codex_home))
+        self.assertEqual(absent_role, "worker-standard")
+
+        agents = codex_home / "agents"
+        agents.mkdir(parents=True)
+        (agents / "frontend-worker.toml").write_text(
+            'name = "frontend-worker"\n'
+            'model = "k3"\n'
+            'model_provider = "kimi_code"\n'
+            'model_reasoning_effort = "max"\n',
+            encoding="utf-8",
+        )
+        self.design_and_authorize()
+
+        dispatched = self.payload(
+            "dispatch-task",
+            "TASK-001",
+            str(self.root),
+            "--plan",
+            PLAN,
+            "--native-host",
+            "codex",
+            "--codex-home",
+            str(codex_home),
+        )
+
+        self.assertEqual(dispatched["agent_type"], "frontend-worker")
+        self.assertEqual(dispatched["model"], "k3")
+        self.assertEqual(dispatched["model_provider"], "kimi_code")
+        self.assertEqual(dispatched["reasoning_effort"], "max")
+        self.assertEqual(dispatched["prompt_cache_group"], "frontend-worker")
+        self.assertIn("prompt-cache hits and Token efficiency", dispatched["assignment"])
 
     def test_full_regression_fingerprint_ignores_its_state_but_detects_repairs(self) -> None:
         value = self.read_plan()

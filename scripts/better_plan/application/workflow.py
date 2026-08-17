@@ -66,6 +66,14 @@ from ..infrastructure.workspace import (
 MAX_DELEGATION_ATTEMPTS = 3
 COMMAND_TIMEOUT_SECONDS = 1800
 OUTPUT_TAIL_CHARACTERS = 2000
+FRONTEND_WORKER_ROLE = "frontend-worker"
+WORKER_ASSIGNMENT_PREFIX = (
+    "Native main: reuse this instruction prefix byte-for-byte for every eligible Task with the "
+    "same returned agent_type, then append only that Task's compiled brief. The stable prefix "
+    "improves prompt-cache hits and Token efficiency. Dispatch Tasks separately and concurrently; "
+    "never bind one live agent id to multiple Tasks. Worker: implement exactly the supplied Task, "
+    "execute every ready Node concurrently, stay inside its ownership, and return focused evidence."
+)
 
 
 def _now() -> str:
@@ -1031,6 +1039,21 @@ def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, A
     }
 
 
+def _task_worker_selector(
+    task: Mapping[str, Any],
+    native_host: str | None,
+    codex_home: str | None,
+) -> tuple[str, dict[str, Any]]:
+    """Prefer the optional configured Codex Frontend Worker for frontend Tasks."""
+
+    tier_role = "worker-%s" % task.get("difficulty")
+    if task.get("worker") == "frontend" and native_host == "codex":
+        frontend = _selector_payload(FRONTEND_WORKER_ROLE, native_host, codex_home)
+        if frontend.get("main_thread_fallback") is not True:
+            return FRONTEND_WORKER_ROLE, frontend
+    return tier_role, _selector_payload(tier_role, native_host, codex_home)
+
+
 def dispatch_task(args: Any) -> int:
     """Dispatch one pending parallel Task, or re-dispatch a failed acceptance."""
 
@@ -1048,8 +1071,7 @@ def dispatch_task(args: Any) -> int:
         if not correction and state.get("status") != "pending":
             raise ToolError("Task is not eligible for dispatch")
         attempts = int(prior.get("attempts", 0)) + 1 if correction and isinstance(prior, Mapping) else 1
-        role = "worker-%s" % task.get("difficulty")
-        selector = _selector_payload(role, args.native_host, args.codex_home)
+        role, selector = _task_worker_selector(task, args.native_host, args.codex_home)
         dispatch_id = generate_id()
         state.update(
             {
@@ -1072,6 +1094,8 @@ def dispatch_task(args: Any) -> int:
         "dispatch_id": dispatch_id,
         "task": args.task,
         "correction": correction,
+        "assignment": WORKER_ASSIGNMENT_PREFIX,
+        "prompt_cache_group": role,
         "role_reference": "references/worker.md",
         "brief": _leaf_brief(plan, task),
     }

@@ -23,6 +23,7 @@ Outputs:
 Owns:
 - published
 Exclusive:
+Worker: frontend
 Difficulty: standard
 Workload: heavy
 Verification: code
@@ -71,6 +72,7 @@ EXPECTED_SPEC = {
             "guarantee": "The delivery can rely on the verified behavior.",
         }],
         "ownership": {"write_paths": ["relative/path"], "shared_exclusive": []},
+        "worker": "general",
         "difficulty": "standard",
         "workload": "medium",
         "verification": "code",
@@ -148,6 +150,7 @@ class DesignCompileTests(unittest.TestCase):
 
         self.assertEqual(result["issues"], [])
         first, second = result["spec"]["tasks"]
+        self.assertEqual(second["worker"], "frontend")
         self.assertEqual(second["difficulty"], "standard")
         self.assertEqual(second["workload"], "heavy")
         self.assertEqual(first["prerequisites"], [])
@@ -163,6 +166,7 @@ class DesignCompileTests(unittest.TestCase):
         self.assertEqual(default_task["scope"]["out"], [])
         self.assertEqual(default_task["risks"], [])
         self.assertEqual(default_task["difficulty"], "standard")
+        self.assertEqual(default_task["worker"], "general")
         self.assertEqual(default_task["workload"], "medium")
         self.assertEqual(default_task["verification"], "code")
 
@@ -256,6 +260,9 @@ class DesignCompileTests(unittest.TestCase):
             "Workload: medium",
             "Workload: enormous",
         ).replace(
+            "Worker: general",
+            "Worker: backend",
+        ).replace(
             "Risks:\n",
             "Risks:\n- unknown-risk\n",
         ).replace(
@@ -275,6 +282,10 @@ class DesignCompileTests(unittest.TestCase):
         ))
         self.assertTrue(any(
             issue["field"] == "spec.tasks[0].workload"
+            for issue in result["issues"]
+        ))
+        self.assertTrue(any(
+            issue["field"] == "spec.tasks[0].worker"
             for issue in result["issues"]
         ))
         self.assertTrue(any(
