@@ -53,6 +53,7 @@ DELIVERY_STATUSES = ("pending", "in_progress", "completed", "blocked")
 DISPATCH_PHASES = ("worker_running", "worker_correction", "awaiting_acceptance")
 
 VALID_DIFFICULTIES = ("standard", "complex")
+VALID_WORKERS = ("general", "frontend")
 VALID_WORKLOADS = ("light", "medium", "heavy")
 VALID_VERIFICATIONS = ("code", "visual", "hybrid")
 RENDERED_VERIFICATIONS = frozenset({"visual", "hybrid"})
@@ -264,6 +265,7 @@ def task_template() -> dict[str, Any]:
             }
         ],
         "ownership": {"write_paths": ["relative/output"], "shared_exclusive": []},
+        "worker": "general",
         "difficulty": "standard",
         "workload": "medium",
         "verification": "code",

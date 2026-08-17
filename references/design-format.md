@@ -66,6 +66,7 @@ Owns:
 - relative/path
 Exclusive:
 - shared resource name
+Worker: general
 Difficulty: standard
 Workload: medium
 Verification: code
@@ -90,7 +91,10 @@ Paths:
 - relative/path
 ```
 
-`Scope out` and risks default to empty, `Difficulty` to `standard`, and `Verification` to `code`.
+`Scope out` and risks default to empty, `Worker` to `general`, `Difficulty` to `standard`, and
+`Verification` to `code`. Use `Worker: frontend` only when the Task owns frontend implementation;
+it is orthogonal to difficulty. On Codex, the native main must prefer a valid locally configured
+`frontend-worker` for such a Task and otherwise uses the declared standard/complex tier Worker.
 The Designer chooses `Difficulty` holistically, not by matching risk names or counting files. Use
 `standard` when the path is clear, invariants are local, and failures are easy to detect and recover.
 Use `complex` when stronger reasoning is materially useful because one dominant factor or several

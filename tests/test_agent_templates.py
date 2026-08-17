@@ -147,6 +147,8 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("do not ask the user", worker)
         self.assertIn("economical tier", worker)
         self.assertIn("strong tier", worker)
+        self.assertIn("worker: general|frontend", worker)
+        self.assertIn("optional local", worker)
         self.assertIn("directly repair every in-scope defect", reviewer)
         self.assertIn("there is no repair task and no second reviewer", reviewer)
         self.assertIn("rendered evidence", reviewer)
@@ -166,6 +168,16 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("prior comparable experience", skill)
         self.assertIn("heavy or early-stage work longer windows", skill)
         self.assertIn("re-estimate after every progress signal or expired wait", skill)
+
+    def test_main_prompt_requires_frontend_specialization_and_cache_stable_worker_prefixes(self) -> None:
+        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
+
+        self.assertIn("worker: general|frontend", skill)
+        self.assertIn("checks the local `frontend-worker`", skill)
+        self.assertIn("a valid configured role must be dispatched", skill)
+        self.assertIn("reuse the returned worker assignment byte-for-byte", skill)
+        self.assertIn("prompt-cache hit rate and token efficiency", skill)
+        self.assertIn("never share one live host agent id", skill)
 
     def test_delivery_guardrails_are_disclosed_by_role(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
@@ -270,11 +282,8 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("explicit replacement request", guidance)
         self.assertIn("doctor reports the integrity finding as a warning without a repair proposal", guidance)
         self.assertIn("fork_turns", guidance)
-        self.assertIn("not plain openai-compatible message forwarding", guidance)
-        self.assertIn("agent_message", guidance)
-        self.assertIn("encrypted_content", guidance)
-        self.assertIn("an openai-compatible label alone is insufficient", guidance)
-        self.assertIn("never strips, decrypts, or downgrades this payload to plaintext", guidance)
+        self.assertIn("does not pre-qualify or reject a configured codex role", guidance)
+        self.assertIn("a locally resolved role remains eligible for dispatch", guidance)
         self.assertIn("codex has no better plan completion hook", guidance)
         self.assertIn("kilo task adapter", guidance)
         self.assertIn("better-plan-designer", guidance)
@@ -304,6 +313,7 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("choose task difficulty holistically, not by keyword matching", template)
                 self.assertIn("risk tags and surface size are evidence, not automatic triggers", template)
                 self.assertIn("mark workload as light, medium, or heavy", plain_template)
+                self.assertIn("worker as frontend only when it owns frontend implementation", plain_template)
                 self.assertIn("never estimate clock time", template)
                 self.assertIn("backend runtime data", template)
                 self.assertIn("suitable proven open-source implementations", template)

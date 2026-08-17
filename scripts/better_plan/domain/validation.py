@@ -30,6 +30,7 @@ from .models import (
     TASK_STATUSES,
     VALID_AUTHORIZATION_SOURCES,
     VALID_DIFFICULTIES,
+    VALID_WORKERS,
     VALID_RISKS,
     VALID_WORKLOADS,
     VALID_VERIFICATIONS,
@@ -56,7 +57,8 @@ TASK_REQUIRED_FIELDS = {
     "risks",
 }
 TASK_DESIGN_FIELDS = {"inputs", "outputs", "nodes", "design", "acceptance", "focused_regression"}
-TASK_ALLOWED_FIELDS = TASK_REQUIRED_FIELDS | TASK_DESIGN_FIELDS
+TASK_OPTIONAL_FIELDS = {"worker"}
+TASK_ALLOWED_FIELDS = TASK_REQUIRED_FIELDS | TASK_DESIGN_FIELDS | TASK_OPTIONAL_FIELDS
 LIFECYCLE_REQUIRED_FIELDS = {
     "sealed",
     "designer_session",
@@ -508,6 +510,8 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
         issues.extend(_validate_nodes(path, nodes, index, require_design))
     if task.get("difficulty") not in VALID_DIFFICULTIES:
         issues.append(_issue(path, "%s.difficulty" % label, "must be standard or complex"))
+    if task.get("worker", "general") not in VALID_WORKERS:
+        issues.append(_issue(path, "%s.worker" % label, "must be general or frontend"))
     if task.get("workload") not in VALID_WORKLOADS:
         issues.append(_issue(path, "%s.workload" % label, "must be light, medium, or heavy"))
     if task.get("verification") not in VALID_VERIFICATIONS:

@@ -53,6 +53,10 @@ its short state snapshot and result commit.
 | `worker-complex` | strong | one Task the Designer judges to need stronger reasoning |
 | `reviewer` | high | post-regression source, test, evidence, and diagnostic audit |
 
+Codex can also provide an optional unmanaged `frontend-worker`. Tasks explicitly marked
+`worker: frontend` must use it when its local configuration is valid; without it they retain their
+standard/complex Worker tier. Better Plan does not install or rewrite this specialist role.
+
 ## Quick schema inspection
 
 ```sh
