@@ -61,7 +61,8 @@ class PythonCompatibilityContractTests(unittest.TestCase):
                 ("ubuntu-latest", "3.x"),
             }.issubset(jobs)
         )
-        self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("python scripts/run_tests.py", workflow)
+        self.assertNotIn("unittest discover", workflow)
         for kind in ("manifest", "plan", "task", "question", "checkpoints"):
             self.assertIn("python scripts/manifest_tool.py schema %s" % kind, workflow)
         # Removed verbs must never reappear in the smoke test.

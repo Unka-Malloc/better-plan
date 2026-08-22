@@ -490,7 +490,12 @@ regression evidence, marks the Reviewer `completed`, marks Checkpoints `complete
 Plan to `completed`. Only after checking that green covered-path fingerprint, it creates one
 separate unapproved `draft` Plan per recorded out-of-scope finding and returns those Plans in
 `followup_plans`; `user_handoff_required` is then true. Production code must not change afterward,
-and no follow-up starts without its own authorization.
+and no follow-up starts without its own authorization. The successful close also returns a
+`version_control_handoff`; this is an instruction for the native main, not an automatic Git side
+effect and not Reviewer work. If the project is a Git repository, the native main inspects the
+final worktree, preserves unrelated changes, and creates exactly one commit for the completed Plan
+on the current branch using the repository's normal Git conventions. It skips this step outside a
+Git repository. Creating the commit must not edit production files.
 
 For a proven hard blocker, close with a privacy-safe public summary:
 
@@ -517,8 +522,10 @@ python3 scripts/manifest_tool.py tree <root> --plan <plan> --details
 The final user report summarizes the delivered outcome, completed or blocked Tasks, complete
 regression result, Reviewer repairs, rendered evidence when applicable, and any hard blocker. It
 also lists every `followup_plans` entry as a confirmed pending defect with its impact and states that
-the draft repair Plan remains unapproved. It does not dispatch another role, execute a follow-up,
-rerun a green complete regression, or introduce a new approval.
+the draft repair Plan remains unapproved. For a completed delivery it also reports whether the
+native main created the one-Plan Git commit or skipped it because the project is not a Git
+repository. It does not dispatch another role, execute a follow-up, rerun a green complete
+regression, or introduce a new approval.
 
 ## Recovery and fail-closed rules
 

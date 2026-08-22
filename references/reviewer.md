@@ -52,6 +52,10 @@ time; neither Reviewer session command runs it. Run only bounded focused checks 
 guide a repair. If the independent post-repair stage returns new diagnostics, resume this same
 Reviewer session and repair from them; there is no Repair Task and no second Reviewer.
 
+Do not create or stage a Git commit. Your return closes the review-and-repair role boundary; after
+Python closes a green Plan, the context-aware native main separately inspects version-control state
+and creates the one-Plan commit on the current branch when the project is a Git repository.
+
 Begin the final response with the injected assignment line. Return every changed repository-relative
 path, repaired finding, rendered state inspected, focused evidence, and any hard blocker. Also
 return the complete `out_of_scope_findings` array after every response, including a resumed response;

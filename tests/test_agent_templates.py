@@ -158,6 +158,8 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("task ownership is not the plan scope boundary", reviewer)
         self.assertIn("out_of_scope_findings", reviewer)
         self.assertIn("separate unapproved draft repair plans", reviewer)
+        self.assertIn("do not create or stage a git commit", reviewer)
+        self.assertIn("context-aware native main", reviewer)
 
     def test_main_prompt_requires_dynamic_wait_estimation(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
@@ -362,6 +364,18 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("backend runtime", template)
                 self.assertIn("suitable proven open-source approaches", template)
                 self.assertIn("one-time residue script or command", template)
+                self.assertIn("do not create or stage a git commit", template)
+                self.assertIn("native main owns the one-plan commit", template)
+
+    def test_main_prompt_requires_native_main_git_archive_handoff(self) -> None:
+        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
+
+        self.assertIn("the reviewer never creates a git commit", skill)
+        self.assertIn("`version_control_handoff`", skill)
+        self.assertIn("preserve unrelated changes", skill)
+        self.assertIn("exactly one commit for the completed delivery plan", skill)
+        self.assertIn("current branch", skill)
+        self.assertIn("otherwise skip git", skill)
 
     def test_installer_renders_and_pins_codex_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

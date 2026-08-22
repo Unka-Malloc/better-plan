@@ -68,6 +68,11 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   `out_of_scope_findings` array after every response. The native main records it before regression
   or close; only after the current Plan closes does Python create separate unapproved draft repair
   Plans, which the native main must report to the user rather than silently discard or execute.
+- The Reviewer never creates a Git commit. After a successful close, Python returns a
+  `version_control_handoff` and the native main owns the final archival judgment: if the project is
+  a Git repository, inspect the final worktree, preserve unrelated changes, and create exactly one
+  commit for the completed Delivery Plan on the current branch using the repository's normal Git
+  conventions; otherwise skip Git. Committing must not change production files.
 - After authorization, never ask the user another question. Apply the frozen decision precedence,
   revise unstarted in-scope work autonomously, continue independent branches, and report hard
   authority or environment blockers only at final handoff.
@@ -225,8 +230,12 @@ either closes against an unchanged green receipt or names `run_full_regression`.
 independent rerun yields diagnostics for the same Reviewer session; never dispatch a second
 Reviewer. The resumed Reviewer returns the complete findings array again and the native main
 re-records it. `close-reviewer-session` performs no tests. Once the session closes, no production
-code may change. The close result lists every generated draft repair Plan; include those unapproved
-pending defects in the final user handoff.
+code may change. The close result lists every generated draft repair Plan and returns the terminal
+`version_control_handoff`. Before the final user report, the native main checks whether the project
+is a Git repository. In Git, it inspects the final worktree, excludes unrelated existing changes,
+and creates one repository-conventional commit for this completed Plan on the current branch; in a
+non-Git project it skips that action. The Reviewer and Python lifecycle commands never create the
+commit. Include the commit outcome and every unapproved pending defect in the final user handoff.
 
 ## Task contract
 
