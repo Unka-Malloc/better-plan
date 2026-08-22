@@ -42,7 +42,10 @@ Closing the design session only verifies correlation and immutability, so it can
 gate. A continuation may revise unstarted work without another Designer or user question when the
 change stays inside the approved goal, scope, decisions, and risk boundary. Started Tasks stay frozen.
 Focused acceptance runs concurrently across independent Tasks and holds the workspace lock only for
-its short state snapshot and result commit.
+its short state snapshot and result commit. A successful Reviewer close emits a version-control
+handoff instead of running Git itself: the native main creates one commit for that completed Plan on
+the current branch when the project is a Git repository, after inspecting the worktree and
+preserving unrelated changes; non-Git projects skip the step.
 
 ## Roles
 
@@ -137,11 +140,15 @@ exists and remain immutable afterward.
 Python 3.8 or newer is the supported runtime range.
 
 Run focused tests while changing one invariant. After all changes are integrated, run the complete
-suite once:
+suite once through the process-isolated parallel scheduler:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_*.py'
+python3 scripts/run_tests.py
 ```
+
+The scheduler partitions tests by architecture boundary and runs all shards concurrently. For a
+focused run, select one of `core`, `hosts`, `installation`, `workflow`, or `tooling` with
+`--shard`. Every `tests/test_*.py` module must belong to exactly one shard.
 
 The Better Plan source repository uses its ordinary native development workflow and never requires
 a repository-local Plan workspace for self-maintenance.
@@ -163,6 +170,8 @@ a repository-local Plan workspace for self-maintenance.
    regression.
 7. Reuse unchanged green evidence or rerun the independent regression after repairs. Resume the
    same Reviewer on failure, then close the delivery without a second Reviewer or approval gate.
+8. On a successful close, the native main follows the version-control handoff: commit this Plan's
+   final delivery once on the current branch in a Git repository, or skip the step outside Git.
 
 The [end-to-end workflow guide](references/workflow.md) lists every command, role handoff, prompt,
 state transition, repair path, and final close step. Designer draft syntax and deterministic

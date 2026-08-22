@@ -926,6 +926,23 @@ PRE_DELIVERY_ACTIONS = {
 }
 
 
+def _version_control_handoff(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the terminal Git action that only the context-aware native main may perform."""
+
+    return {
+        "action": "commit_delivery_if_git",
+        "owner": "native_main",
+        "condition": "git_repository",
+        "target": "current_branch",
+        "plan": {"code": plan.get("code"), "title": plan.get("title")},
+        "instruction": (
+            "If the project is a Git repository, inspect the final worktree, preserve unrelated "
+            "changes, and create exactly one commit for this completed Delivery Plan on the "
+            "current branch using the repository's normal Git conventions; otherwise skip Git."
+        ),
+    }
+
+
 def next_action(args: Any) -> int:
     """Name exactly one next action for the single parallel Task frontier."""
 
@@ -954,7 +971,10 @@ def next_action(args: Any) -> int:
                 )
                 return 0
         if phase != "authorized":
-            print(json.dumps({"action": PRE_DELIVERY_ACTIONS[phase], "phase": phase}))
+            payload = {"action": PRE_DELIVERY_ACTIONS[phase], "phase": phase}
+            if phase == "completed":
+                payload["version_control_handoff"] = _version_control_handoff(plan)
+            print(json.dumps(payload))
             return 0
         checkpoints = read_json(paths["checkpoints"])
     corrections: list[str] = []
@@ -1524,6 +1544,7 @@ def _reviewer_brief(
             "Return the complete structured out_of_scope_findings array after every response, including resumes.",
             "Do not run or wait for the full regression; Python runs it outside Reviewer model time.",
             "Use bounded focused checks only when they materially guide a repair.",
+            "Do not create or stage a Git commit; the native main owns that action after close.",
             "Do not ask the user or create another Reviewer or Repair Task.",
         ],
     }
@@ -1818,6 +1839,7 @@ def close_reviewer_session(args: Any) -> int:
                 "followup_plans": followup_plans,
                 "pending_repair_plans": len(followup_plans),
                 "user_handoff_required": bool(followup_plans),
+                "version_control_handoff": _version_control_handoff(plan),
             }
         )
     )
