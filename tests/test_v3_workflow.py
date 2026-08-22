@@ -166,7 +166,17 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertNotEqual(premature.returncode, 0)
         self.assertIn("independent full regression", premature.stderr)
         result = self.close_review("reviewer.agent")
-        self.assertTrue(json.loads(result.stdout)["completed"])
+        closed = json.loads(result.stdout)
+        self.assertTrue(closed["completed"])
+        handoff = closed["version_control_handoff"]
+        self.assertEqual(
+            (handoff["action"], handoff["owner"], handoff["condition"], handoff["target"]),
+            ("commit_delivery_if_git", "native_main", "git_repository", "current_branch"),
+        )
+        self.assertEqual(handoff["plan"]["code"], PLAN)
+        self.assertEqual(handoff["plan"]["title"], "Complete delivery")
+        self.assertIn("preserve unrelated changes", handoff["instruction"])
+        self.assertIn("otherwise skip Git", handoff["instruction"])
         self.assertNotEqual(
             self.cli("open-reviewer-session", str(self.root), "--plan", PLAN, check=False).returncode, 0
         )
@@ -615,7 +625,9 @@ class V3WorkflowTests(unittest.TestCase):
             "close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", session["id"],
             "--blocked-reason", "external dependency could not be reached",
         )
-        self.assertTrue(json.loads(result.stdout)["blocked"])
+        blocked_close = json.loads(result.stdout)
+        self.assertTrue(blocked_close["blocked"])
+        self.assertNotIn("version_control_handoff", blocked_close)
         self.assertEqual(self.read_plan()["phase"], "blocked")
 
     def test_exhausted_delegation_falls_back_to_the_same_native_session(self) -> None:
@@ -662,6 +674,10 @@ class V3WorkflowTests(unittest.TestCase):
             ],
         )
         self.assertIn("out_of_scope_findings", json.dumps(review["brief"]))
+        self.assertIn(
+            "Do not create or stage a Git commit",
+            " ".join(review["brief"]["execution_policy"]),
+        )
         self.assertEqual(regression["action"], "open_reviewer_session")
 
     def test_authorization_can_prove_the_host_harness_without_mutating_inputs(self) -> None:
@@ -1036,7 +1052,12 @@ class V3WorkflowTests(unittest.TestCase):
         self.record_review_findings(review["dispatch_id"])
         self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "close_reviewer_session")
         self.cli("close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"])
-        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "delivery_complete")
+        completed = self.payload("next-action", str(self.root), "--plan", PLAN)
+        self.assertEqual(completed["action"], "delivery_complete")
+        self.assertEqual(
+            completed["version_control_handoff"]["action"],
+            "commit_delivery_if_git",
+        )
 
     def test_status_and_tree_report_live_v3_state(self) -> None:
         self.design_and_authorize()
