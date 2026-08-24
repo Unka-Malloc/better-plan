@@ -90,13 +90,13 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertLess(len(body.split()), 60)
         self.assertIn("Handle simple tasks directly", body)
         self.assertIn("load the `better-plan` Skill", body)
+        self.assertIn('    "*": allow', primary)
         for filename in install_targets.KILO_SUBAGENTS:
             agent_name = Path(filename).stem
             text = (directory / filename).read_text(encoding="utf-8")
             canonical = (
                 ROOT / "agents" / "opencode" / filename[len("better-plan-") :]
             ).read_text(encoding="utf-8")
-            self.assertIn(f"    {agent_name}: allow", primary)
             self.assertIn("mode: subagent", text)
             self.assertIn("  task: deny", text)
             self.assertIn("  question: deny", text)
