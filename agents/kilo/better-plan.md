@@ -4,11 +4,7 @@ mode: primary
 color: "#7C3AED"
 permission:
   task:
-    "*": deny
-    better-plan-designer: allow
-    better-plan-worker-standard: allow
-    better-plan-worker-complex: allow
-    better-plan-reviewer: allow
+    "*": allow
   skill:
     "*": deny
     better-plan: allow

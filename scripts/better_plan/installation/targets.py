@@ -107,11 +107,7 @@ def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
             if filename == "better-plan.md":
                 required = (
                     "mode: primary",
-                    '"*": deny',
-                    "better-plan-designer: allow",
-                    "better-plan-worker-standard: allow",
-                    "better-plan-worker-complex: allow",
-                    "better-plan-reviewer: allow",
+                    '"*": allow',
                     "better-plan: allow",
                     "Handle simple tasks directly",
                 )
