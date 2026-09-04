@@ -10,8 +10,9 @@ import tempfile
 import unittest
 
 from scripts.better_plan.application.agent_completion import reduce_agent_completion
-from scripts.better_plan.application.workflow import _task_worker_selector
+from scripts.better_plan.application.workflow import _project_root, _task_worker_selector
 from scripts.better_plan.domain.design_compile import DESIGN_EXAMPLE, DESIGN_TEMPLATE
+from scripts.better_plan.domain.models import ToolError
 from tests.v3_fixtures import MARKER_COMMAND, draft_plan, task, write_workspace
 
 
@@ -1067,6 +1068,29 @@ class V3WorkflowTests(unittest.TestCase):
         tree = self.cli("tree", str(self.root), "--details").stdout
         self.assertIn("TASK-001", tree)
         self.assertIn("tier=standard", tree)
+
+    def test_manifest_project_root_runs_regressions_in_the_delivered_repository(self) -> None:
+        project = self.root / "delivered-repository"
+        project.mkdir()
+        workspace = self.root / "planning"
+        workspace.mkdir()
+        write_workspace(workspace, draft_plan())
+        manifest_path = workspace / "Manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["project_root"] = "../delivered-repository"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        self.assertEqual(_project_root(workspace), project.resolve())
+        self.assertEqual(_project_root(self.root), self.root.resolve())
+
+        manifest["project_root"] = "../missing-repository"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaises(ToolError):
+            _project_root(workspace)
+        manifest["project_root"] = str(project)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaises(ToolError):
+            _project_root(workspace)
 
 
 if __name__ == "__main__":
