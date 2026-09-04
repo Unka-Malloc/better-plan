@@ -213,7 +213,17 @@ def validate_manifest_document(path: Path, data: Any) -> list[Issue]:
         return [_issue(path, "manifest", "top-level value must be an object")]
     if data.get("schema") != MANIFEST_SCHEMA:
         issues.append(_issue(path, "manifest.schema", "unsupported generation"))
-    issues.extend(_unknown_fields(path, "manifest", data, {"schema", "plans"}))
+    issues.extend(_unknown_fields(path, "manifest", data, {"schema", "plans", "project_root"}))
+    project_root = data.get("project_root")
+    if project_root is not None and (
+        not isinstance(project_root, str)
+        or not project_root.strip()
+        or "\x00" in project_root
+        or Path(project_root.replace("\\", "/")).is_absolute()
+    ):
+        issues.append(
+            _issue(path, "manifest.project_root", "must be a relative path from the workspace root")
+        )
     plans = data.get("plans")
     if not isinstance(plans, list):
         return issues + [_issue(path, "manifest.plans", "must be an array")]
