@@ -32,6 +32,7 @@ from ..domain.models import (
     checkpoints_template,
     generate_id,
     manifest_template,
+    plain_shell_command,
     plan_template,
     public_summary,
     safe_summary_issue,
@@ -302,7 +303,7 @@ def _run_commands_with_diagnostics(
     for index, command in enumerate(commands):
         try:
             completed = subprocess.run(
-                command,
+                plain_shell_command(command),
                 cwd=str(project_root),
                 shell=True,
                 stdout=subprocess.PIPE,
