@@ -7,7 +7,13 @@ from typing import Any, Mapping, Sequence
 import hashlib
 import re
 
-from .models import VALID_RISKS, safe_summary_issue, sha256_value
+from .models import (
+    VALID_RISKS,
+    plain_regression_paths,
+    plain_shell_command,
+    safe_summary_issue,
+    sha256_value,
+)
 
 
 _HEADING = re.compile(r"^\s*(#{1,4})\s+(.+?)\s*$")
@@ -422,6 +428,15 @@ def _parse_architecture(
     return {"summary": summary, "notes": notes}
 
 
+def _regression_values(key: str, text: str) -> list[str]:
+    """Normalize one Commands or Paths entry into executable plain values."""
+
+    if key == "paths":
+        return plain_regression_paths([text])
+    value = plain_shell_command(text)
+    return [value] if value else []
+
+
 def _parse_regression(
     body: Sequence[tuple[int, str]],
     section_line: int,
@@ -451,13 +466,15 @@ def _parse_regression(
             current = key
             locations["%s.%s" % (prefix, key)] = number
             if match.group(2):
-                locations["%s.%s[%d]" % (prefix, key, len(blocks[key]))] = number
-                blocks[key].append(match.group(2).strip())
+                for value in _regression_values(key, match.group(2)):
+                    locations["%s.%s[%d]" % (prefix, key, len(blocks[key]))] = number
+                    blocks[key].append(value)
             continue
         bullet = _BULLET.match(raw)
         if bullet and current:
-            locations["%s.%s[%d]" % (prefix, current, len(blocks[current]))] = number
-            blocks[current].append(bullet.group(1).strip())
+            for value in _regression_values(current, bullet.group(1)):
+                locations["%s.%s[%d]" % (prefix, current, len(blocks[current]))] = number
+                blocks[current].append(value)
             continue
         issues.append(_issue("structure", "unrecognized %s field" % label, number, prefix))
     if not blocks["commands"]:
@@ -982,8 +999,12 @@ def _compile_design(
             "design": design,
             "acceptance": [],
             "focused_regression": {
-                "commands": _block_values(blocks, "regression.commands"),
-                "paths": _block_values(blocks, "regression.paths"),
+                "commands": [
+                    command
+                    for value in _block_values(blocks, "regression.commands")
+                    for command in _regression_values("commands", value)
+                ],
+                "paths": plain_regression_paths(_block_values(blocks, "regression.paths")),
             },
         }
         if not _block_values(blocks, "outcome"):

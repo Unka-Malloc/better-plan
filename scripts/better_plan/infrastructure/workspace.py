@@ -24,6 +24,7 @@ from ..domain.models import (
     PLAN_NAME,
     ToolError,
     is_relative_workspace_path,
+    plain_regression_paths,
 )
 from ..domain.validation import (
     validate_checkpoints_document,
@@ -255,7 +256,7 @@ def fingerprint_paths(
 
     excluded = set(excluded_paths)
     digest = hashlib.sha256()
-    for relative in sorted(set(paths)):
+    for relative in sorted(set(plain_regression_paths(paths))):
         if not is_relative_workspace_path(relative):
             raise ToolError("fingerprint path must be repository-relative")
         path = project_root / relative
