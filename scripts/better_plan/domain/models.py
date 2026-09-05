@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 import hashlib
 import json
 import re
@@ -171,6 +171,39 @@ def semantic_digest(plan: Mapping[str, Any]) -> str:
 def normalize_workspace_path(value: str) -> str:
     text = Path(value.replace("\\", "/")).as_posix()
     return text[2:] if text.startswith("./") else text
+
+
+def plain_shell_command(value: str) -> str:
+    """Return one regression command without a Markdown code-span wrapper.
+
+    Designers habitually write ``- `cmake --build build` ``; a literal backtick
+    pair handed to the shell becomes command substitution that executes the
+    command's own output. The wrapper carries no meaning, so it is removed
+    wherever a stored command is executed or compiled.
+    """
+
+    text = value.strip()
+    if len(text) >= 2 and text[0] == "`" and text[-1] == "`" and "`" not in text[1:-1]:
+        text = text[1:-1].strip()
+    return text
+
+
+def plain_regression_paths(values: Iterable[str]) -> list[str]:
+    """Return declared regression paths as separate plain repository-relative entries.
+
+    One Markdown bullet may list several backticked, comma-separated paths. Each
+    path becomes its own entry so fingerprinting covers exactly the declared files.
+    """
+
+    paths: list[str] = []
+    for raw in values:
+        for item in str(raw).split(","):
+            text = item.strip()
+            if len(text) >= 2 and text[0] == "`" and text[-1] == "`":
+                text = text[1:-1].strip()
+            if text and text not in paths:
+                paths.append(text)
+    return paths
 
 
 def is_relative_workspace_path(value: Any) -> bool:
