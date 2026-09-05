@@ -282,7 +282,7 @@ def _load_native_receipt(path: Path, target: str) -> dict[str, object] | None:
     if not isinstance(assignments, dict) or set(assignments) != set(files):
         raise _InstallError("native role template receipt is invalid")
     parsed_by_file = {name: _assignment_value(assignment) for name, assignment in assignments.items()}
-    if any(parsed_by_file[name].agent_name != Path(name).stem for name in parsed_by_file):
+    if any(parsed_by_file[name].agent_name != posixpath.splitext(name)[0] for name in parsed_by_file):
         raise _InstallError("native role template receipt is invalid")
     parsed = {assignment.agent_name: assignment for assignment in parsed_by_file.values()}
     if len(parsed) != len(parsed_by_file):
@@ -338,7 +338,7 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
             else:
                 if not text.startswith("---\n"):
                     raise ValueError
-            payload[Path(filename).stem] = text
+            payload[posixpath.splitext(filename)[0]] = text
     except (OSError, UnicodeError, ValueError, TypeError):
         raise _InstallError("native role template source is missing or malformed")
     return payload
