@@ -40,6 +40,7 @@ class V3WorkflowTests(unittest.TestCase):
             [sys.executable, str(TOOL), *arguments],
             cwd=str(ROOT),
             text=True,
+            encoding="utf-8",
             capture_output=True,
             check=check,
             input=input_text,
@@ -962,6 +963,7 @@ class V3WorkflowTests(unittest.TestCase):
                 [sys.executable, str(TOOL), "accept-task", code, str(self.root), "--plan", PLAN],
                 cwd=str(ROOT),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
