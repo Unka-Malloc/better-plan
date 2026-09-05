@@ -32,6 +32,7 @@ from ..domain.models import (
     checkpoints_template,
     generate_id,
     manifest_template,
+    plain_shell_command,
     plan_template,
     public_summary,
     safe_summary_issue,
@@ -87,6 +88,22 @@ def _opaque_event_id(value: Any, field: str) -> str:
 
 
 def _project_root(workspace: Path) -> Path:
+    """Return the directory regression commands and fingerprints run against.
+
+    A workspace that lives outside the delivered repository declares
+    ``project_root`` in ``Manifest.json`` relative to the workspace root; the
+    target must exist. Otherwise the nearest enclosing Git checkout is used,
+    falling back to the workspace itself.
+    """
+
+    manifest_path = workspace / MANIFEST_NAME
+    if manifest_path.is_file():
+        declared = load_manifest(workspace).get("project_root")
+        if declared is not None:
+            project = (workspace / declared).resolve()
+            if not project.is_dir():
+                raise ToolError("Manifest.json project_root does not name an existing directory")
+            return project
     current = workspace.resolve()
     while current != current.parent:
         if (current / ".git").exists():
@@ -302,7 +319,7 @@ def _run_commands_with_diagnostics(
     for index, command in enumerate(commands):
         try:
             completed = subprocess.run(
-                command,
+                plain_shell_command(command),
                 cwd=str(project_root),
                 shell=True,
                 stdout=subprocess.PIPE,

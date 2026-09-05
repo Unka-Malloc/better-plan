@@ -308,6 +308,27 @@ class DesignCompileTests(unittest.TestCase):
         second = compile_design(DESIGN_TEMPLATE, fallback)
         self.assertEqual(first, second)
 
+    def test_markdown_code_spans_never_reach_stored_regression_contracts(self) -> None:
+        wrapped = DESIGN_TEMPLATE.replace(
+            "Commands:\n- python3 -m unittest tests.test_module\nPaths:\n- relative/path",
+            "Commands:\n- `python3 -m unittest tests.test_module`\nPaths:\n- `relative/path`, `other/path`",
+        ).replace(
+            "Commands:\n- python3 -m unittest discover -s tests -p 'test_*.py'\nPaths:\n- relative/path",
+            "Commands:\n- `python3 -m unittest discover -s tests -p 'test_*.py'`\nPaths:\n- `relative/path`",
+        )
+
+        result = compile_design(wrapped, complete_plan()["spec"])
+
+        self.assertEqual(result["issues"], [])
+        focused = result["spec"]["tasks"][0]["focused_regression"]
+        self.assertEqual(focused["commands"], ["python3 -m unittest tests.test_module"])
+        self.assertEqual(focused["paths"], ["relative/path", "other/path"])
+        self.assertEqual(
+            result["spec"]["full_regression"]["commands"],
+            ["python3 -m unittest discover -s tests -p 'test_*.py'"],
+        )
+        self.assertEqual(result["spec"]["full_regression"]["paths"], ["relative/path"])
+
 
 if __name__ == "__main__":
     unittest.main()

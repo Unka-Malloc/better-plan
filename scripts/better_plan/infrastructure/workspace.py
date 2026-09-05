@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 
 if os.name == "nt":
     import msvcrt as _native_lock
@@ -24,6 +25,7 @@ from ..domain.models import (
     PLAN_NAME,
     ToolError,
     is_relative_workspace_path,
+    plain_regression_paths,
 )
 from ..domain.validation import (
     validate_checkpoints_document,
@@ -86,28 +88,56 @@ def workspace_root(value: Path) -> Path:
     return resolved
 
 
-@contextmanager
-def workspace_lock(root: Path) -> Iterator[None]:
-    root.mkdir(parents=True, exist_ok=True)
-    path = root / ".better-plan.lock"
-    with path.open("a+b") as stream:
-        if os.name == "nt":
+def _acquire_windows_lock(path: Path):
+    """Open and lock the workspace file, retrying mandatory-lock collisions.
+
+    Windows `msvcrt.locking` is mandatory: another process holding the lock can
+    make `open()` or `locking()` raise `PermissionError` instead of waiting.
+    `LK_LOCK` itself gives up after 10 seconds, which is shorter than a
+    concurrent accept-task handshake.
+    """
+
+    deadline = time.monotonic() + 30
+    last_error: OSError | None = None
+    while time.monotonic() < deadline:
+        stream = None
+        try:
+            stream = path.open("a+b")
             stream.seek(0)
             if stream.read(1) == b"":
                 stream.write(b"0")
                 stream.flush()
             stream.seek(0)
-            _native_lock.locking(stream.fileno(), _native_lock.LK_LOCK, 1)
-        else:
-            _native_lock.flock(stream.fileno(), _native_lock.LOCK_EX)
+            _native_lock.locking(stream.fileno(), _native_lock.LK_NBLCK, 1)
+            return stream
+        except OSError as exc:
+            last_error = exc
+            if stream is not None:
+                stream.close()
+            time.sleep(0.05)
+    raise ToolError("cannot acquire workspace lock (%s)" % last_error)
+
+
+@contextmanager
+def workspace_lock(root: Path) -> Iterator[None]:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / ".better-plan.lock"
+    if os.name == "nt":
+        stream = _acquire_windows_lock(path)
+    else:
+        stream = path.open("a+b")
+        _native_lock.flock(stream.fileno(), _native_lock.LOCK_EX)
+    try:
+        yield
+    finally:
         try:
-            yield
-        finally:
             if os.name == "nt":
                 stream.seek(0)
                 _native_lock.locking(stream.fileno(), _native_lock.LK_UNLCK, 1)
             else:
                 _native_lock.flock(stream.fileno(), _native_lock.LOCK_UN)
+        finally:
+            stream.close()
 
 
 def load_manifest(root: Path) -> dict[str, Any]:
@@ -255,7 +285,7 @@ def fingerprint_paths(
 
     excluded = set(excluded_paths)
     digest = hashlib.sha256()
-    for relative in sorted(set(paths)):
+    for relative in sorted(set(plain_regression_paths(paths))):
         if not is_relative_workspace_path(relative):
             raise ToolError("fingerprint path must be repository-relative")
         path = project_root / relative
