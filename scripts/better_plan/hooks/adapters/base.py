@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable, Dict, Optional, Union
 
 
 class HookProtocolError(ValueError):
@@ -21,10 +21,13 @@ class CompletionSignal:
     dispatch_id: str | None
 
 
-ContextEncoder = Callable[[str, str, str | None], dict[str, Any] | str]
-PromptAllowEncoder = Callable[[], dict[str, Any]]
-CompletionParser = Callable[[Mapping[str, Any]], CompletionSignal | None]
-EventFilter = Callable[[str, Mapping[str, Any]], bool]
+# Evaluated at import time: Python 3.8 cannot use `|` or collections.abc
+# subscripting in these assignments. `from __future__ import annotations`
+# does not postpone type-alias values.
+ContextEncoder = Callable[[str, str, Optional[str]], Union[Dict[str, Any], str]]
+PromptAllowEncoder = Callable[[], Dict[str, Any]]
+CompletionParser = Callable[[Mapping], Optional[CompletionSignal]]
+EventFilter = Callable[[str, Mapping], bool]
 
 
 @dataclass(frozen=True)
