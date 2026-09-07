@@ -54,7 +54,8 @@ actually requires reasoning about Better Plan's cross-cutting design.
 
 6. **Discover facts before requesting decisions.** Inspect repository contracts, tests, schemas,
    state owners, failure behavior, and tooling first. Ask the user only for outcome-changing choices
-   that cannot be discovered, and consolidate them into one coherent Decision Dossier.
+   that cannot be discovered, and consolidate them into one coherent Decision Dossier. If none
+   remain, retain `not_required` and skip clarification. Defaults never grant reserved authority.
 
 7. **Give each phase one accountable authority.** Resolve decisions once, use one Designer for the
    solution draft and one deterministic compiler write path for its Plan representation, authorize
@@ -81,13 +82,20 @@ actually requires reasoning about Better Plan's cross-cutting design.
     global state lock. No Node receives a separate role, approval, or persistent execution ledger.
 
 11. **Bind authorization to exact semantics.** Seal authorization to a revision and semantic digest.
-   Freeze started Task contracts and evidence. Continuations may revise only unstarted in-scope work
-   and must not silently expand goal, scope, user decisions, elevated risk, or irreversible authority.
+   Freeze started Task guarantees, ownership, design, acceptance, and historical evidence. After a
+   Worker returns, the native main may correct an unfinished Task's focused command or path error
+   while preserving the oracle, recording the reason and before/after contract, and obtaining fresh
+   acceptance. Completed Task definitions stay frozen. Other continuation edits apply to unstarted
+   work and must not expand goal, scope, user decisions, elevated risk, or irreversible authority.
+   Reuse an existing exact authorization; recording its source does not require another user vote.
 
 12. **Continue autonomously after authorization.** Do not return ordinary implementation decisions
     to the user. Apply selected decisions, authorized intent, public repository contracts, the safest
-    reversible behavior, and the simplest adequate implementation in that order. Isolate hard
-    authority or environment blockers and continue independent safe branches.
+    reversible behavior, and the simplest adequate implementation in that order. Promptly report
+    missing user prerequisites to the native main. It records pending input, prepares the concrete
+    decision within existing authorization, and requests only the missing input or approval while
+    independent branches continue. Preserve explicit approval requirements; a routine defect report
+    does not add one. Do not finalize merely unanswered requests as hard blockers.
 
 13. **Define completion with executable evidence.** Complete each Task only through its focused
     regression. Run the complete regression as an independent Python stage before Reviewer
@@ -103,7 +111,8 @@ actually requires reasoning about Better Plan's cross-cutting design.
 15. **Protect privacy and fail closed.** Keep secrets, machine identity, absolute local paths,
     runtime endpoints, and backend runtime data out of state, prompts, evidence, and reports. Reject
     ambiguous callbacks, invalid state, unknown ownership, and unsupported generations instead of
-    guessing, translating, or broadening authority.
+    guessing, translating, or broadening authority. Rejection applies to the attempted transition;
+    use permitted repair and verification paths supported by current authority and repository facts.
 
 16. **Integrate additively with native hosts.** Use each host's native skill, role, Hook, and plugin
     formats. Manage only Better Plan-owned artifacts and namespaced entries, preserve unrelated local

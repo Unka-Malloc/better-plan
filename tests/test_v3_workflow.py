@@ -8,9 +8,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts.better_plan.application.agent_completion import reduce_agent_completion
-from scripts.better_plan.application.workflow import _project_root, _task_worker_selector
+from scripts.better_plan.application.workflow import _project_root, _run_commands_with_diagnostics, _task_worker_selector
 from scripts.better_plan.domain.design_compile import DESIGN_EXAMPLE, DESIGN_TEMPLATE
 from scripts.better_plan.domain.models import ToolError
 from tests.v3_fixtures import MARKER_COMMAND, draft_plan, task, write_workspace
@@ -29,6 +30,22 @@ class V3WorkflowTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_long_running_verification_can_finish_without_a_framework_deadline(self) -> None:
+        def finish_command(command, *, timeout=None, **kwargs):
+            # Model a valid command whose duration exceeds any polling window;
+            # this does not spend wall-clock time waiting in the test suite.
+            if timeout is not None:
+                raise subprocess.TimeoutExpired(command, timeout)
+            return subprocess.CompletedProcess(command, 0, stdout=b"verified\n")
+
+        with mock.patch("scripts.better_plan.application.workflow.subprocess.run", side_effect=finish_command):
+            passed, receipts, diagnostics = _run_commands_with_diagnostics(self.root, ["project-verification"])
+
+        self.assertTrue(passed)
+        self.assertEqual(receipts[0]["outcome"], "passed")
+        self.assertEqual(receipts[0]["exit_code"], 0)
+        self.assertEqual(diagnostics, [])
 
     def cli(
         self,
@@ -432,7 +449,7 @@ class V3WorkflowTests(unittest.TestCase):
 
     def test_structure_residue_routes_to_plan_repair_without_changing_design(self) -> None:
         opened = self.payload("open-designer-session", str(self.root), "--plan", PLAN)
-        residue = "## Notes from Designer\nPreserve this design note.\n\n"
+        residue = "## Notes from Designer\nRejected alternative: expand unrelated capabilities.\n\n"
         self.write_design(DESIGN_EXAMPLE.replace("## Architecture", residue + "## Architecture"))
         checked = self.cli(
             "compile-design", str(self.root), "--plan", PLAN, "--check", check=False,
@@ -468,7 +485,11 @@ class V3WorkflowTests(unittest.TestCase):
         self.write_design(frozen)
 
         current = self.read_plan()
-        current["spec"]["architecture"]["notes"].append("Preserve this design note.")
+        rejected_line = frozen.splitlines().index("Rejected alternative: expand unrelated capabilities.") + 1
+        current["spec"]["architecture"]["notes"].append(
+            f"Do not adopt the rejected alternative at Design.md line {rejected_line}: "
+            "it would expand the explicitly excluded unrelated capabilities."
+        )
         self.write_plan(current)
         repaired = self.payload("compile-design", str(self.root), "--plan", PLAN, "--apply")
         self.assertEqual(repaired["open_issues"], 0)
@@ -580,6 +601,7 @@ class V3WorkflowTests(unittest.TestCase):
 
     def test_continuation_cannot_rewrite_a_started_task(self) -> None:
         self.design_and_authorize()
+        original = self.read_plan()["spec"]["tasks"][0]
         self.cli("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
         continuation = self.payload("begin-continuation", str(self.root), "--plan", PLAN, "--reason", "parallel discovery")
         value = self.read_plan()
@@ -590,6 +612,105 @@ class V3WorkflowTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("changed a started Task", result.stderr)
+
+        value["spec"]["tasks"][0] = original
+        value["spec"]["tasks"][0]["focused_regression"]["paths"] = ["source.txt", "test.txt"]
+        self.write_plan(value)
+        running = self.cli(
+            "close-continuation", str(self.root), "--plan", PLAN,
+            "--continuation-id", continuation["continuation_id"], check=False,
+        )
+        self.assertIn("Worker's final callback", running.stderr)
+
+    def test_execution_correction_preserves_failed_evidence_and_requires_new_acceptance(self) -> None:
+        value = self.read_plan()
+        regression = {"commands": ["python3 verify_behavor.py"], "paths": ["soruce.txt"]}
+        value["spec"]["tasks"][0]["focused_regression"] = regression
+        self.write_plan(value)
+        (self.root / "verify_behavior.py").write_text(
+            "from pathlib import Path\nassert Path('source.txt').read_text() == 'fixture\\n'\n",
+            encoding="utf-8",
+        )
+        self.design_and_authorize()
+        self.run_worker("TASK-001", "worker.command")
+        failed = self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN, check=False)
+        self.assertNotEqual(failed.returncode, 0)
+        checkpoint_path = self.root / "delivery" / "Checkpoints.json"
+        evidence = json.loads(checkpoint_path.read_text())["tasks"][0]["evidence"]
+        self.assertFalse(evidence[-1]["passed"])
+
+        continuation = self.payload(
+            "begin-continuation", str(self.root), "--plan", PLAN,
+            "--reason", "Repository test entry and source path contain spelling errors",
+        )
+        corrected = {"commands": ["python3 verify_behavior.py"], "paths": ["source.txt", "verify_behavior.py"]}
+        value = self.read_plan()
+        value["spec"]["tasks"][0]["focused_regression"] = corrected
+        self.write_plan(value)
+        self.cli("close-continuation", str(self.root), "--plan", PLAN, "--continuation-id", continuation["continuation_id"])
+        receipt = self.read_plan()["lifecycle"]["continuation_receipts"][-1]
+        self.assertEqual(receipt["execution_corrections"], [{"task": "TASK-001", "before": regression, "after": corrected}])
+        state = json.loads(checkpoint_path.read_text())["tasks"][0]
+        self.assertEqual(state["evidence"], evidence)
+        self.assertEqual(state["status"], "in_progress")
+        self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+        state = json.loads(checkpoint_path.read_text())["tasks"][0]
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(state["evidence"][:-1], evidence)
+        self.assertTrue(state["evidence"][-1]["passed"])
+
+        continuation = self.payload("begin-continuation", str(self.root), "--plan", PLAN, "--reason", "Attempt completed correction")
+        value = self.read_plan()
+        value["spec"]["tasks"][0]["focused_regression"]["paths"] = ["source.txt"]
+        self.write_plan(value)
+        refused = self.cli(
+            "close-continuation", str(self.root), "--plan", PLAN,
+            "--continuation-id", continuation["continuation_id"], check=False,
+        )
+        self.assertIn("frozen contract", refused.stderr)
+
+    def test_pending_user_input_preserves_authority_and_independent_delivery(self) -> None:
+        value = self.read_plan()
+        value["spec"]["tasks"].append(task("TASK-002", write_paths=["other.txt"], acceptance_code="AC-002"))
+        self.write_plan(value)
+        self.design_and_authorize()
+        authorized = self.read_plan()
+        self.cli("record-task-input", "TASK-001", str(self.root), "--plan", PLAN, "--needed", "Required test access is missing")
+        action = self.payload("next-action", str(self.root), "--plan", PLAN)
+        self.assertEqual(action["eligible"], ["TASK-002"])
+        self.assertEqual(action["awaiting_input"], [{"task": "TASK-001", "reason": "Required test access is missing"}])
+        denied = self.cli("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN, check=False)
+        self.assertIn("recorded user input", denied.stderr)
+        self.run_worker("TASK-002", "worker.input.independent")
+        self.cli("accept-task", "TASK-002", str(self.root), "--plan", PLAN)
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "await_user_input")
+        self.cli("record-task-input", "TASK-001", str(self.root), "--plan", PLAN, "--resolved", "Required test access is verified")
+        self.assertEqual(self.read_plan(), authorized)
+        self.run_worker("TASK-001", "worker.input.resolved")
+        self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
+
+        self.payload("run-full-regression", str(self.root), "--plan", PLAN)
+        review = self.payload("open-reviewer-session", str(self.root), "--plan", PLAN)
+        self.cli("bind-agent", PLAN, str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"], "--agent-id", "reviewer.input")
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.input", "--final")
+        self.record_review_findings(review["dispatch_id"])
+        self.cli("record-task-input", "TASK-001", str(self.root), "--plan", PLAN, "--needed", "Review requires a user session")
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "await_user_input")
+        refused = self.cli(
+            "close-reviewer-session", str(self.root), "--plan", PLAN,
+            "--dispatch-id", review["dispatch_id"], check=False,
+        )
+        self.assertIn("resolve recorded user input", refused.stderr)
+        rerun = self.cli("run-full-regression", str(self.root), "--plan", PLAN, check=False)
+        self.assertIn("resolve recorded user input", rerun.stderr)
+        resolved = self.payload("record-task-input", "TASK-001", str(self.root), "--plan", PLAN, "--resolved", "Review session is available")
+        self.assertEqual(resolved["action"], "resume_reviewer")
+        self.assertEqual(self.payload("next-action", str(self.root), "--plan", PLAN)["action"], "await_reviewer")
+        self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.input", "--final")
+        self.record_review_findings(review["dispatch_id"])
+        closed = self.payload("close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", review["dispatch_id"])
+        self.assertTrue(closed["completed"])
+        self.assertEqual(self.read_plan()["lifecycle"]["authorization"], authorized["lifecycle"]["authorization"])
 
     def test_hard_blocker_isolated_to_one_parallel_task_and_delivery_finishes(self) -> None:
         value = draft_plan()
@@ -622,6 +743,14 @@ class V3WorkflowTests(unittest.TestCase):
 
         plan = self.read_plan()
         session = plan["lifecycle"]["reviewer_session"]
+        checkpoint_path = self.root / "delivery" / "Checkpoints.json"
+        accepted_evidence = json.loads(checkpoint_path.read_text())["tasks"][1]["evidence"]
+        self.cli("record-task-input", "TASK-002", str(self.root), "--plan", PLAN, "--needed", "Review requires unavailable access")
+        self.cli("block-task", "TASK-002", str(self.root), "--plan", PLAN, "--kind", "environment", "--reason", "Required review access cannot be supplied")
+        blocked_state = json.loads(checkpoint_path.read_text())["tasks"][1]
+        self.assertEqual(blocked_state["status"], "blocked_by_environment")
+        self.assertEqual(blocked_state["evidence"], accepted_evidence)
+        self.assertNotIn("input_request", blocked_state)
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "reviewer.blocked", "--final")
         result = self.cli(
             "close-reviewer-session", str(self.root), "--plan", PLAN, "--dispatch-id", session["id"],

@@ -65,7 +65,6 @@ from ..infrastructure.workspace import (
 
 
 MAX_DELEGATION_ATTEMPTS = 3
-COMMAND_TIMEOUT_SECONDS = 1800
 OUTPUT_TAIL_CHARACTERS = 2000
 FRONTEND_WORKER_ROLE = "frontend-worker"
 WORKER_ASSIGNMENT_PREFIX = (
@@ -317,22 +316,19 @@ def _run_commands_with_diagnostics(
     receipts: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
     for index, command in enumerate(commands):
-        try:
-            completed = subprocess.run(
-                plain_shell_command(command),
-                cwd=str(project_root),
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-            )
-            exit_code: int | None = completed.returncode
-            outcome = "passed" if exit_code == 0 else "failed"
-            output = completed.stdout.decode("utf-8", "replace") if completed.stdout else ""
-        except subprocess.TimeoutExpired:
-            exit_code = None
-            outcome = "timeout"
-            output = ""
+        # Observation windows never impose an execution deadline. A declared
+        # command may enforce its own project-required limit; cancellation
+        # remains controlled by the caller.
+        completed = subprocess.run(
+            plain_shell_command(command),
+            cwd=str(project_root),
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        exit_code = completed.returncode
+        outcome = "passed" if exit_code == 0 else "failed"
+        output = completed.stdout.decode("utf-8", "replace") if completed.stdout else ""
         receipts.append(
             {
                 "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
@@ -804,12 +800,6 @@ def begin_continuation(args: Any) -> int:
             raise ToolError("continuation requires an authorized Plan")
         if plan.get("lifecycle", {}).get("reviewer_session") is not None:
             raise ToolError("continuation cannot start after the sole Reviewer session opens")
-        checkpoints = read_json(paths["checkpoints"])
-        started = {
-            str(item.get("code"))
-            for item in checkpoints.get("tasks", [])
-            if item.get("status") != "pending"
-        }
         plan["lifecycle"]["continuation_session"] = {
             "id": generate_id(),
             "reason": public_summary(args.reason, "continuation reason"),
@@ -822,11 +812,6 @@ def begin_continuation(args: Any) -> int:
                     "defaulted": deepcopy(plan.get("ledger", {}).get("defaulted")),
                 },
                 "spec": {"tasks": deepcopy(plan.get("spec", {}).get("tasks"))},
-            },
-            "started_task_digests": {
-                str(task.get("code")): sha256_value(task)
-                for task in plan.get("spec", {}).get("tasks", [])
-                if str(task.get("code")) in started
             },
         }
         plan["phase"] = "revising"
@@ -846,9 +831,32 @@ def close_continuation(args: Any) -> int:
         if expansion:
             raise ToolError("continuation exceeds authorization: %s" % "; ".join(issue.message for issue in expansion))
         by_code = {str(task.get("code")): task for task in plan.get("spec", {}).get("tasks", [])}
-        for code, digest in session.get("started_task_digests", {}).items():
-            if code not in by_code or sha256_value(by_code[code]) != digest:
-                raise ToolError("continuation changed a started Task")
+        prior_tasks = {task["code"]: task for task in session["prior"]["spec"]["tasks"]}
+        checkpoints = read_json(paths["checkpoints"])
+        corrections: list[dict[str, Any]] = []
+        # Dispatch and acceptance cannot run while the Plan is revising.
+        # Checkpoints already owns Task status; no second snapshot is needed.
+        for state in checkpoints["tasks"]:
+            code, status = state["code"], state["status"]
+            if status == "pending":
+                continue
+            before, after = prior_tasks[code], by_code.get(code)
+            if before == after:
+                continue
+            if after is None or status != "in_progress" or {
+                key: value for key, value in before.items() if key != "focused_regression"
+            } != {key: value for key, value in after.items() if key != "focused_regression"}:
+                raise ToolError("continuation changed a started Task's frozen contract")
+            dispatch = state.get("dispatch")
+            if not isinstance(dispatch, Mapping) or dispatch.get("phase") not in {
+                "awaiting_acceptance", "worker_correction"
+            }:
+                raise ToolError("execution corrections require the Worker's final callback")
+            corrections.append({
+                "task": code,
+                "before": deepcopy(before.get("focused_regression")),
+                "after": deepcopy(after.get("focused_regression")),
+            })
         revision = int(plan["lifecycle"]["sealed"]["revision"]) + 1
         digest = semantic_digest(plan)
         candidate = deepcopy(plan)
@@ -865,6 +873,7 @@ def close_continuation(args: Any) -> int:
                 "reason": session["reason"],
                 "revision": revision,
                 "recorded_at": _now(),
+                "execution_corrections": corrections,
             }
         )
         del candidate["lifecycle"]["continuation_session"]
@@ -873,7 +882,6 @@ def close_continuation(args: Any) -> int:
             raise ToolError("continuation is not ready: %s" % "; ".join(issue.message for issue in issues))
         plan = candidate
         _save_plan(paths, plan)
-        checkpoints = read_json(paths["checkpoints"])
         existing = {str(item.get("code")): item for item in checkpoints.get("tasks", [])}
         checkpoints["tasks"] = [
             existing.get(str(task.get("code")), task_state(task.get("code")))
@@ -999,11 +1007,15 @@ def next_action(args: Any) -> int:
     running: list[str] = []
     exhausted: list[str] = []
     eligible: list[str] = []
+    awaiting_input: list[dict[str, str]] = []
     for task in plan.get("spec", {}).get("tasks", []):
         code = str(task.get("code"))
         state = _state_by_code(checkpoints, code)
         status = state.get("status")
         dispatch = state.get("dispatch")
+        if state.get("input_request"):
+            awaiting_input.append({"task": code, "reason": state["input_request"]})
+            continue
         dispatch_phase = dispatch.get("phase") if isinstance(dispatch, Mapping) else None
         if status == "in_progress" and dispatch_phase == "worker_correction":
             corrections.append(code)
@@ -1029,6 +1041,8 @@ def next_action(args: Any) -> int:
         action = "complete_in_main"
     elif running:
         action = "await_tasks"
+    elif awaiting_input:
+        action = "await_user_input"
     elif reviewer is None:
         action = "open_reviewer_session" if regression_current else "run_full_regression"
     else:
@@ -1050,6 +1064,7 @@ def next_action(args: Any) -> int:
                 "exhausted": exhausted,
                 "running": running,
                 "eligible": eligible,
+                "awaiting_input": awaiting_input,
             }
         )
     )
@@ -1059,7 +1074,8 @@ def next_action(args: Any) -> int:
 def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, Any]:
     ledger = plan.get("ledger", {})
     policy = [
-        "Do not ask the user questions after authorization.",
+        "Do not ask the user directly; promptly report missing input or authority to the native main.",
+        "Resolve ordinary implementation decisions within existing authorization, without confirmation.",
         "Execute every currently ready Task Node concurrently; wait only at declared Node joins.",
         "Never serialize independent Nodes merely for convenience.",
         "Resolve local choices from the frozen contract, then the simplest safe implementation.",
@@ -1099,6 +1115,8 @@ def dispatch_task(args: Any) -> int:
         plan, paths, checkpoints = _execution_context(root, args.plan)
         task = _task_by_code(plan, args.task)
         state = _state_by_code(checkpoints, args.task)
+        if state.get("input_request"):
+            raise ToolError("resolve this Task's recorded user input before dispatch")
         prior = state.get("dispatch")
         correction = (
             state.get("status") == "in_progress"
@@ -1431,6 +1449,8 @@ def accept_task(args: Any) -> int:
         task = deepcopy(_task_by_code(plan, args.task))
         state = _state_by_code(checkpoints, args.task)
         dispatch = state.get("dispatch")
+        if state.get("input_request"):
+            raise ToolError("resolve this Task's recorded user input before acceptance")
         if state.get("status") != "in_progress" or not isinstance(dispatch, dict):
             raise ToolError("Task is not awaiting acceptance")
         if dispatch.get("phase") not in {"awaiting_acceptance", "worker_correction"}:
@@ -1449,6 +1469,7 @@ def accept_task(args: Any) -> int:
         if (
             sha256_value(current_task) != task_digest
             or state.get("status") != "in_progress"
+            or state.get("input_request")
             or not isinstance(dispatch, dict)
             or dispatch.get("id") != dispatch_id
             or dispatch.get("phase") not in {"awaiting_acceptance", "worker_correction"}
@@ -1478,15 +1499,59 @@ def accept_task(args: Any) -> int:
     return 0
 
 
+def record_task_input(args: Any) -> int:
+    """Keep missing user input visible across context loss without changing Task history."""
+
+    root = workspace_root(Path(args.root))
+    summary = public_summary(args.needed or args.resolved, "user input summary")
+    action = "next_action"
+    with workspace_lock(root):
+        plan, paths, checkpoints = _execution_context(root, args.plan)
+        state = _state_by_code(checkpoints, args.task)
+        if state.get("status") in {"blocked_by_authority", "blocked_by_environment"}:
+            raise ToolError("a hard-blocked Task cannot be reopened by recording input")
+        if args.needed:
+            state["input_request"] = summary
+        else:
+            if not state.get("input_request"):
+                raise ToolError("this Task has no pending user input")
+            state["evidence"].append({
+                "kind": "user_input",
+                "request": state.pop("input_request"),
+                "resolution": summary,
+                "recorded_at": _now(),
+            })
+            reviewer = plan.get("lifecycle", {}).get("reviewer_session")
+            if isinstance(reviewer, dict) and reviewer.get("status") == "active":
+                reviewer["agent_returned"] = False
+                write_json(paths["plan"], plan)
+                action = "resume_reviewer"
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"task": args.task, "awaiting_input": bool(args.needed), "action": action}))
+    return 0
+
+
+def _require_resolved_input(checkpoints: Mapping[str, Any]) -> None:
+    if any(item.get("input_request") for item in checkpoints.get("tasks", [])):
+        raise ToolError("resolve recorded user input before final verification or closure")
+
+
 def block_task(args: Any) -> int:
     root = workspace_root(Path(args.root))
     status = "blocked_by_authority" if args.kind == "authority" else "blocked_by_environment"
     reason = public_summary(args.reason, "Task blocker")
     with workspace_lock(root):
-        _, paths, checkpoints = _execution_context(root, args.plan)
+        plan, paths, checkpoints = _execution_context(root, args.plan)
         state = _state_by_code(checkpoints, args.task)
-        if state.get("status") == "completed":
+        reviewer = plan.get("lifecycle", {}).get("reviewer_session")
+        review_blocker = (
+            isinstance(reviewer, Mapping)
+            and reviewer.get("status") == "active"
+            and state.get("input_request")
+        )
+        if state.get("status") == "completed" and not review_blocker:
             raise ToolError("a completed Task is frozen")
+        state.pop("input_request", None)
         state.update({"status": status, "status_reason": reason, "dispatch": None})
         write_json(paths["checkpoints"], checkpoints)
     print(json.dumps({"blocked": True, "status": status, "affected_tasks": [args.task]}))
@@ -1562,7 +1627,8 @@ def _reviewer_brief(
             "Do not run or wait for the full regression; Python runs it outside Reviewer model time.",
             "Use bounded focused checks only when they materially guide a repair.",
             "Do not create or stage a Git commit; the native main owns that action after close.",
-            "Do not ask the user or create another Reviewer or Repair Task.",
+            "Do not ask the user directly or create another Reviewer or Repair Task.",
+            "Promptly report missing user input or authority to the native main; continue independent repairs.",
         ],
     }
 
@@ -1574,6 +1640,7 @@ def run_full_regression(args: Any) -> int:
     project = _project_root(root)
     with workspace_lock(root):
         plan, paths, checkpoints = _execution_context(root, args.plan)
+        _require_resolved_input(checkpoints)
         if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
             raise ToolError("full regression requires every Task terminal")
         reviewer = plan.get("lifecycle", {}).get("reviewer_session")
@@ -1640,6 +1707,7 @@ def open_reviewer_session(args: Any) -> int:
         if current.get("phase") != "authorized":
             raise ToolError("the Reviewer opens only on an authorized Plan with no open continuation")
         plan, paths, checkpoints = _execution_context(root, args.plan)
+        _require_resolved_input(checkpoints)
         if any(item.get("status") not in TERMINAL_TASK_STATUSES for item in checkpoints.get("tasks", [])):
             raise ToolError("the Reviewer requires every Task terminal")
         if plan.get("lifecycle", {}).get("reviewer_session") is not None:
@@ -1786,6 +1854,7 @@ def close_reviewer_session(args: Any) -> int:
     with workspace_lock(root):
         manifest = load_manifest(root)
         plan, paths, checkpoints = _execution_context(root, args.plan)
+        _require_resolved_input(checkpoints)
         session = plan.get("lifecycle", {}).get("reviewer_session")
         if not isinstance(session, dict) or session.get("status") != "active" or session.get("id") != args.dispatch_id:
             raise ToolError("Reviewer session correlation mismatch")

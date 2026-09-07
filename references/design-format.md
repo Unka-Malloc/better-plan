@@ -161,3 +161,8 @@ The Designer may use the exclusion marker while authoring. After the Designer re
 is read-only. Python performs the initial conversion; if it reports an issue, the native main
 completes `Plan.json` without changing the draft. Authorization refuses every open structure,
 content, or unmapped issue.
+The native main maps valid in-scope meaning and records a non-adoption reason in
+`spec.architecture.notes` for content conflicting with user decisions, outside scope, or explicitly
+rejected alternatives. This resolves the conversion issue without inserting an exclusion marker
+into the frozen draft or promoting that content into an implementation requirement. Follow
+`references/structure-repair.md`; valid design choices and missing requirements cannot be discarded.

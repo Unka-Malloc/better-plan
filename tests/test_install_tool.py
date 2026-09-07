@@ -16,6 +16,7 @@ from scripts.better_plan.hooks import config as hook_config
 from scripts.better_plan.installation import doctor as install_doctor
 from scripts.better_plan.installation import models as install_models
 from scripts.better_plan.installation import service as install_service
+from scripts.better_plan.installation import skills as install_skills
 from scripts.better_plan.installation import targets as install_targets
 from tests.v3_fixtures import complete_plan, write_workspace
 
@@ -102,6 +103,49 @@ class InstallToolTests(unittest.TestCase):
         with self.assertRaises(install_models.InstallError):
             install_cli.parse_agents(["gemini"])
 
+    def test_failed_tree_publication_restores_the_previous_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir)
+            target = parent / "installation"
+            target.mkdir()
+            original = target / "SKILL.md"
+            original.write_text("usable previous installation\n", encoding="utf-8")
+            before = original.read_bytes()
+            rename = Path.rename
+
+            def fail_publication(path, destination):
+                if path.name == "prepared" and destination == target:
+                    raise OSError("simulated publication failure")
+                return rename(path, destination)
+
+            with mock.patch.object(Path, "rename", fail_publication):
+                with self.assertRaises(install_models.InstallError):
+                    with install_skills.staged_tree(target) as prepared:
+                        (prepared / "SKILL.md").write_text("replacement\n", encoding="utf-8")
+
+            self.assertEqual(original.read_bytes(), before)
+            self.assertEqual(set(parent.iterdir()), {target})
+
+    def test_first_role_installation_preserves_a_collision_after_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            directory = native_role_directory(paths, "codex")
+            payload = install_targets._native_payload(paths, "codex")
+            role = directory / payload[0][0]
+
+            def discover_with_new_local_role(*args):
+                directory.mkdir(parents=True)
+                role.write_bytes(b"local role created during discovery\n")
+                return payload
+
+            with mock.patch.object(install_targets, "_native_payload", side_effect=discover_with_new_local_role):
+                with self.assertRaises(install_models.InstallError):
+                    install_targets.install_role_templates(paths, "codex", dry_run=False)
+
+            self.assertEqual(role.read_bytes(), b"local role created during discovery\n")
+            self.assertEqual(set(directory.iterdir()), {role})
+            self.assertFalse(directory.with_name("agents.better-plan.json").exists())
+
     def test_kilo_target_is_selectable(self) -> None:
         self.assertEqual(install_cli.parse_agents(["kilo"]), ["kilo"])
 
@@ -174,7 +218,7 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual({path.name for path in paths.kilo_agents.iterdir()}, {local.name})
             self.assertFalse(paths.kilo_agents.with_name("agents.better-plan.json").exists())
 
-    def test_native_role_templates_use_exact_user_paths_are_idempotent_and_uninstall_selectively(self) -> None:
+    def test_native_role_templates_use_exact_paths_and_survive_updates_and_uninstall(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             for target, filenames in NATIVE_ROLE_FILES.items():
@@ -185,11 +229,9 @@ class InstallToolTests(unittest.TestCase):
                     unrelated.write_text("preserve me\n", encoding="utf-8")
 
                     install_targets.install_role_templates(paths, target, dry_run=False)
-                    receipt = json.loads(
-                        native_role_directory(paths, target)
-                        .with_name("agents.better-plan.json")
-                        .read_text(encoding="utf-8")
-                    )
+                    receipt_path = directory.with_name("agents.better-plan.json")
+                    receipt_before = receipt_path.read_bytes()
+                    receipt = json.loads(receipt_before)
                     installed_filenames = tuple(receipt["files"])
                     first = {
                         filename: (directory / filename).read_bytes()
@@ -224,9 +266,11 @@ class InstallToolTests(unittest.TestCase):
 
                     install_targets.remove_target(paths, target, dry_run=False)
                     self.assertTrue(unrelated.is_file())
-                    self.assertFalse(
-                        any((directory / name).exists() for name in installed_filenames)
+                    self.assertEqual(
+                        {name: (directory / name).read_bytes() for name in installed_filenames},
+                        first,
                     )
+                    self.assertEqual(receipt_path.read_bytes(), receipt_before)
 
     def test_dry_run_validates_each_native_source_without_writing_destinations(self) -> None:
         for target, filenames in NATIVE_ROLE_FILES.items():
@@ -340,7 +384,7 @@ class InstallToolTests(unittest.TestCase):
 
             messages = install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
-            self.assertTrue(any("native: updated" in message for message in messages), messages)
+            self.assertTrue(any("native: installed" in message for message in messages), messages)
             self.assertTrue(any("codex: using native skill" in message for message in messages), messages)
             self.assertTrue(any("cursor: using native skill" in message for message in messages), messages)
             self.assertTrue(any("copilot: using native skill" in message for message in messages), messages)
@@ -551,6 +595,28 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(check.target, "codex native roles")
             self.assertIn("local native roles preserved", check.message)
             self.assertNotIn(tmpdir, check.message)
+
+    def test_doctor_distinguishes_valid_installation_from_source_equality(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            reference = paths.shared_skill / "references" / "worker.md"
+            reference.write_text("An earlier, structurally valid role contract.\n", encoding="utf-8")
+            before = reference.read_bytes()
+
+            checks = {check.target: check for check in install_doctor.doctor(paths, ["codex"])}
+
+            self.assertEqual(checks["codex"].status, "OK")
+            self.assertEqual(checks["shared skill source"].status, "WARN")
+            self.assertIn("1 packaged file(s) differ", checks["shared skill source"].message)
+            self.assertEqual(reference.read_bytes(), before)
+            self.assertNotIn(tmpdir, checks["shared skill source"].message)
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            current = install_doctor.check_skill_source("shared", paths.shared_skill, REPO_ROOT)
+            self.assertEqual(current.status, "OK")
+            self_comparison = install_doctor.check_skill_source("shared", paths.shared_skill, paths.shared_skill)
+            self.assertEqual(self_comparison.status, "WARN")
+            self.assertIn("independent source tree", self_comparison.message)
 
     def test_doctor_accepts_adapter_only_host_when_no_native_role_is_selectable(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1450,7 +1516,7 @@ command = "notify"
             )
 
             self.assertEqual(update_result.returncode, 0, update_result.stderr)
-            self.assertIn("native: updated", update_result.stdout)
+            self.assertIn("native: installed", update_result.stdout)
             self.assertIn("codex: using native skill", update_result.stdout)
             self.assertFalse((shared_home / "skills" / "better-plan").exists())
             self.assertTrue((native_install / "SKILL.md").is_file())
