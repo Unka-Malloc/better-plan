@@ -179,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     authorize.add_argument("--verify-path", action="append")
     authorize.set_defaults(func=workflow.authorize_plan)
 
-    begin = subparsers.add_parser("begin-continuation", help="revise unstarted in-scope work")
+    begin = subparsers.add_parser("begin-continuation", help="revise unstarted work or correct unfinished Task execution")
     _add_plan(begin)
     begin.add_argument("--reason", required=True)
     begin.set_defaults(func=workflow.begin_continuation)
@@ -229,6 +229,14 @@ def build_parser() -> argparse.ArgumentParser:
     accept.add_argument("task")
     _add_plan(accept)
     accept.set_defaults(func=workflow.accept_task)
+
+    task_input = subparsers.add_parser("record-task-input", help="record or resolve missing user input without granting authority")
+    task_input.add_argument("task")
+    _add_plan(task_input)
+    input_change = task_input.add_mutually_exclusive_group(required=True)
+    input_change.add_argument("--needed", metavar="SAFE_SUMMARY")
+    input_change.add_argument("--resolved", metavar="SAFE_SUMMARY")
+    task_input.set_defaults(func=workflow.record_task_input)
 
     block = subparsers.add_parser("block-task", help="record a hard Task blocker")
     block.add_argument("task")

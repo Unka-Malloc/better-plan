@@ -3,11 +3,11 @@
 This guide explains the complete Better Plan delivery flow from the first requirement to the final
 handoff. It is written for the native main agent that coordinates the workflow and for users who
 want to understand which tool runs at each stage, what is passed to each role, and how failures are
-closed without adding new roles or approval gates.
+resolved within existing authorization while preserving explicit approval requirements.
 
 The core division of responsibility is simple:
 
-- the user decides outcome-changing choices once;
+- the user resolves material undiscoverable choices together, only when any remain;
 - the Designer spends expensive model intelligence on the solution design;
 - Python compiles and validates deterministic structure;
 - Workers implement mutually independent Tasks and parallel Node branches;
@@ -28,14 +28,14 @@ python3 scripts/manifest_tool.py <command> <root> --plan <plan>
 - `<root>` is the Better Plan workspace root containing `Manifest.json`.
 - `<plan>` is the stable `PLAN-*` code, title, or delivery directory selector.
 - Host role dispatch is performed by the native agent tool, not by the Python CLI.
-- Whenever a CLI command returns an `assignment`, `brief`, selector, or `dispatch_id`, the native
+- Whenever a CLI command returns an `assignment`, `brief`, `role_reference`, selector, or `dispatch_id`, the native
   main forwards or binds that exact value instead of recreating it from memory.
 
 ## Workflow at a glance
 
 ```mermaid
 flowchart TD
-    A["Inspect requirements and repository"] --> B["Resolve one Decision Dossier"]
+    A["Inspect requirements and repository"] --> B["Resolve Dossier if needed; otherwise skip"]
     B --> C["Open the sole Designer"]
     C --> D["Designer writes Design.md"]
     D --> E["Python archives and compiles the draft"]
@@ -88,7 +88,8 @@ This creates the Plan shell and render-only projection. It does not design Tasks
 ## 2. Resolve user decisions once
 
 Only non-discoverable choices that materially change the outcome enter the Decision Dossier. Build
-all questions together from one JSON input:
+all questions together from one JSON input. If there are none, retain `not_required`, skip both
+Dossier commands, and open the Designer without asking the user to confirm that omission:
 
 ```sh
 python3 scripts/manifest_tool.py build-dossier <root> \
@@ -107,7 +108,9 @@ python3 scripts/manifest_tool.py resolve-dossier <root> \
 ```
 
 After resolution, the Dossier never reopens. Later implementation decisions follow the authorized
-intent and decision precedence instead of interrupting the user.
+intent and decision precedence; only genuinely missing input or authority needs a user response.
+Defaults apply only to ordinary
+preferences; neither an omission nor a declared default grants authority for a reserved action.
 
 ## 3. Open the sole Designer and pass requirements
 
@@ -215,8 +218,10 @@ The native main repairs `Plan.json`, not `Design.md`. Its operating prompt is:
 
 ```text
 Use the supplied line-and-field diagnostics directly. Keep Design.md and Design.pristine.md
-unchanged. Complete Plan.json so every mapped and unmapped Designer meaning is represented without
-freely rewriting the Designer's semantic prose. Do not redispatch the Designer.
+unchanged. Map every valid in-scope Designer meaning into Plan.json without freely rewriting valid
+design choices. Do not promote content conflicting with explicit user decisions, out-of-scope
+suggestions, or rejected alternatives into implementation requirements. Record each non-adoption
+reason in the Plan's architecture notes with its Design line reference. Do not redispatch the Designer.
 ```
 
 Apply the repair receipt only after the Plan is complete:
@@ -240,7 +245,7 @@ Readiness proves that decisions are closed, Tasks are mutually independent, owne
 overlap, Node DAGs are valid, acceptance covers every requirement and output, and focused and
 complete regression contracts are executable.
 
-After the user or inherited host Plan authorizes the exact semantic Plan, seal it once:
+After the user authorizes the exact semantic Plan, seal it once:
 
 ```sh
 python3 scripts/manifest_tool.py authorize-plan <root> \
@@ -251,6 +256,14 @@ python3 scripts/manifest_tool.py authorize-plan <root> \
 
 Authorization records the semantic digest and creates `Checkpoints.json`. No Worker starts before
 this gate, and no ordinary implementation question returns to the user afterward.
+
+The gate does not necessarily require another user interaction. Use `--source inherited_host_plan`
+when the approved host artifact binds this exact semantic Plan. Use
+`--source inherited_implementation_request` when an existing explicit request to implement the same
+concrete specification covers every choice, scope, risk, and reserved action. Otherwise present the
+complete Plan for explicit approval. General requests to investigate or refactor do not approve
+unseen design choices. Dossier selections and defaults resolve preferences; they do not replace
+the authorization gate. Existing sealed authorization is resumed, never requested again.
 
 ## 7. Dispatch the full parallel Task frontier
 
@@ -274,8 +287,9 @@ standard/complex tier.
 The Worker receives this operating prompt with the returned brief:
 
 ```text
-Implement this one independently acceptable Task. Do not ask the user questions after
-authorization. Execute every currently ready Task Node concurrently; wait only at declared joins,
+Implement this one independently acceptable Task. Do not ask the user directly; report truly missing
+input or authority promptly to the native main and resolve ordinary choices yourself.
+Execute every currently ready Task Node concurrently; wait only at declared joins,
 and never serialize independent Nodes for convenience. Stay inside the Task's ownership and return
 changed repository-relative paths plus focused evidence.
 ```
@@ -329,8 +343,40 @@ If acceptance passes, the Task becomes `completed`. If it fails, the Task enters
 `worker_correction`. The native main either repairs it directly and reruns `accept-task`, or calls
 `dispatch-task` again for one correction Worker. There is no separate Repair Task.
 
-If an action truly needs new scope, credentials, irreversible authority, or unavailable external
-infrastructure, mark only that Task:
+When required user input or authority is missing, the native main records it before asking:
+
+```sh
+python3 scripts/manifest_tool.py record-task-input TASK-001 <root> \
+  --plan <plan> --needed "Required test account access must be supplied"
+```
+
+This only stores a privacy-safe `input_request`; it sends no message, grants no permission, and
+preserves the Task's status, dispatch, and evidence. Report the prerequisite promptly, complete
+authorized preparation so the decision is concrete, and request only the missing input or approval.
+`next-action` continues independent Tasks and returns `await_user_input` when only the recorded
+requests remain. A pending request prevents that Task's dispatch or acceptance and prevents final
+verification or closure, including when the Reviewer discovers it after Task acceptance.
+
+After the real answer or prerequisite is verified, record its safe outcome:
+
+```sh
+python3 scripts/manifest_tool.py record-task-input TASK-001 <root> \
+  --plan <plan> --resolved "Required test account access is now available"
+```
+
+Do not record credentials, raw user messages, or private operational details. Resolution removes the
+request and appends an evidence item without changing Plan semantics or granting new authority.
+Resume the same delivery only within its existing authorization; silence is not resolution.
+If the Reviewer session is active, resolution returns `resume_reviewer`. Send the actual resolved
+prerequisite to that same Reviewer so it finishes the interrupted audit or repair, then record its
+new final callback and complete findings array. Resolving input alone never completes an audit or
+requires another complete regression when the green evidence is still current.
+Expanded goal, scope, decisions, risk, or irreversible authority requires a separately authorized
+Plan. Preserve explicit project approval requirements, including any developer decision required
+after a complete-regression failure; ordinary defect reports do not create extra approval gates.
+
+Only when the authorized outcome has a proven hard authority or environment blocker, rather than
+an unanswered request, mark the affected Task:
 
 ```sh
 python3 scripts/manifest_tool.py block-task TASK-001 <root> \
@@ -339,12 +385,15 @@ python3 scripts/manifest_tool.py block-task TASK-001 <root> \
   --reason "Safe public blocker summary"
 ```
 
-Independent Tasks continue.
+Independent Tasks continue. `block-task` supersedes a pending input request with that final blocker.
+During an active Reviewer session it may also supersede a completed Task's recorded input request
+with a proven blocker, retaining all historical evidence. A blocked Plan is not a successful delivery.
 
-## 9. Revise unstarted work when implementation reveals a Plan defect
+## 9. Revise in-scope work and correct execution errors
 
-When an in-scope discovery changes unstarted work, open a continuation instead of asking the user or
-dispatching another Designer:
+When an in-scope discovery changes unstarted work, or a focused command/path error prevents an
+unfinished Task's acceptance, open a continuation instead of asking the user or dispatching another
+Designer:
 
 ```sh
 python3 scripts/manifest_tool.py begin-continuation <root> \
@@ -352,7 +401,8 @@ python3 scripts/manifest_tool.py begin-continuation <root> \
   --reason "Safe in-scope reason"
 ```
 
-Revise only unstarted work, then reseal the same authorization boundary:
+Revise unstarted work or correct the unfinished Task's execution error, then reseal the same
+authorization boundary:
 
 ```sh
 python3 scripts/manifest_tool.py close-continuation <root> \
@@ -360,13 +410,18 @@ python3 scripts/manifest_tool.py close-continuation <root> \
   --continuation-id <continuation-id>
 ```
 
-Started Task contracts and evidence remain frozen. A continuation cannot expand the goal, scope,
-user decisions, elevated risk, or irreversible authority.
+For a started but unfinished Task, only `focused_regression.commands` and
+`focused_regression.paths` may change, after its Worker's final callback. The native main must
+establish that the correction preserves the same oracle, not replace a failing check with a weaker
+one. Every other Task field stays frozen, including ownership, guarantees, and acceptance semantics;
+completed Task definitions cannot change. The continuation records its reason and the before/after
+regression contract, retains historical evidence, and requires fresh focused acceptance. A
+continuation cannot expand the goal, scope, user decisions, elevated risk, or irreversible authority.
 
 ## 10. Run the independent complete regression
 
-When every Task reaches a completed or hard-blocked terminal and no continuation is open,
-`next-action` returns:
+When every Task reaches a completed or hard-blocked terminal, no input request remains, and no
+continuation is open, `next-action` returns:
 
 ```json
 {"action":"run_full_regression"}
@@ -462,7 +517,8 @@ receipt is current and the action is `close_reviewer_session`.
 
 If the prior run failed or Reviewer repairs changed covered paths, the action is
 `run_full_regression`. Run the same independent stage again. The Reviewer does not supervise or wait
-for it.
+for it. If project rules explicitly reserve a failed complete regression for a developer decision,
+record the needed input and obtain that decision before dependent repairs or reruns.
 
 If the rerun passes, close the session. If it fails, the command returns `resume_reviewer` with new
 ephemeral diagnostics. Send them to the already bound Reviewer agent with this follow-up:
@@ -538,6 +594,10 @@ regression, or introduce a new approval.
 - Diagnostics identify exact source locations and are handed directly to the responsible agent.
   Raw runtime output is not persisted.
 - Unknown structure, stale evidence, overlapping ownership, unsupported generations, and expanded
-  authority fail closed instead of being guessed or silently repaired.
+  authority reject the attempted state transition. Use the existing conversion repair, permitted
+  continuation, or verification path when current authority and repository facts justify it, then
+  retry. Rejecting a transition does not itself require user approval or stop independent work.
+  Never guess callback identity, fabricate evidence, translate unsupported generations, or broaden
+  authority. `next-action` names workflow work; it never overrides a pending input or explicit approval.
 - Parallel work stays parallel: independent Tasks, ready Node branches, and focused acceptance for
   independent Tasks are never serialized merely for convenience.

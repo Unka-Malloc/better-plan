@@ -38,8 +38,8 @@
       "role": null,
       "stage": "ready to authorized",
       "sample_unit": "one authorize verification command",
-      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
-      "default_timeout_ms": 1800000
+      "configured_timeout_source": "explicit project or user command deadline; no framework deadline",
+      "default_timeout_ms": null
     },
     {
       "key": "fsm.task.focused-regression",
@@ -48,8 +48,8 @@
       "role": null,
       "stage": "awaiting acceptance to accepted or correction",
       "sample_unit": "one focused-regression command attempt",
-      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
-      "default_timeout_ms": 1800000
+      "configured_timeout_source": "explicit project or user command deadline; no framework deadline",
+      "default_timeout_ms": null
     },
     {
       "key": "fsm.delivery.full-regression",
@@ -58,8 +58,8 @@
       "role": null,
       "stage": "all tasks terminal to reviewer-ready",
       "sample_unit": "one full-regression command attempt",
-      "configured_timeout_source": "workflow COMMAND_TIMEOUT_SECONDS",
-      "default_timeout_ms": 1800000
+      "configured_timeout_source": "explicit project or user command deadline; no framework deadline",
+      "default_timeout_ms": null
     },
     {
       "key": "framework.lifecycle-hook",

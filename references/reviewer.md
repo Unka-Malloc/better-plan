@@ -39,12 +39,16 @@ evidence. Inspect hierarchy, typography, contrast, clipping, responsive layout, 
 error states, focus, keyboard behavior, and feedback as applicable. Keep secrets, absolute local
 paths, and runtime endpoints out of screenshots and reports.
 
-Do not ask the user a question and do not return decision issues. Resolve choices from the selected
+Do not ask the user directly or return ordinary implementation decisions. Resolve choices from the selected
 options, authorized scope and risk boundary, existing public contracts, the safest reversible
 behavior, and the simplest adequate implementation. A separate out-of-scope defect is a follow-up,
 not a blocker for an otherwise valid current delivery. If the current Plan itself cannot satisfy its
 success or safety contract without new scope, credentials, irreversible authority, or unavailable
-external infrastructure, record a hard blocker while continuing every independent safe repair.
+external infrastructure, promptly report the precise missing input or authority to the native main
+while continuing independent safe repairs. It records the pending prerequisite and asks the concrete
+question; do not treat an unanswered request as a final blocker. Report a hard blocker only when the
+required prerequisite cannot be supplied within the authorized delivery. Preserve any explicit
+project requirement for a developer decision after complete-regression failures.
 
 Audit the supplied regression result instead of running or waiting for the complete regression.
 Python owns that deterministic work in a separate `run-full-regression` stage outside Reviewer model
