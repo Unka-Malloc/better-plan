@@ -23,11 +23,24 @@
 - Avoid exhaustive permutations of incidental formatting, equivalent invalid inputs, or host
   templates. Add a case only when it protects a user-visible principle or a security/state boundary.
 
+## Reporting, clarification, and approval
+
+- Promptly report defects found during development and focused testing. Repair ordinary defects
+  within the existing authorized outcome, scope, and risk boundary without asking for confirmation
+  of each fix. A progress report does not create an approval gate.
+- Request a user decision only when material input cannot be discovered or the required action
+  exceeds existing authorization. Complete authorized preparation first, present the concrete
+  decision or action, and continue independent work while its answer is pending. Silence and
+  declared defaults never grant approval.
+- Problems found by the complete repository regression still go to the developer for a decision.
+  Preserve this explicit requirement; do not infer permission to repair or rerun from the general
+  autonomy rule. Continue only work independent of that decision while it is pending.
+
 ## Native role immutability
 
 - Treat every existing local native role file and role receipt as immutable host configuration.
   Better Plan may create its role matrix only when no same-name role configuration or receipt exists.
-- Install, update, Doctor, migration, repair, and explicit replacement requests never authorize
+- Install, update, uninstall, Doctor, migration, repair, and explicit replacement requests never authorize
   Better Plan to edit, remove, adopt, re-sign, or regenerate an existing local role matrix or its
   receipt. Update only skills, Hooks, plugins, and adapters around it.
 - A receipt mismatch is a report-only Doctor warning. Never recommend replacement as its repair,

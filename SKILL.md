@@ -1,6 +1,6 @@
 ---
 name: better-plan
-description: Complete-delivery planning for large refactors, migrations, high-risk changes, and real parallel multi-Task delivery. It consolidates user decisions once, compiles one Designer's structured solution draft into the Plan, then executes without mid-delivery questions and closes through one write-capable Reviewer.
+description: Complete-delivery planning for large refactors, migrations, high-risk changes, and real parallel multi-Task delivery. It consolidates material user decisions, compiles one Designer's structured solution draft into the Plan, executes ordinary in-scope work autonomously, and closes through one write-capable Reviewer.
 ---
 
 # Better Plan
@@ -12,9 +12,10 @@ The latest user request is always authoritative; stored state never grants work 
 ## Internal operating guidance
 
 Understand the user's request and inspect repository facts first. Use Better Plan only for large
-delivery. Before authorization, consolidate every non-discoverable choice into one Decision Dossier
-and resolve it once. After authorization, never ask the user another question: continue safe
-in-scope work and report hard authority or environment blockers only at final handoff. Run
+delivery. Use a Decision Dossier only for material choices that cannot be discovered. After
+authorization, resolve ordinary implementation decisions autonomously. Promptly surface missing
+user input or authority, prepare the concrete decision within existing authorization, and continue
+independent work while awaiting the required answer. Existing approval requirements still apply. Run
 `next-action` when the delivery state is unclear; it always names one next step.
 
 ## Activation and source-repository exemption
@@ -35,7 +36,7 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
 - Keep secrets, personal or machine identity, absolute local paths, runtime endpoints, and backend
   runtime data out of state, prompts, evidence, and reports.
 - Treat existing native role files and receipts as immutable local configuration. Better Plan may
-  install a missing role matrix once, but no later install, update, repair, Doctor result, or user
+  install a missing role matrix once, but no later install, update, uninstall, repair, Doctor result, or user
   request authorizes editing, replacing, adopting, re-signing, or regenerating it. Receipt drift is
   report-only; continue skill, Hook, plugin, and adapter updates around the local roles.
 - `Plan.json` is the sole semantic source; `Manifest.json` indexes Plans; `Checkpoints.json` holds
@@ -52,8 +53,9 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   concurrently, waiting only at declared joins. Nodes never gain separate roles or lifecycle state.
 - A Task is one independently acceptable observable outcome. File lists, development phases,
   generic investigation, design, approval, and final review are not Tasks.
-- Present at most one Decision Dossier per Delivery Plan and resolve it exactly once. Never ask a
-  sequence of granular questions that one coherent choice can close.
+- Present at most one Decision Dossier per Delivery Plan; resolve it once only when needed. With no
+  material undiscoverable choice, keep `not_required` and proceed without a question or empty Dossier.
+  Never ask a sequence of granular questions that one coherent choice can close.
 - Dispatch exactly one Designer. During its exclusive session it writes one complete structured
   `Design.md` solution into the neutral field-only skeleton precreated at the canonical draft path;
   Python derives canonical codes, mappings, defaults, and `Plan.json.spec`.
@@ -73,12 +75,17 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   a Git repository, inspect the final worktree, preserve unrelated changes, and create exactly one
   commit for the completed Delivery Plan on the current branch using the repository's normal Git
   conventions; otherwise skip Git. Committing must not change production files.
-- After authorization, never ask the user another question. Apply the frozen decision precedence,
-  revise unstarted in-scope work autonomously, continue independent branches, and report hard
-  authority or environment blockers only at final handoff.
-- Started Task contracts and evidence are frozen. A continuation may add or replace unstarted work
-  but cannot expand goal, scope, user decisions, elevated risk, or irreversible authority.
-- Run one focused regression per Task. After all Tasks finish, Python runs the complete regression
+- After authorization, do not ask for ordinary implementation decisions or reconfirm existing
+  permission. Only the native main requests newly missing user input or authority. Record a pending
+  request with `record-task-input`; continue independent work and preserve explicit approval gates.
+  Silence, defaults, and a recorded answer never authorize expanded Plan semantics.
+- Started Task goals, guarantees, ownership, design, risk, acceptance semantics, and historical
+  evidence are frozen. After the Worker returns, a continuation may correct an unfinished Task's
+  focused-regression commands or paths to preserve the same oracle, with a recorded reason and fresh
+  focused evidence. Completed Task definitions remain immutable. Other continuation edits apply only
+  to unstarted work and cannot expand scope, user decisions, elevated risk, or irreversible authority.
+- Run each Task's focused regression to establish current acceptance after implementation or
+  correction. After all Tasks finish, Python runs the complete regression
   as the independent `run-full-regression` stage outside model time. Only after that stage completes
   may `open-reviewer-session` dispatch the Reviewer. The native main forwards the stage's ephemeral
   privacy-safe diagnostics with the dispatch; `open-reviewer-session` never executes tests. Reuse
@@ -102,10 +109,13 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
 - Close work through the smallest independently acceptable capability, module, or scenario. Keep
   edits and focused checks inside that closure, then move to the next closure without absorbing
   unrelated work.
-- Use the narrowest useful checks during delivery. Run the complete regression once only after all
-  changes are integrated and focused evidence is green; do not repeatedly consume shared resources
-  or disturb concurrent Workers. Before authorization, return only genuinely material,
-  undiscoverable decisions to the user in the single Dossier.
+- Use the narrowest useful checks during delivery. Run the first complete regression only after all
+  Worker changes are integrated and focused evidence is green. Reuse green evidence while covered
+  inputs are unchanged; a failed run or later repair requires verification through the same stage.
+  Do not repeatedly consume shared resources or disturb concurrent Workers for unchanged green
+  evidence. Report ordinary defects promptly and fix them within existing authorization. If project
+  rules explicitly reserve full-regression failures for a developer decision, obtain that decision
+  before dependent repairs or reruns; a routine progress report adds no approval gate.
 
 ## Delivery sequence
 
@@ -115,15 +125,19 @@ Inspect the affected capability, its current contracts, tests, schemas, interfac
 failure behavior, and delivery tooling. Record source-grounded facts in `ledger.observed`. Do not
 ask questions whose answers exist in the repository.
 
-### 2. Ask once
+### 2. Resolve material choices when needed
 
-Bundle only materially outcome-changing preferences that remain undiscoverable. Each question
+If no material choice remains undiscoverable, keep `dossier.status = not_required` and go directly
+to the Designer; neither `build-dossier` nor `resolve-dossier` nor a user confirmation is required.
+Otherwise bundle the remaining outcome-changing preferences. Each question
 carries context, the `DEC-*` decisions it closes, two to six mutually exclusive options whose
 `effects` state exactly what the option freezes, plus a recommended and a default option.
 
 Present every question together. `build-dossier` may be rebuilt while unresolved; one
 `resolve-dossier` call applies explicit selections, adopts declared defaults for omissions, and
 closes the Dossier permanently.
+Defaults apply only to ordinary preferences. They cannot supply missing authority, override an
+explicit user instruction, or count as approval of an irreversible or otherwise reserved action.
 
 ### 3. Pass requirements and design once
 
@@ -157,12 +171,20 @@ records authorization, and creates `Checkpoints.json`.
 
 Host Plan Mode approval may be inherited only when the approved artifact binds this exact semantic
 specification.
+The gate records authorization; it does not necessarily ask for a new approval. Use
+`inherited_implementation_request` only when an existing explicit implementation request covers the
+same concrete specification with no added choice, scope, risk, or reserved action. A general request
+to investigate or refactor does not approve an unseen design. Otherwise present the complete Plan
+and obtain the required explicit approval. Never reauthorize an already sealed Plan.
 
-### 5. Execute without interruption
+### 5. Execute within authorization
 
 Read `next-action` and dispatch the full eligible frontier. Serialize only the short state writes;
 native Workers may run concurrently. Each Worker receives one compiled brief containing the exact
 Task, relevant decisions, authorized scope, and execution policy — never an opaque ID.
+Forward each Designer, Worker, and Reviewer dispatch's `role_reference` with its complete brief.
+New first-install roles read the referenced contract from the installed skill before acting.
+Existing local role constraints remain authoritative; a skill update does not rewrite them.
 Within that Task, the Worker runs every ready Node concurrently and waits only when a Node declares
 all predecessors of a real join.
 
@@ -171,6 +193,10 @@ Spawn return is not completion. Silence, elapsed time, or context compaction is 
 `delegation-failed` only for a conclusive refusal, unavailability, terminal failure, or a
 host-confirmed terminated child with no final callback. At the retry ceiling `next-action` reports
 `complete_in_main` and the native main completes that same role contract.
+
+Verification and regression commands have no framework-imposed execution deadline. Observation
+windows determine when to report progress, not when to terminate work. Preserve explicit user
+cancellation and any project-required deadline expressed by the declared command.
 
 Group eligible Tasks by the exact returned `agent_type` only for prompt construction. Reuse the
 returned Worker assignment byte-for-byte as each group's prompt prefix and append the individual
@@ -207,12 +233,24 @@ When implementation reveals a plan defect, resolve it in this order:
 4. the safest reversible compatible behavior; and
 5. the simplest implementation that meets the Plan.
 
-For an in-scope change, open a continuation, revise only unstarted work, reseal, and continue
-without Designer or user interaction. If it requires new scope, credentials, irreversible action, or
-unavailable infrastructure, mark only that Task `blocked_by_authority` or
-`blocked_by_environment`, continue independent Tasks, and report it once at final handoff. This
-blocker rule applies when the authorized outcome depends on that action; an unrelated confirmed
-defect outside the Plan follows the Reviewer finding handoff below.
+For an in-scope change, open a continuation and revise unstarted work. For a started but unfinished
+Task, wait for its Worker's final callback and correct only the focused-regression command or path
+error without weakening its oracle. Reseal and rerun focused acceptance; retain all earlier evidence.
+The continuation records the reason and before/after regression contract. Never rewrite a completed
+Task or change ownership, guarantees, or acceptance to make a failure disappear.
+
+If required input or authority is missing, promptly tell the native main. It records the affected
+Task with `record-task-input --needed`, completes authorized preparation, and requests only the
+remaining concrete input or approval. While the answer is pending, continue independent work and
+do not accept that Task or close the Plan. After the actual answer or prerequisite is verified, use
+`record-task-input --resolved` and continue the same delivery when the existing semantic authority
+still covers it. This receipt grants no new permission and never replaces `authorize-plan`.
+During review, resolution returns `resume_reviewer`; resume the same Reviewer and record its next
+final callback and findings before closing. Availability of input is not completion evidence.
+Expanded goal, scope, decisions, risk, or irreversible authority still needs a separately authorized
+Plan; no continuation may inherit it. Only a proven hard blocker uses `block-task` and a blocked
+final handoff, never a merely unanswered request. An unrelated confirmed defect follows the Reviewer
+finding handoff below.
 
 ### 6. Review once and finish
 
@@ -269,7 +307,7 @@ All commands use `scripts/manifest_tool.py`.
   `close-designer-session`, `check-readiness`, `authorize-plan`.
 - Continuation: `begin-continuation`, `close-continuation`.
 - Delivery: `next-action`, `dispatch-task`, `bind-agent`, `agent-complete`, `delegation-failed`,
-  `main-complete`, `accept-task`, `block-task`.
+  `main-complete`, `accept-task`, `record-task-input`, `block-task`.
 - Closure: `run-full-regression`, `open-reviewer-session`, `record-reviewer-findings`,
   `close-reviewer-session`.
 - Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints|design`.

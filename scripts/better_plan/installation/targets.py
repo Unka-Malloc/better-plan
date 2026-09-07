@@ -28,7 +28,7 @@ from .models import (
     WslOpenCodeRuntime as _WslOpenCodeRuntime,
 )
 from .assignments import RoleAssignment as _RoleAssignment, select_role_assignments as _select_role_assignments
-from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_path
+from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_path, staged_tree as _staged_tree
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
@@ -166,14 +166,19 @@ def _write_kilo_receipt(path: Path, payload: dict[str, bytes]) -> None:
         "target": "kilo",
         "files": {name: _content_digest(content) for name, content in payload.items()},
     }
-    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     try:
-        temp.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temp, path)
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
     except OSError as exc:
-        if temp.exists():
-            temp.unlink()
         raise _InstallError("could not write Kilo Agent receipt") from exc
+
+
+def _create_native_role(path: Path, content: bytes) -> None:
+    try:
+        with path.open("xb") as stream:
+            stream.write(content)
+    except OSError as exc:
+        raise _InstallError("could not create native role; existing role files are never overwritten") from exc
 
 
 def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
@@ -189,7 +194,7 @@ def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[st
         return ["native: would install kilo Agent matrix"]
     destination.mkdir(parents=True, exist_ok=True)
     for filename, content in payload.items():
-        (destination / filename).write_bytes(content)
+        _create_native_role(destination / filename, content)
     _write_kilo_receipt(_kilo_receipt_path(paths), payload)
     return ["native: installed kilo Agent matrix"]
 
@@ -310,13 +315,10 @@ def _write_native_receipt(path: Path, target: str, payload: list[tuple[str, byte
         "files": {filename: _content_digest(content) for filename, content, _ in payload},
         "assignments": {filename: _assignment_payload(assignment) for filename, _, assignment in payload},
     }
-    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     try:
-        temp.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temp, path)
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
     except OSError as exc:
-        if temp.exists():
-            temp.unlink()
         raise _InstallError("could not write native role template receipt") from exc
 
 
@@ -422,26 +424,19 @@ def opencode_model_selectors() -> frozenset[str]:
 def _native_payload(
     paths: _InstallPaths,
     target: str,
-    receipt: dict[str, object] | None,
 ) -> list[tuple[str, bytes, _RoleAssignment]]:
     sources = _validate_native_sources(paths, target)
-    if receipt is None:
-        try:
-            assignments = _select_role_assignments(
-                paths,
-                target,
-                excluded_names=NATIVE_ROLE_FILES[target],
-                available_model_selectors=(
-                    opencode_model_selectors() if target == "opencode" else None
-                ),
-            )
-        except ToolError as exc:
-            raise _InstallError("native role assignments could not be selected") from exc
-    else:
-        receipt_assignments = receipt["assignments"]
-        if not isinstance(receipt_assignments, dict):
-            raise _InstallError("native role template receipt is invalid")
-        assignments = dict(receipt_assignments)
+    try:
+        assignments = _select_role_assignments(
+            paths,
+            target,
+            excluded_names=NATIVE_ROLE_FILES[target],
+            available_model_selectors=(
+                opencode_model_selectors() if target == "opencode" else None
+            ),
+        )
+    except ToolError as exc:
+        raise _InstallError("native role assignments could not be selected") from exc
     payload: list[tuple[str, bytes, _RoleAssignment]] = []
     extension = ".toml" if target == "codex" else ".md"
     for agent_name, assignment in sorted(assignments.items()):
@@ -467,95 +462,22 @@ def install_role_templates(
     receipt_path = _native_receipt_path(destination)
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise _InstallError("native role template destination is not a managed directory")
-    receipt = _load_native_receipt(receipt_path, target)
-    obsolete_files: dict[str, str] = {}
-    if receipt is not None:
-        receipt_files = receipt.get("files")
-        receipt_assignments = receipt.get("assignments")
-        if not isinstance(receipt_files, dict) or not isinstance(receipt_assignments, dict):
-            raise _InstallError("native role template receipt is invalid")
-        allowed = set(NATIVE_ROLE_FILES[target])
-        obsolete_files = {
-            filename: str(digest)
-            for filename, digest in receipt_files.items()
-            if filename not in allowed
-        }
-        for filename, digest in obsolete_files.items():
-            path = destination / filename
-            if not path.exists():
-                continue
-            if path.is_symlink() or not path.is_file():
-                raise _InstallError("obsolete managed native role collides with an unmanaged file")
-            try:
-                current_digest = _content_digest(path.read_bytes())
-            except OSError as exc:
-                raise _InstallError("obsolete managed native role is unreadable") from exc
-            if current_digest != digest:
-                raise _InstallError("obsolete managed native role was modified outside Better Plan")
-        extension = ".toml" if target == "codex" else ".md"
-        receipt = {
-            "files": {name: digest for name, digest in receipt_files.items() if name in allowed},
-            "assignments": {
-                name: assignment
-                for name, assignment in receipt_assignments.items()
-                if f"{name}{extension}" in allowed
-            },
-        }
-    payload = _native_payload(paths, target, receipt)
+    payload = _native_payload(paths, target)
     if not payload:
         return [f"native: skipped {target}; no locally callable benchmarked role configuration was found"]
-    expected = {filename: _content_digest(content) for filename, content, _ in payload}
-    receipt_files = receipt.get("files") if receipt is not None else None
-    if receipt_files is not None and (
-        not isinstance(receipt_files, dict)
-        or not set(receipt_files).issubset(expected)
-    ):
-        raise _InstallError("native role template receipt is invalid")
-
-    # Existing same-name files are safe to touch only when the receipt proves
-    # that Better Plan still owns the exact bytes.  A pre-existing collision
-    # without a receipt fails closed instead of being overwritten.
-    for filename, content, _ in payload:
-        path = destination / filename
-        if path.is_symlink():
-            raise _InstallError("native role template destination collides with an unmanaged file")
-        if not path.exists():
-            continue
-        if not path.is_file():
-            raise _InstallError("native role template destination collides with an unmanaged file")
-        if receipt is None:
-            raise _InstallError("native role template destination collides with an unmanaged file")
-        try:
-            current_digest = _content_digest(path.read_bytes())
-        except OSError as exc:
-            raise _InstallError("native role template destination is unreadable") from exc
-        if not isinstance(receipt_files, dict) or receipt_files.get(filename) != current_digest:
-            raise _InstallError("native role template destination was modified outside Better Plan")
-
     if dry_run:
-        action = f"native: would pin {target} role assignments"
-        if obsolete_files:
-            action += " and remove obsolete managed roles"
-        return [action, _assignment_message(target, payload)]
+        return [f"native: would install {target} role assignments", _assignment_message(target, payload)]
     destination.mkdir(parents=True, exist_ok=True)
-    changed = bool(obsolete_files)
-    for filename in obsolete_files:
-        path = destination / filename
-        if path.exists():
-            path.unlink()
     for filename, content, _ in payload:
-        path = destination / filename
-        if not path.exists() or path.read_bytes() != content:
-            path.write_bytes(content)
-            changed = True
-    if receipt is None or receipt_files != expected or obsolete_files:
-        _write_native_receipt(receipt_path, target, payload)
-    return [f"native: {'updated' if changed else 'already current'} {target} role templates", _assignment_message(target, payload)]
+        # Exclusive creation cannot overwrite a role that appeared after discovery.
+        _create_native_role(destination / filename, content)
+    _write_native_receipt(receipt_path, target, payload)
+    return [f"native: installed {target} role templates", _assignment_message(target, payload)]
 
 
 def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> str:
     values = "; ".join(_assignment_summary(assignment) for _, _, assignment in payload)
-    return f"native assignments ({target}, pinned until explicit reinstall): {values}"
+    return f"native assignments ({target}, immutable after first installation): {values}"
 
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
@@ -614,41 +536,6 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     return True, "current native role generation and pinned selectors verified"
 
 
-def remove_role_templates(
-    paths: _InstallPaths,
-    target: str,
-    *,
-    dry_run: bool,
-) -> list[str]:
-    destination = _native_role_directory(paths, target)
-    receipt_path = _native_receipt_path(destination)
-    receipt = _load_native_receipt(receipt_path, target)
-    existing: list[Path] = []
-    if receipt is not None:
-        receipt_files = receipt.get("files")
-        if not isinstance(receipt_files, dict):
-            raise _InstallError("native role template receipt is invalid")
-        for filename in receipt_files:
-            path = destination / filename
-            if not path.exists():
-                continue
-            if path.is_symlink() or not path.is_file():
-                continue
-            try:
-                current_digest = _content_digest(path.read_bytes())
-            except OSError as exc:
-                raise _InstallError("native role template destination is unreadable") from exc
-            if receipt_files.get(filename) == current_digest:
-                existing.append(path)
-    if not dry_run:
-        for path in existing:
-            path.unlink()
-        if receipt_path.exists():
-            receipt_path.unlink()
-    action = "would remove" if dry_run else "removed"
-    return [f"{target}: {action} native role templates"]
-
-
 def read_json_object(path: Path) -> dict[str, object]:
     try:
         if not path.exists() or not path.read_text(encoding="utf-8").strip():
@@ -682,12 +569,7 @@ def install_claude_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
         _copy_skill_tree(paths.repo_root, paths.claude_skill, dry_run=True)
         return
 
-    target = paths.claude_plugin
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
-    if temp.exists():
-        shutil.rmtree(temp)
-    try:
+    with _staged_tree(paths.claude_plugin) as temp:
         (temp / ".claude-plugin").mkdir(parents=True)
         (temp / "skills").mkdir()
         write_json(
@@ -704,13 +586,6 @@ def install_claude_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
             if source.is_file():
                 shutil.copy2(source, temp / name)
         _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
-        if target.exists():
-            shutil.rmtree(target)
-        temp.rename(target)
-    except Exception:
-        if temp.exists():
-            shutil.rmtree(temp)
-        raise
 
 
 def opencode_agent_text() -> str:
@@ -753,23 +628,10 @@ def install_antigravity_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
         _copy_skill_tree(paths.repo_root, paths.antigravity_skill, dry_run=True)
         return
 
-    target = paths.antigravity_plugin
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
-    if temp.exists():
-        shutil.rmtree(temp)
-    try:
-        temp.mkdir()
+    with _staged_tree(paths.antigravity_plugin) as temp:
         write_json(temp / "plugin.json", antigravity_manifest())
         write_json(temp / "hooks.json", antigravity_hooks())
         _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
-        if target.exists():
-            shutil.rmtree(target)
-        temp.rename(target)
-    except Exception:
-        if temp.exists():
-            shutil.rmtree(temp)
-        raise
 
 
 def install_craft_skills(paths: _InstallPaths, *, dry_run: bool) -> int:
@@ -1013,7 +875,7 @@ def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[s
             "kilo: preserved immutable native Agent matrix",
         ]
     native_messages = (
-        remove_role_templates(paths, target, dry_run=dry_run)
+        [f"{target}: preserved immutable native role templates"]
         if target in NATIVE_ROLE_FILES
         else []
     )

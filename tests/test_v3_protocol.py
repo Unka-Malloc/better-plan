@@ -311,6 +311,7 @@ class V3ProtocolTests(unittest.TestCase):
                 "next-action",
                 "dispatch-task",
                 "accept-task",
+                "record-task-input",
                 "main-complete",
                 "run-full-regression",
                 "open-reviewer-session",

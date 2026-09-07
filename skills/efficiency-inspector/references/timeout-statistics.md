@@ -5,24 +5,26 @@
 
 ## 固定 N 项目录
 
-令 `P` 为自动超时策略目录，`N = |P|`。当前 `N = 7`：
+令 `P` 为观察窗口和执行期限的采样目录，`N = |P|`。当前 `N = 7`：
 
 | Policy key | 性质 | 一个样本代表 |
 | --- | --- | --- |
 | `role.designer.poll` | 观察窗口 | 一个 Designer 会话 |
 | `role.worker.poll` | 观察窗口 | 一次 Worker 派发或纠正 |
 | `role.reviewer.poll` | 观察窗口 | 一个 Reviewer 会话 |
-| `fsm.authorize.verify-command` | 执行期限 | 一次授权验证命令 |
-| `fsm.task.focused-regression` | 执行期限 | 一次聚焦回归命令尝试 |
-| `fsm.delivery.full-regression` | 执行期限 | 一次完整回归命令尝试 |
+| `fsm.authorize.verify-command` | 命令期限（默认无） | 一次授权验证命令 |
+| `fsm.task.focused-regression` | 命令期限（默认无） | 一次聚焦回归命令尝试 |
+| `fsm.delivery.full-regression` | 命令期限（默认无） | 一次完整回归命令尝试 |
 | `framework.lifecycle-hook` | 执行期限 | 一次显式计时 Hook 调用 |
 
 输出全部 N 行，包括零样本行。`N` 是策略维度数，`M` 是观测执行数。每个 wait、FSM 转移、
-安装探针、测试夹具超时、shell yield 或用户命令可以作为行为或 covariate 观察；只有框架自动
-设置的稳定超时维度进入策略目录。
+安装探针、测试夹具超时、shell yield 或用户命令可以作为行为或 covariate 观察。命令阶段保留
+独立采样项，但框架不设置执行期限，`default_timeout_ms` 为 `null`。只记录实际观察到的项目
+或用户命令期限；无期限时 `configured_timeouts_ms` 为空数组，不能推断一个默认期限。
 
 `worker-standard` 和 `worker-complex` 共用一个策略，tier 作为 covariate。Hook 事件和宿主也作为
-covariate。框架新增或删除自动超时时，先更新 `timeout-catalog.json`。
+covariate。框架新增、删除或改变期限设置时，同步更新 `timeout-catalog.json`。历史样本保留当时
+实际使用的期限，不按当前默认值重写。
 
 ## 先关联真实执行，再记录超时
 

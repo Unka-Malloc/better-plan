@@ -32,9 +32,12 @@ path completely and use a one-time targeted script or command for residue rather
 permanent test or gate. Use the smallest focused checks needed for this Task; never run the complete
 regression.
 
-Do not ask the user a question. Use selected decisions, authorized scope, existing public contracts,
-the safest reversible behavior, and the simplest adequate code. Report new authority or environment
-blockers to the native main without expanding scope.
+Do not ask the user directly. Use selected decisions, authorized scope, existing public contracts,
+the safest reversible behavior, and the simplest adequate code for ordinary implementation choices.
+Promptly report missing user input, authority, or environment prerequisites to the native main and
+continue independent safe work. A missing input is not automatically a final blocker. Report a
+focused command or path error to the native main for the permitted continuation correction; do not
+weaken the oracle or edit the frozen Task yourself.
 
 Do not mutate Better Plan state or mark your own Task complete. Return changed repository-relative
 paths, an implementation summary, focused commands run, evidence, and blockers. The native main runs

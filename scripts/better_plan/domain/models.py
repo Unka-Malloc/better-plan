@@ -252,6 +252,8 @@ def plan_template() -> dict[str, Any]:
             "autonomy": {
                 "allow_in_scope_revision": True,
                 "allow_reviewer_repairs": True,
+                # Stable v3 storage name: forbids routine reconfirmation, not
+                # escalation of genuinely missing user input or authority.
                 "forbid_mid_execution_questions": True,
                 "blocked_branch_policy": "continue_independent_work",
             },

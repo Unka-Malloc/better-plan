@@ -62,7 +62,9 @@ draft → designing → ready → authorized → completed
                               authorized → blocked
 ```
 
-`blocked` is a final delivery state when the sole Reviewer proves a hard blocker. A sealed revision
+`blocked` is a final delivery state when the sole Reviewer proves a hard blocker, not a state for
+merely unanswered user input. Record a pending prerequisite in a Task's optional `input_request`
+instead; its status and historical evidence remain intact. A sealed revision
 exists only from authorization onward: `authorize-plan` creates revision 1 and every closed
 continuation increments it.
 
@@ -112,9 +114,19 @@ their exact `lines` range. Broad compiler errors without those locations are inv
 ## Intent and ledger
 
 `intent` contains goal, in/out scope, success conditions, risk boundary, and autonomy. The four
-autonomy values are fixed: in-scope revision allowed, Reviewer repairs allowed, mid-execution
-questions forbidden, and blocked branches continue independent work. Authorization makes goal,
+autonomy values are fixed: `allow_in_scope_revision: true`, `allow_reviewer_repairs: true`,
+`forbid_mid_execution_questions: true`, and
+`blocked_branch_policy: continue_independent_work`. Only the native main requests missing user input
+or authority; leaf roles promptly report it to the native main. Authorization makes goal,
 scope, user choices, and elevated risk immutable.
+
+`forbid_mid_execution_questions` is the stable v3 storage name for prohibiting ordinary
+implementation questions and repeated confirmation. It does not suppress genuinely missing user
+input or an explicit approval requirement. Keep this persisted name so package updates preserve
+existing semantic digests and authorization receipts. The runtime uses one v3 representation;
+an update does not rename fields, reseal Plans, reset Checkpoints, or grant new authority.
+Continuation recovery derives started Task status from Checkpoints, its existing source of truth,
+and compares contracts with the session's prior Tasks; it needs no separate status snapshot.
 
 The ledger contains exactly four classes:
 
@@ -136,9 +148,12 @@ A question carries `code`, `question`, `context`, the `resolves` decision codes,
 and an `effects` array stating exactly what the option freezes.
 
 `build-dossier` may be rebuilt while the Dossier is unresolved, so a malformed first attempt never
-forces a new Plan. `resolve-dossier` runs exactly once: it records explicit selections in
+forces a new Plan. With no material undiscoverable choice, keep `not_required` and skip both Dossier
+commands and any user confirmation. For a required Dossier, `resolve-dossier` runs once: it records explicit selections in
 `user_decided`, applies declared defaults into `defaulted`, clears the resolved `DEC-*` codes from
 `unresolved`, and closes the Dossier permanently.
+Declared defaults fill ordinary preferences only; they cannot supply authority or replace explicit
+approval. The native main checks this distinction before recording selections or authorizing.
 
 ## Task
 
@@ -203,17 +218,40 @@ paths are hard errors. Full-regression freshness excludes the current Plan's mut
 and `Checkpoints.json`; their lifecycle and receipt writes are validated as workflow state and must
 not invalidate the covered delivery inputs they describe.
 
-## Authorization and uninterrupted continuation
+## Authorization, pending input, and continuation
 
 Authorization binds source, an opaque reference digest, the semantic digest, risk reasons, and the
 autonomy policy. Sources are `explicit`, `inherited_host_plan`, or
 `inherited_implementation_request`.
+The last source applies only when a prior explicit implementation request covers this same concrete
+specification without new choices, scope, risk, or reserved actions. An approved host artifact must
+likewise bind the exact semantics. Otherwise obtain explicit Plan approval. The CLI records the
+native main's authorization judgment; it cannot prove that consent exists from a source label or
+reference string. Do not ask again when the same specification is already authorized.
 
-An authorized continuation may change only unstarted execution specification. It records its reason,
-preserves every started Task definition by digest, passes readiness, increments the revision, and
-updates Checkpoint bindings atomically. Goal, scope, user decisions, and newly introduced elevated
-risk require new authorization; execution never asks for it mid-run and instead marks the affected
-branch blocked.
+An authorized continuation may revise unstarted execution specification. A started, unfinished
+Task may change only its focused-regression commands or paths after its Worker returns, to correct
+execution errors while preserving the same acceptance oracle. All other Task fields and every
+completed definition stay frozen. The continuation records its reason and any
+`execution_corrections` with `task`, `before`, and `after` regression contracts; it preserves old
+evidence and requires fresh focused acceptance. It passes readiness, increments the revision, and
+updates Checkpoint bindings. Goal, scope, user decisions, and newly introduced elevated risk still
+require a separately authorized Plan; a recorded input resolution cannot authorize that expansion.
+
+`record-task-input --needed` stores an optional safe summary in `Checkpoints.json.tasks[].input_request`.
+It neither sends a question nor changes Task status, dispatch, evidence, or Plan semantics. The
+native main prepares and asks the concrete missing question through the host. Independent Tasks
+continue; `next-action` includes `awaiting_input` and returns `await_user_input` when only requests
+remain. A request blocks its Task's dispatch/acceptance and final regression, Reviewer opening, and
+Plan closure. `--resolved` removes it only after actual input or prerequisite resolution and appends
+safe `user_input` evidence. Silence, defaults, and elapsed time are not resolution or approval.
+When a Reviewer session is active, resolution clears its final-return flag and returns
+`resume_reviewer`; the same Reviewer must finish the interrupted work and return a new final
+callback and findings array before close. Input availability is not evidence of a completed audit.
+If a prerequisite proves impossible within this delivery, `block-task` replaces the request with
+a hard blocker. During an active review this also permits a completed Task with a recorded request
+to become hard-blocked without rewriting its definition or historical evidence. Closed Plans never
+reopen through the input command.
 
 Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`, and
 `blocked_by_environment`. Dispatch phases are `worker_running`, `worker_correction`, and
@@ -232,7 +270,7 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `compile-design --apply` | verify and record a native-main repair to `Plan.json` without changing or recompiling the archived draft |
 | `check-readiness` | list every remaining readiness issue in one pass |
 | `authorize-plan` | the single gate: readiness, optional harness verification, seal, and Checkpoints |
-| `begin-continuation` / `close-continuation` | revise unstarted in-scope work without questions |
+| `begin-continuation` / `close-continuation` | revise unstarted work or correct an unfinished Task's focused execution while preserving semantic authority |
 | `next-action` | name one action for every phase and every delivery state |
 | `dispatch-task` | dispatch one eligible Task, or re-dispatch one correction Worker |
 | `bind-agent` | bind one opaque host agent id to one dispatch |
@@ -240,6 +278,7 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `delegation-failed` | record a conclusive delegation failure and raise the fallback |
 | `main-complete` | record native-main completion of an exhausted delegation |
 | `accept-task` | run one Task's focused regression outside the global lock; invoke concurrently across the awaiting Task frontier |
+| `record-task-input` | record or resolve a missing user prerequisite without changing Task history or granting authority |
 | `block-task` | record an authority or environment blocker for exactly one independent Task |
 | `run-full-regression` | independently run the complete regression outside the lock, persist only its receipt, and return ephemeral safe diagnostics plus the next action |
 | `open-reviewer-session` | validate current regression evidence and dispatch the sole Reviewer without executing tests |
