@@ -1199,8 +1199,10 @@ def validate_checkpoints_document(path: Path, checkpoints: Any, plan: Mapping[st
             issues.append(_issue(path, prefix, "invalid execution state"))
             continue
         issues.extend(
-            _unknown_fields(path, prefix, entry, {"code", "status", "dispatch", "evidence", "status_reason"})
+            _unknown_fields(path, prefix, entry, {"code", "status", "dispatch", "evidence", "status_reason", "input_request"})
         )
+        if "input_request" in entry and safe_summary_issue(entry["input_request"]) is not None:
+            issues.append(_issue(path, prefix + ".input_request", "must describe the missing input safely"))
         missing = {"code", "status", "dispatch", "evidence"} - set(entry)
         if missing:
             issues.append(_issue(path, prefix, "missing fields %s" % ", ".join(sorted(missing))))

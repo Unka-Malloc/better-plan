@@ -92,7 +92,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         nargs="+",
         help="agent targets: all, codex, claude, opencode, cursor, copilot, antigravity, pi, craft, kilo, kimi",
     )
-    parser.add_argument("--source", help="Better Plan source tree; defaults to this repository")
+    parser.add_argument("--source", help="source tree for installation or Doctor comparison; defaults to the running package")
     parser.add_argument("--codex-home", help="Codex home directory")
     parser.add_argument("--shared-home", help="shared agent home")
     parser.add_argument("--claude-home", help="Claude home directory")

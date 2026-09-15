@@ -1,10 +1,11 @@
-"""Atomic Better Plan skill-tree operations and target selection."""
+"""Recoverable Better Plan skill-tree operations and target selection."""
 
 from __future__ import annotations
 
-import os
 import shutil
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .models import (
@@ -27,29 +28,46 @@ def adapter_needs_skill_root(agents: Iterable[str]) -> bool:
     return any(agent in ADAPTER_SKILL_AGENTS for agent in agents)
 
 
+@contextmanager
+def staged_tree(target: Path) -> Iterator[Path]:
+    """Prepare a complete tree and restore the prior installation on publish failure."""
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        raise _InstallError("installation tree destination is not a managed directory")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = type(target)(tempfile.mkdtemp(prefix=f".{target.name}.update-", dir=str(target.parent)))
+    prepared, previous = staging / "prepared", staging / "previous"
+    prepared.mkdir()
+    published = False
+    try:
+        yield prepared
+        if target.exists():
+            target.rename(previous)
+        try:
+            prepared.rename(target)
+        except BaseException:
+            if previous.exists():
+                previous.rename(target)
+            raise
+        published = True
+    except OSError as exc:
+        raise _InstallError("installation tree update failed; any unrestored prior tree remains in its staging directory") from exc
+    finally:
+        # If restoration itself failed, retain the prior tree for recovery.
+        if published or not previous.exists():
+            shutil.rmtree(staging)
+
+
 def copy_skill_tree(source: Path, target: Path, *, dry_run: bool) -> None:
-    """Atomically replace one skill tree built from the canonical payload allowlist."""
+    """Publish the canonical skill payload without discarding a usable prior tree."""
     validate_source_tree(source)
     if dry_run:
         return
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temp = target.with_name(f".{target.name}.tmp-{os.getpid()}")
-    if temp.exists():
-        shutil.rmtree(temp)
-    try:
-        temp.mkdir()
+    with staged_tree(target) as temp:
         for relative in CURRENT_SKILL_FILES:
             destination = temp / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / relative, destination)
-        if target.exists():
-            shutil.rmtree(target)
-        temp.rename(target)
-    except Exception:
-        if temp.exists():
-            shutil.rmtree(temp)
-        raise
 
 
 def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
