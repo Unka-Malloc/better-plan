@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "3.0.0"
+VERSION = "3.0.2"
 AGENTS = (
     "codex",
     "claude",
@@ -32,7 +32,7 @@ OPTIONAL_CLIENT_CLI_COMMANDS = {
     "copilot": (("copilot", "--version"),),
     "kimi": (("kimi", "--version"),),
 }
-DESCRIPTION = "Decision-complete Better Plan v3 orchestration with one design session, uninterrupted delivery, and one writable review session."
+DESCRIPTION = "Decision-complete Better Plan v3 orchestration with one design session, autonomous in-scope delivery, and one writable review session."
 # This is the minimum executable payload, not a compatibility inventory. Removed
 # top-level implementations must never reappear here.
 CURRENT_SKILL_FILES = (

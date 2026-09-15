@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.better_plan.application import workflow
 from scripts.better_plan.hooks import config as hook_config
 
 
@@ -217,7 +216,7 @@ class TimeoutStatisticsTest(unittest.TestCase):
             check=False,
         )
 
-    def test_catalog_matches_framework_timeout_constants(self):
+    def test_catalog_distinguishes_command_deadlines_from_hook_timeouts(self):
         catalog = json.loads(TIMEOUT_CATALOG.read_text(encoding="utf-8"))
         policies = {item["key"]: item for item in catalog["policies"]}
         self.assertEqual(len(policies), 7)
@@ -226,10 +225,7 @@ class TimeoutStatisticsTest(unittest.TestCase):
             "fsm.task.focused-regression",
             "fsm.delivery.full-regression",
         ):
-            self.assertEqual(
-                policies[key]["default_timeout_ms"],
-                workflow.COMMAND_TIMEOUT_SECONDS * 1000,
-            )
+            self.assertIsNone(policies[key]["default_timeout_ms"])
         self.assertEqual(
             policies["framework.lifecycle-hook"]["default_timeout_ms"],
             hook_config.HOOK_TIMEOUT_SECONDS * 1000,

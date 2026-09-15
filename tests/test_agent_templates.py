@@ -196,7 +196,7 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("backend runtime data", skill)
         self.assertIn("suitable proven open-source implementations", skill)
         self.assertIn("one-time targeted script or command", skill)
-        self.assertIn("complete regression once only after all changes are integrated", skill)
+        self.assertIn("first complete regression only after all worker changes are integrated", skill)
         self.assertIn("smallest independently acceptable capability, module, or scenario", skill)
         self.assertIn("redundant hashes", skill)
 
@@ -292,80 +292,20 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("resume the same reviewer with task_id", guidance)
         self.assertIn("inherits the invoking primary agent's model", guidance)
 
-    def test_every_native_designer_template_owns_the_single_design_session(self) -> None:
-        source_target = {"claude": "claude-code"}
-        for target, filenames in NATIVE_ROLE_FILES.items():
-            designer_filename = next(name for name in filenames if Path(name).stem == "designer")
-            template = (
-                ROOT / "agents" / source_target.get(target, target) / designer_filename
-            ).read_text(encoding="utf-8").lower()
-            plain_template = template.replace("`", "")
-            with self.subTest(target=target):
-                self.assertIn("design.md", template)
-                self.assertIn("required output", template)
-                self.assertIn("do not write canonical codes", template)
-                self.assertIn("python compiles", template)
-                self.assertIn("native main completes", template)
-                self.assertIn("return freezes", template)
-                self.assertIn("there is no second designer", template)
-                self.assertRegex(template, r"do not [^.]*ask the user")
-                self.assertIn("does not pre-design tasks", template)
-                self.assertIn("mutually parallel-safe", template)
-                self.assertIn("minimal node dag", template)
-                self.assertIn("choose task difficulty holistically, not by keyword matching", template)
-                self.assertIn("risk tags and surface size are evidence, not automatic triggers", template)
-                self.assertIn("mark workload as light, medium, or heavy", plain_template)
-                self.assertIn("worker as frontend only when it owns frontend implementation", plain_template)
-                self.assertIn("never estimate clock time", template)
-                self.assertIn("backend runtime data", template)
-                self.assertIn("suitable proven open-source implementations", template)
-                self.assertIn("one-time targeted residue script or command", template)
-                self.assertRegex(template, r"empty .*prerequisites.*inputs")
-
-    def test_every_native_worker_template_is_a_fresh_context_task_contract(self) -> None:
-        source_target = {"claude": "claude-code"}
-        for target, filenames in NATIVE_ROLE_FILES.items():
-            directory = ROOT / "agents" / source_target.get(target, target)
-            for filename in filenames:
-                stem = Path(filename).stem
-                if not stem.startswith("worker-"):
-                    continue
-                template = (directory / filename).read_text(encoding="utf-8").lower()
-                with self.subTest(target=target, filename=filename):
-                    self.assertIn("independently acceptable task", template)
-                    self.assertIn("freely inspect better plan guidance", template)
-                    self.assertIn("no local guidance is forbidden", template)
-                    self.assertIn("do not ask the user", template)
-                    self.assertIn("every ready task node concurrently", template)
-                    self.assertIn("backend runtime data", template)
-                    self.assertIn("suitable proven open-source implementations", template)
-                    self.assertIn("one-time residue script or command", template)
-                    self.assertIn("never run the complete regression", template)
-                    expected_tier = "economical tier" if stem == "worker-standard" else "strong tier"
-                    self.assertIn(expected_tier, template)
-
-    def test_every_native_reviewer_template_absorbs_rendered_evidence(self) -> None:
-        source_target = {"claude": "claude-code"}
-        for target, filenames in NATIVE_ROLE_FILES.items():
-            reviewer_filename = next(name for name in filenames if Path(name).stem == "reviewer")
-            template = (
-                ROOT / "agents" / source_target.get(target, target) / reviewer_filename
-            ).read_text(encoding="utf-8").lower()
-            with self.subTest(target=target):
-                self.assertIn("visual or hybrid", template)
-                self.assertIn("rendered evidence", template)
-                self.assertIn("no second reviewer", template)
-                self.assertIn("separate full-regression stage has already completed", template)
-                self.assertIn("reviewer session commands never run it", template)
-                self.assertIn("do not run or wait for the complete regression", template)
-                self.assertIn("task ownership is not a scope boundary", template)
-                self.assertIn("out_of_scope_findings", template)
-                self.assertIn("unapproved draft repair plans", template)
-                self.assertIn("backend runtime", template)
-                self.assertIn("suitable proven open-source approaches", template)
-                self.assertIn("one-time residue script or command", template)
-                self.assertIn("do not create or stage a git commit", template)
-                self.assertIn("native main owns the one-plan commit", template)
+    def test_delivery_templates_resolve_one_shared_role_contract(self) -> None:
+        for host in ("codex", "claude-code", "opencode", "cursor", "kilo"):
+            for role in DELIVERY_ROLE_NAMES:
+                filename = ("better-plan-" if host == "kilo" else "") + role
+                filename += ".toml" if host == "codex" else ".md"
+                template = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+                contract = "worker" if role.startswith("worker-") else role
+                reference = f"references/{contract}.md"
+                with self.subTest(host=host, role=role):
+                    self.assertIn(f"Read `{reference}`", template)
+                    self.assertIn("installed `better-plan` skill", template)
+                    self.assertTrue((ROOT / reference).is_file())
+                    self.assertIn(reference, CURRENT_SKILL_FILES)
+                    self.assertIn("Neither expands user authorization", template)
 
     def test_main_prompt_requires_native_main_git_archive_handoff(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
@@ -387,11 +327,14 @@ class AgentTemplateTests(unittest.TestCase):
                 text = (directory / filename).read_text(encoding="utf-8")
                 self.assertNotIn("ASSIGNMENT_PLACEHOLDER", text)
                 self.assertRegex(text, r'(?m)^model = "[^\"]+"$')
-                self.assertRegex(text, r"(?m)^assignment: ")
-                self.assertNotIn("Pinned identity: assignment:", text)
-                self.assertIn("role=", text)
-                self.assertIn("basis=", text)
-                self.assertIn("source=", text)
+                prompt = text.split('developer_instructions = """', 1)[1].rsplit('"""', 1)[0]
+                self.assertIn("role=", prompt)
+                self.assertIn("host-provided runtime metadata", prompt)
+                self.assertNotIn("benchmark=", prompt)
+                configured_models = [value[1] for value in CODEX_DEFAULT_MATRIX.values()]
+                configured_models.extend(value[0] for value in CODEX_FINDER_MATRIX.values())
+                for model in configured_models:
+                    self.assertNotIn(model, prompt)
             expected_selectors = {
                 agent_name: (model, effort)
                 for agent_name, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items()
@@ -403,12 +346,12 @@ class AgentTemplateTests(unittest.TestCase):
                     self.assertIn(f'model = "{model}"', rendered)
                     self.assertIn(f'model_reasoning_effort = "{effort}"', rendered)
             assignment_message = next(
-                message for message in messages if "pinned until explicit reinstall" in message
+                message for message in messages if "immutable after first installation" in message
             )
             self.assertIn("Coding Agent", assignment_message)
-            self.assertIn("Intelligence Index", assignment_message)
+            self.assertIn("benchmark not measured", assignment_message)
             self.assertIn("Codex read-only utility", assignment_message)
-            self.assertIn("price ignored", assignment_message)
+            self.assertNotIn("Intelligence Index", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
             self.assertNotIn("Arena WebDev", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
@@ -422,10 +365,10 @@ class AgentTemplateTests(unittest.TestCase):
                 for agent_name, values in CODEX_DEFAULT_MATRIX.items()
             },
             {
-                "designer": ("gpt-5.6-sol", "xhigh"),
+                "designer": ("gpt-6-astra", "max"),
                 "worker-standard": ("gpt-5.6-luna", "max"),
-                "worker-complex": ("gpt-5.6-sol", "medium"),
-                "reviewer": ("gpt-5.6-sol", "max"),
+                "worker-complex": ("gpt-6-astra", "low"),
+                "reviewer": ("gpt-6-astra", "xhigh"),
             },
         )
         self.assertEqual(
@@ -536,7 +479,7 @@ class AgentTemplateTests(unittest.TestCase):
             rendered = (directory / "designer.toml").read_text(encoding="utf-8")
             self.assertIn('model = "gemini-3-6-flash"', rendered)
             self.assertNotIn("model_reasoning_effort", rendered)
-            self.assertIn("reasoning_effort=host-default", rendered)
+            self.assertNotIn("gemini-3-6-flash", rendered.split('developer_instructions = """', 1)[1])
 
     def test_unspecified_local_effort_does_not_claim_a_tiered_intelligence_score(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

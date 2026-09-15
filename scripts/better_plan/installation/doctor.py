@@ -38,6 +38,34 @@ def check_skill_tree(target: str, root) -> _Check:
     return _Check("OK", target, "installed skill structure verified")
 
 
+def check_skill_source(target: str, root: Path, source: Path) -> _Check:
+    """Compare the packaged payload, excluding immutable host role files."""
+
+    label = f"{target} skill source"
+    if root.resolve() == source.resolve():
+        return _Check(
+            "WARN", label,
+            "selected source is the installed tree; use --source with an independent source tree to verify an update",
+        )
+    try:
+        if any(not (source / relative).is_file() for relative in CURRENT_SKILL_FILES):
+            return _Check("FAIL", label, "selected source is missing required skill files")
+        if any(not (root / relative).is_file() for relative in CURRENT_SKILL_FILES):
+            return _Check("FAIL", label, "installed skill is incomplete; source comparison unavailable")
+        different = sum(
+            (root / relative).read_bytes() != (source / relative).read_bytes()
+            for relative in CURRENT_SKILL_FILES
+        )
+    except OSError:
+        return _Check("FAIL", label, "skill files could not be read for source comparison")
+    if different:
+        return _Check(
+            "WARN", label,
+            f"{different} packaged file(s) differ from the selected source; structure validity does not establish update status",
+        )
+    return _Check("OK", label, "all packaged files match the selected source")
+
+
 def check_agent_hooks(paths: _InstallPaths, agent: str) -> _Check:
     config = _targets.hook_config_path(paths, agent)
     ok, message = _hook_config_status(config, agent)
@@ -95,6 +123,23 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
     if "kimi" in agents:
         checks.append(check_shared_scan_agent(paths, "kimi"))
         checks.append(check_agent_hooks(paths, "kimi"))
+
+    # Shared consumers use the same payload. Compare it once, while retaining
+    # each host's separate role, Hook, plugin, and adapter checks above.
+    skill_roots = {root: kind for kind, root in scan_targets.values()}
+    if _skills.adapter_needs_skill_root(agents):
+        skill_roots.setdefault(implementation, "implementation")
+    if "claude" in agents:
+        skill_roots[paths.claude_skill] = "claude"
+    if "antigravity" in agents:
+        skill_roots[paths.antigravity_skill] = "antigravity"
+    if "craft" in agents:
+        for index, root in enumerate(paths.craft_skills, start=1):
+            skill_roots[root] = f"craft workspace {index}"
+    checks.extend(
+        check_skill_source(target, root, paths.repo_root)
+        for root, target in skill_roots.items()
+    )
     return checks
 
 
@@ -107,7 +152,7 @@ def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
         message = f"local native roles preserved; {message}"
     else:
         status = "FAIL"
-    return _Check(status, f"{target} native roles", message)
+    return _Check(status, f"{target} native roles", message + "; local roles are independent of skill updates")
 
 
 def check_kilo_agents(paths: _InstallPaths) -> _Check:

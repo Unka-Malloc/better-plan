@@ -4,16 +4,32 @@ Read this reference only before the first Better Plan role dispatch in a convers
 configuration changes, installation/update/Doctor work, selector diagnosis, or host integration.
 Ordinary planning and delivery turns do not load it.
 
+## Stable roles and current workflow guidance
+
+New first-install role templates contain stable identity and permission boundaries plus a reference
+to `references/designer.md`, `references/worker.md`, or `references/reviewer.md` in the installed
+skill. The native main forwards the dispatch's `role_reference` with its complete brief. The role
+reads that reference before acting; detailed workflow and reporting instructions live there so a
+skill update can maintain them without changing the host role file.
+
+Existing local roles, including older inline workflow instructions, remain immutable. A shared
+reference or dispatch brief cannot override their host constraints. Report a concrete conflict to
+the native main when it affects authorized work; neither recommendation drift nor an update itself
+creates a new approval question. Only future first installations use the smaller templates.
+
 ## Role matrix
 
 Better Plan installs four delivery roles per supported host:
 
-| 角色 | 用途 | 推荐选择器 |
+| 角色 | 用途 | Codex 推荐选择器 |
 |---|---|---|
-| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-5.6-sol / xhigh` |
+| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-6-astra / max` |
 | `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
-| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / medium` |
-| `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
+| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-6-astra / low` |
+| `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-6-astra / xhigh` |
+
+These Codex defaults are explicit preferences. Astra has no measurement in the packaged benchmark
+snapshot; do not reuse another model's score or cost for it.
 
 Codex may additionally define an unmanaged optional `frontend-worker`. Better Plan never installs,
 updates, receipts, or recommends a selector for it. For a Task compiled with `worker: frontend`, the
@@ -42,26 +58,32 @@ never infer a provider, and never inspect credentials. Never inject this table f
 
 An existing native role file or role receipt is immutable local host configuration. Better Plan may
 install its matrix only when no same-name role configuration or receipt exists. After that first
-installation, every install, update, migration, repair, and Doctor operation must leave all role
+installation, every install, update, uninstall, migration, repair, and Doctor operation must leave all role
 files and receipts byte-identical while updating only skills, Hooks, plugins, and adapters.
 
 Neither a receipt mismatch nor an explicit replacement request authorizes Better Plan to edit,
 remove, adopt, re-sign, or regenerate local roles. Doctor reports the integrity finding as a warning
 without a repair proposal. If the user wants different native roles, that remains a manual
 host-configuration operation outside the Better Plan installer; never describe a local override as
-a recommendation change.
+a recommendation change. Uninstall removes the selected skills, Hooks, plugins, and adapters while
+preserving every native role file and receipt, including when the receipt is invalid or missing.
 
 ## Additive host integration — iron rule
 
-Treat every pre-existing host or user file as immutable. General installation, update, provider,
-model, routing, Hook, MCP, or skill requests never authorize replacing, overwriting, renaming,
-moving, deleting, taking receipt ownership of, or wholesale rewriting an existing file.
+Protect host and user files that Better Plan did not create or does not own. General installation,
+update, provider, model, routing, Hook, MCP, or skill requests never authorize replacing, overwriting,
+renaming, moving, deleting, adopting, or wholesale rewriting those unmanaged files. An installation
+or update request does authorize maintenance of Better Plan-owned skills, Hooks, plugins, and
+adapters within their existing ownership; it does not require naming each owned file again.
 
 Create a uniquely named Better Plan-owned file, or add only the smallest authorized namespaced entry
 when the host format supports a non-destructive merge. A receipt covers only artifacts or entries
 Better Plan created and never converts a pre-existing file into a managed file. Uninstall removes
 only owned artifacts. On a collision or replacement requirement, fail closed and leave the original
 untouched. Only an explicit request naming the exact existing file and mutation can authorize it.
+Existing native role files and receipts are always governed by the stricter immutability rule above,
+including Better Plan-created roles; neither this update authorization nor the explicit-file
+exception permits changing them.
 
 ## Selector and generation rules
 
@@ -70,6 +92,12 @@ Runtime reads the installed selector and uses the packaged selector only when no
 Never reselect from conversation memory or leaderboard changes. Normal updates and explicit
 requests both preserve every local role byte and receipt byte. Verify that immutability first, then
 verify skill structure and the separate Hook, plugin, and adapter Doctor results.
+
+Doctor reports skill structure and source equality separately. Run it from the intended source
+checkout, or pass that checkout with `--source`. An installed tree compared with itself cannot prove
+that an update occurred; Doctor reports that limitation. Source comparison checks packaged files
+once per shared installation and excludes immutable host role files and receipts. A successful
+skill comparison does not mean existing native role instructions were updated.
 
 ## Framework and adapter boundary
 
@@ -104,6 +132,12 @@ host selection's default reasoning behavior. Users may manually pin a Kilo-suppo
 variant as local immutable host configuration; install, update, and Doctor never rewrite it.
 
 ## Codex collaboration adapter
+
+Forward the dispatch's `assignment_line` alongside the complete brief. It is generated from the
+current resolved selector on every dispatch, not baked into a role prompt. Child roles report
+host-provided runtime model and effort when available; otherwise they echo this line with its
+configuration source intact, or report unknown when neither source is available. Configuration
+selection is not runtime confirmation. Never infer model identity from a benchmark or old transcript.
 
 Codex configured roles require a fresh child context. For every Designer, Worker, or Reviewer
 spawn, pass the returned Better Plan `agent_type`, set `fork_turns` to `none`, and give the attempt a
