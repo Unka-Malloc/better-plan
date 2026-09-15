@@ -21,6 +21,13 @@ equivalent refactoring mechanics, but may not change frozen interfaces, schemas,
 scope, risk policy, or acceptance semantics. Resolve ordinary compiler, type, lint, test, import, and
 local integration defects inside this Task.
 
+Explicitly labeled design recommendations leave implementation judgment with you inside those
+constraints. Derive additional relevant checks from the actual code and observed failures; the listed
+acceptance cases are not a ceiling. If source evidence contradicts a binding design assumption or an
+oracle can pass despite violating the outcome, report the concrete counterexample to the native main
+and continue independent work. Do not silently follow a known faulty assumption or weaken a frozen
+contract; the native main handles contract issues through the existing continuation rules.
+
 Protect machine identity, personal data, credentials, ciphertext, backend runtime data, and private
 operational details in commands, evidence, and reports; return repository-relative paths and safe
 summaries. Keep edits minimal and outcome-driven, without speculative abstractions, redundant

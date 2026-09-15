@@ -239,7 +239,8 @@ class InstallToolTests(unittest.TestCase):
                     }
                     self.assertTrue(first)
                     self.assertTrue(all(b"ASSIGNMENT_PLACEHOLDER" not in content for content in first.values()))
-                    self.assertTrue(all(b"assignment:" in content for content in first.values()))
+                    identity = b"Role identity:" if target == "codex" else b"assignment:"
+                    self.assertTrue(all(identity in content for content in first.values()))
                     self.assertEqual(
                         {path.name for path in directory.iterdir()},
                         set(installed_filenames) | {unrelated.name},

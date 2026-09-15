@@ -64,7 +64,9 @@ Do not create a repository-local Better Plan workspace merely to edit this packa
   an agent rediscover locations or split a generic error by manually reparsing the draft.
 - Dispatch exactly one Reviewer. It directly repairs code, tests, documentation, and generated
   artifacts after Python runs the complete regression, receives its precise diagnostics, obtains
-  rendered evidence when required, and never spends model time supervising that regression.
+  rendered evidence when required, and never spends model time supervising that regression. Preserve
+  its first fresh context for the independent final audit; do not use it for early design consultation.
+  Keep interim collaboration transcripts out of its brief and include the user's primary constraints.
 - Task ownership never limits Reviewer repair authority inside the authorized Plan. The Reviewer
   leaves confirmed defects outside that Plan untouched and returns the complete structured
   `out_of_scope_findings` array after every response. The native main records it before regression
@@ -148,6 +150,11 @@ boundaries and keeps every dependency inside one Task so all resulting Tasks are
 parallel-safe. Inside each Task it declares a minimal Node DAG with no avoidable ordering edge. It
 may change interfaces, schemas, algorithms, state, ownership, risk handling, and acceptance, and run
 `compile-design --check` when useful.
+
+Give the Designer room to resolve the consequential architectural questions. Its role guidance in
+`references/designer.md` separates binding guarantees from implementation freedom and explains how to
+choose concise, behavior-sensitive acceptance. Do not prefill its solution or equate design quality
+with the number of prescriptions, test cases, or first-pass review findings.
 
 Pass the `assignment` returned by `open-designer-session` to the sole Designer unchanged.
 

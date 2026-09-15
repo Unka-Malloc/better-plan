@@ -291,6 +291,10 @@ def _selector_payload(role: str, native_host: str | None, codex_home: str | None
         "reasoning_effort": selector.reasoning_effort,
         "model_provider": selector.model_provider,
         "selector_source": selector.source,
+        "assignment_line": (
+            f"assignment: agent={role} | model={selector.model} | "
+            f"reasoning_effort={selector.reasoning_effort or 'host-default'} | source={selector.source}"
+        ),
     }
 
 

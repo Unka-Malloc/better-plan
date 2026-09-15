@@ -327,11 +327,14 @@ class AgentTemplateTests(unittest.TestCase):
                 text = (directory / filename).read_text(encoding="utf-8")
                 self.assertNotIn("ASSIGNMENT_PLACEHOLDER", text)
                 self.assertRegex(text, r'(?m)^model = "[^\"]+"$')
-                self.assertRegex(text, r"(?m)^assignment: ")
-                self.assertNotIn("Pinned identity: assignment:", text)
-                self.assertIn("role=", text)
-                self.assertIn("basis=", text)
-                self.assertIn("source=", text)
+                prompt = text.split('developer_instructions = """', 1)[1].rsplit('"""', 1)[0]
+                self.assertIn("role=", prompt)
+                self.assertIn("host-provided runtime metadata", prompt)
+                self.assertNotIn("benchmark=", prompt)
+                configured_models = [value[1] for value in CODEX_DEFAULT_MATRIX.values()]
+                configured_models.extend(value[0] for value in CODEX_FINDER_MATRIX.values())
+                for model in configured_models:
+                    self.assertNotIn(model, prompt)
             expected_selectors = {
                 agent_name: (model, effort)
                 for agent_name, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items()
@@ -346,9 +349,9 @@ class AgentTemplateTests(unittest.TestCase):
                 message for message in messages if "immutable after first installation" in message
             )
             self.assertIn("Coding Agent", assignment_message)
-            self.assertIn("Intelligence Index", assignment_message)
+            self.assertIn("benchmark not measured", assignment_message)
             self.assertIn("Codex read-only utility", assignment_message)
-            self.assertIn("price ignored", assignment_message)
+            self.assertNotIn("Intelligence Index", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
             self.assertNotIn("Arena WebDev", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
@@ -362,10 +365,10 @@ class AgentTemplateTests(unittest.TestCase):
                 for agent_name, values in CODEX_DEFAULT_MATRIX.items()
             },
             {
-                "designer": ("gpt-5.6-sol", "xhigh"),
+                "designer": ("gpt-6-astra", "max"),
                 "worker-standard": ("gpt-5.6-luna", "max"),
-                "worker-complex": ("gpt-5.6-sol", "medium"),
-                "reviewer": ("gpt-5.6-sol", "max"),
+                "worker-complex": ("gpt-6-astra", "low"),
+                "reviewer": ("gpt-6-astra", "xhigh"),
             },
         )
         self.assertEqual(
@@ -476,7 +479,7 @@ class AgentTemplateTests(unittest.TestCase):
             rendered = (directory / "designer.toml").read_text(encoding="utf-8")
             self.assertIn('model = "gemini-3-6-flash"', rendered)
             self.assertNotIn("model_reasoning_effort", rendered)
-            self.assertIn("reasoning_effort=host-default", rendered)
+            self.assertNotIn("gemini-3-6-flash", rendered.split('developer_instructions = """', 1)[1])
 
     def test_unspecified_local_effort_does_not_claim_a_tiered_intelligence_score(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
