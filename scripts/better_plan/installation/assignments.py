@@ -35,10 +35,10 @@ INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "designer": ("designer", "gpt-5.6-sol", "xhigh", "gpt-5-6-sol-xhigh"),
+        "designer": ("designer", "gpt-6-astra", "max", "not-measured"),
         "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "worker-complex": ("worker", "gpt-5.6-sol", "medium", "codex-gpt-5-6-sol-medium"),
-        "reviewer": ("reviewer", "gpt-5.6-sol", "max", "gpt-5-6-sol"),
+        "worker-complex": ("worker", "gpt-6-astra", "low", "not-measured"),
+        "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "not-measured"),
     }
 )
 CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -117,13 +117,17 @@ def _codex_default_delivery_assignments(
     agent_catalog: CodingAgentCatalog,
     model_catalog: ModelCatalog,
 ) -> dict[str, RoleAssignment]:
-    """Resolve Codex defaults against the role-specific packaged benchmarks."""
+    """Use explicit Codex defaults; attach measurements only when available."""
 
     variants = {variant.variant_id: variant for variant in agent_catalog.variants}
     models = {model.model_id: model for model in model_catalog.models}
     assignments: dict[str, RoleAssignment] = {}
     for agent_name, (role, configured_model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
-        if role == "worker":
+        if benchmark_id == "not-measured":
+            # The receipt keeps its existing integer field; this sentinel has no score.
+            index_score = 0
+            cost_per_task_usd = None
+        elif role == "worker":
             benchmark = variants.get(benchmark_id)
             if benchmark is None:
                 raise ToolError("the Codex default Worker benchmark is unavailable")

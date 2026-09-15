@@ -83,7 +83,7 @@ Design:
 approach:
 - Use the simplest adequate implementation.
 Acceptance:
-- Given: A valid state — When: The behavior runs — Then: The result occurs — Oracle: The command exits zero — Evidence: command: focused regression — Covers: observable-behavior, verified-result
+- Given: State with a known expected result — When: The public entry runs — Then: Its result matches that state — Oracle: Compare the actual entry's result with the independently arranged expectation; unavailable observation fails — Evidence: command: focused regression — Covers: observable-behavior, verified-result
 Regression:
 Commands:
 - python3 -m unittest tests.test_module
@@ -112,7 +112,10 @@ subtle change may be `light` but `complex`.
 Python always emits empty `prerequisites` and `inputs`. If one Task needs another Task's result or
 ordering, merge that work into one Task; every separate Task must be safe to dispatch concurrently.
 One acceptance criterion may omit `Covers`, in which case it covers every requirement and output
-owned by that Task. Multiple criteria must state `Covers`.
+owned by that Task. Multiple criteria must state `Covers`. This mapping is structural; only claim
+coverage when the scenario actually observes the named guarantee. Use the existing prose fields for
+the Designer's reasoning guidance in `references/designer.md`; no additional sections or fields are
+required. Acceptance cases are required evidence, not an exhaustive definition of correct behavior.
 
 ## Internal Node DAG
 

@@ -370,6 +370,16 @@ def _render_native_source(target: str, source: str, assignment: _RoleAssignment)
         f"model={assignment.model} | reasoning_effort={effort} | basis={basis} | "
         f"{measurement}{cost} | benchmark={assignment.benchmark_id} | source={assignment.source}"
     )
+    if target == "codex":
+        line = (
+            f"Role identity: agent={assignment.agent_name} | role={assignment.role}\n"
+            "Report model and reasoning_effort from host-provided runtime metadata when available, "
+            "with source=host-runtime. Otherwise echo the dispatch's assignment_line unchanged; "
+            "its source identifies configured selection, not confirmed runtime identity. "
+            "If neither is available, report model=unknown | reasoning_effort=unknown | source=unavailable. "
+            "Never guess your model, repeat an installation-time selector, or report benchmark scores "
+            "as runtime identity."
+        )
     rendered = source.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
     rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
     if target == "codex":
@@ -482,7 +492,10 @@ def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssign
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
     effort = assignment.reasoning_effort or "host-default"
-    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
+    if assignment.benchmark_id == "not-measured":
+        basis = "Explicit default"
+        metric = "benchmark not measured"
+    elif assignment.role == "worker" and assignment.cost_per_task_usd is not None:
         basis = "Coding Agent"
         metric = f"score {assignment.index_score}, cost ${assignment.cost_per_task_usd:.2f}/task"
     elif assignment.role == "worker":

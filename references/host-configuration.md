@@ -21,12 +21,15 @@ creates a new approval question. Only future first installations use the smaller
 
 Better Plan installs four delivery roles per supported host:
 
-| 角色 | 用途 | 推荐选择器 |
+| 角色 | 用途 | Codex 推荐选择器 |
 |---|---|---|
-| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-5.6-sol / xhigh` |
+| `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-6-astra / max` |
 | `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
-| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-5.6-sol / medium` |
-| `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-5.6-sol / max` |
+| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-6-astra / low` |
+| `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-6-astra / xhigh` |
+
+These Codex defaults are explicit preferences. Astra has no measurement in the packaged benchmark
+snapshot; do not reuse another model's score or cost for it.
 
 Codex may additionally define an unmanaged optional `frontend-worker`. Better Plan never installs,
 updates, receipts, or recommends a selector for it. For a Task compiled with `worker: frontend`, the
@@ -129,6 +132,12 @@ host selection's default reasoning behavior. Users may manually pin a Kilo-suppo
 variant as local immutable host configuration; install, update, and Doctor never rewrite it.
 
 ## Codex collaboration adapter
+
+Forward the dispatch's `assignment_line` alongside the complete brief. It is generated from the
+current resolved selector on every dispatch, not baked into a role prompt. Child roles report
+host-provided runtime model and effort when available; otherwise they echo this line with its
+configuration source intact, or report unknown when neither source is available. Configuration
+selection is not runtime confirmation. Never infer model identity from a benchmark or old transcript.
 
 Codex configured roles require a fresh child context. For every Designer, Worker, or Reviewer
 spawn, pass the returned Better Plan `agent_type`, set `fork_turns` to `none`, and give the attempt a
