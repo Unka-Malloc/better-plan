@@ -21,6 +21,7 @@ Manifest.json
 <delivery-directory>/
   Plan.json          # sole semantic source
   Plan.md            # render-only projection, never parsed back
+  Report.html        # interactive render-only projection, refreshed after each state-changing command
   Design.md          # neutral field skeleton, then optional Designer draft
   Design.pristine.md # immutable archive created by draft compilation
   Checkpoints.json   # created only by authorization
@@ -28,6 +29,11 @@ Manifest.json
 
 `Manifest.json` indexes Delivery Plans and marks the workspace root for Hook detection. It owns no
 semantic delivery status.
+
+`Report.html` is a self-contained interactive projection of `Plan.json` and `Checkpoints.json`. The
+CLI refreshes it after every state-changing command and `report` renders any workspace or single
+Plan on demand. Like `Plan.md` it is never parsed back, owns no semantics, and a projection failure
+never blocks the command that produced the state.
 
 `Plan.json` is the semantic source. Its approval-relevant digest covers schema, code, title, intent,
 ledger, Dossier, and spec. Mutable sessions and receipts never change that digest, so an authorized
@@ -214,9 +220,9 @@ forbidden in every semantic, diagnostic, and report field.
 
 Declared-path fingerprints are receipts, never gates. A path a Task has not produced yet is recorded
 as absent, so a greenfield Task dispatches and completes normally; only symlinks and non-relative
-paths are hard errors. Full-regression freshness excludes the current Plan's mutable `Plan.json`
-and `Checkpoints.json`; their lifecycle and receipt writes are validated as workflow state and must
-not invalidate the covered delivery inputs they describe.
+paths are hard errors. Full-regression freshness excludes the current Plan's mutable `Plan.json`,
+`Checkpoints.json`, and the `Report.html` projection; their lifecycle and receipt writes are validated
+as workflow state and must not invalidate the covered delivery inputs they describe.
 
 ## Authorization, pending input, and continuation
 
@@ -285,6 +291,7 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `record-reviewer-findings` | persist the complete structured out-of-scope finding array for the latest Reviewer return, including an explicit empty array |
 | `close-reviewer-session` | close only against current green regression evidence; execute no tests |
 | `validate`, `status`, `tree`, `schema` | inspect v3 workspace truth and the Design.md skeleton |
+| `report` | render a self-contained HTML report over current workspace state |
 
 `dispatch.host_agent_id` is a framework-level opaque identity. It stores the exact bounded token
 returned by the host, including slash-namespaced forms, without normalization or translation. A

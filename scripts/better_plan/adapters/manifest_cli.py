@@ -13,18 +13,24 @@ from ..domain.design_compile import DESIGN_TEMPLATE
 from ..domain.models import (
     CHECKPOINTS_SCHEMA,
     MANIFEST_TEMPLATE,
+    PLAN_SCHEMA,
     PLAN_TEMPLATE,
+    REPORT_NAME,
     ToolError,
     question_template,
     task_template,
 )
+from ..domain.report import load_template, render_report_html, report_payload
 from ..domain.tree import render_plan_tree, status_payload
 from ..infrastructure.workspace import (
     load_manifest,
     load_plan,
+    plan_paths,
     read_json,
+    resolve_plan_entry,
     validate_workspace,
     workspace_root,
+    write_text,
 )
 
 
@@ -97,6 +103,83 @@ def status_command(args: argparse.Namespace) -> int:
         for value in values:
             print("%(code)s [%(phase)s] tasks=%(task_counts)s" % value)
     return 0
+
+
+def report_command(args: argparse.Namespace) -> int:
+    root = workspace_root(Path(args.root))
+    entries = load_manifest(root).get("plans", [])
+    if args.plan:
+        entries = [
+            entry
+            for entry in entries
+            if args.plan in {entry.get("code"), entry.get("title"), entry.get("directory")}
+        ]
+    if not entries:
+        raise ToolError("no matching Plan")
+    plans = []
+    for entry in entries:
+        paths = plan_paths(root, entry)
+        # A report is a read-only projection: render whatever state exists,
+        # including Plans written before newer required fields appeared.
+        plan = read_json(paths["plan"])
+        if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
+            raise ToolError("not a v3 Plan: %s" % paths["plan"].name)
+        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
+        plans.append({"plan": plan, "checkpoints": checkpoints})
+    html = render_report_html(report_payload(plans), load_template())
+    output = Path(args.out).expanduser()
+    output.write_text(html, encoding="utf-8")
+    print("wrote %s" % output.resolve())
+    return 0
+
+
+_AUTO_REPORT_COMMANDS = frozenset(
+    {
+        "init-plan",
+        "build-dossier",
+        "resolve-dossier",
+        "open-designer-session",
+        "close-designer-session",
+        "compile-design",
+        "authorize-plan",
+        "begin-continuation",
+        "close-continuation",
+        "dispatch-task",
+        "bind-agent",
+        "delegation-failed",
+        "agent-complete",
+        "main-complete",
+        "accept-task",
+        "record-task-input",
+        "block-task",
+        "run-full-regression",
+        "open-reviewer-session",
+        "record-reviewer-findings",
+        "close-reviewer-session",
+    }
+)
+
+
+def _auto_report(args: argparse.Namespace) -> None:
+    """Best-effort HTML projection after a state-changing command.
+
+    A projection must never fail the command that produced the state, so every
+    error degrades to a stderr warning.
+    """
+
+    if getattr(args, "command", None) not in _AUTO_REPORT_COMMANDS:
+        return
+    selector = getattr(args, "plan", None) or getattr(args, "code", None)
+    try:
+        root = workspace_root(Path(getattr(args, "root", ".")))
+        entry = resolve_plan_entry(load_manifest(root), str(selector))
+        paths = plan_paths(root, entry)
+        plan = read_json(paths["plan"])
+        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
+        html = render_report_html(report_payload([{"plan": plan, "checkpoints": checkpoints}]), load_template())
+        write_text(paths["report"], html)
+    except Exception as exc:
+        print("warning: report projection skipped (%s)" % exc, file=sys.stderr)
 
 
 def _add_plan(parser: argparse.ArgumentParser) -> None:
@@ -279,6 +362,12 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("root", nargs="?", default=".")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=status_command)
+
+    report = subparsers.add_parser("report", help="render a self-contained HTML report")
+    report.add_argument("root", nargs="?", default=".")
+    report.add_argument("--plan")
+    report.add_argument("--out", default="plan-report.html")
+    report.set_defaults(func=report_command)
     return parser
 
 
@@ -300,7 +389,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
-        return args.func(args)
+        result = args.func(args)
     except ToolError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1
@@ -312,3 +401,6 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    if result == 0:
+        _auto_report(args)
+    return result

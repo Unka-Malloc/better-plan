@@ -70,6 +70,7 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/domain/models.py",
     "scripts/better_plan/domain/design_compile.py",
     "scripts/better_plan/domain/tree.py",
+    "scripts/better_plan/domain/report.py",
     "scripts/better_plan/domain/validation.py",
     "scripts/better_plan/domain/model_catalog.json",
     "scripts/better_plan/domain/coding_agent_catalog.json",
@@ -127,6 +128,7 @@ CURRENT_SKILL_FILES = (
     "agents/kilo/better-plan-worker-standard.md",
     "agents/kilo/better-plan-worker-complex.md",
     "agents/kilo/better-plan-reviewer.md",
+    "web/plan-report.html",
 )
 
 

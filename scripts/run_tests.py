@@ -31,6 +31,7 @@ SHARDS = {
     "tooling": (
         "tests.test_efficiency_inspector",
         "tests.test_parallel_test_runner",
+        "tests.test_report",
         "tests.test_workload_tools",
     ),
 }

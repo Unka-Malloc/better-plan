@@ -17,6 +17,7 @@ CHECKPOINTS_NAME = "Checkpoints.json"
 PLAN_DOCUMENT = "Plan.md"
 DESIGN_NAME = "Design.md"
 DESIGN_PRISTINE_NAME = "Design.pristine.md"
+REPORT_NAME = "Report.html"
 
 MANIFEST_SCHEMA = "better-plan.manifest/v3"
 PLAN_SCHEMA = "better-plan.plan/v3"

@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Better Plan Report</title>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --panel-soft: #fafafa;
+    --border: #e6e6ea;
+    --border-strong: #c9c9d1;
+    --text: #17171c;
+    --muted: #6d6d78;
+    --faint: #a2a2ad;
+    --accent: #5b5bd6;
+    --accent-soft: rgba(91, 91, 214, 0.1);
+    --green: #0ea968;
+    --green-soft: rgba(14, 169, 104, 0.12);
+    --blue: #2f7de1;
+    --blue-soft: rgba(47, 125, 225, 0.12);
+    --amber: #c98a04;
+    --amber-soft: rgba(201, 138, 4, 0.13);
+    --red: #dc4444;
+    --red-soft: rgba(220, 68, 68, 0.11);
+    --violet: #8b5cf6;
+    --violet-soft: rgba(139, 92, 246, 0.12);
+    --zinc-soft: rgba(113, 113, 122, 0.12);
+    --shadow: 0 1px 2px rgba(20, 20, 30, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0c0e;
+      --panel: #141417;
+      --panel-soft: #19191d;
+      --border: #26262c;
+      --border-strong: #3d3d46;
+      --text: #f2f2f4;
+      --muted: #9c9ca8;
+      --faint: #62626d;
+      --accent: #8b8bf0;
+      --accent-soft: rgba(139, 139, 240, 0.14);
+      --green: #34d399;
+      --green-soft: rgba(52, 211, 153, 0.13);
+      --blue: #60a5fa;
+      --blue-soft: rgba(96, 165, 250, 0.14);
+      --amber: #f0b429;
+      --amber-soft: rgba(240, 180, 41, 0.13);
+      --red: #f87171;
+      --red-soft: rgba(248, 113, 113, 0.13);
+      --violet: #a78bfa;
+      --violet-soft: rgba(167, 139, 250, 0.14);
+      --zinc-soft: rgba(156, 156, 168, 0.14);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .page { max-width: 1040px; margin: 0 auto; padding: 28px 24px 72px; }
+
+  /* ---------- top bar ---------- */
+  .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .wordmark { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15px; letter-spacing: 0.01em; }
+  .wordmark .gem {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), #9a6df0);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar select, .btn {
+    appearance: none; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); border-radius: 9px; padding: 6px 12px; font: inherit; font-size: 13px;
+    cursor: pointer; box-shadow: var(--shadow);
+  }
+  .topbar select:hover, .btn:hover { border-color: var(--border-strong); }
+  .topbar select { max-width: 320px; text-overflow: ellipsis; }
+  .generated { color: var(--faint); font-size: 12px; }
+
+  /* ---------- hero ---------- */
+  .hero { margin-bottom: 22px; }
+  .hero .code-line { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); background: var(--panel);
+  }
+  .hero h1 { font-size: 26px; line-height: 1.25; margin: 0 0 12px; font-weight: 680; letter-spacing: -0.01em; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 600; padding: 3px 11px; border-radius: 999px;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .tone-zinc   { color: var(--muted);  background: var(--zinc-soft); }
+  .tone-blue   { color: var(--blue);   background: var(--blue-soft); }
+  .tone-green  { color: var(--green);  background: var(--green-soft); }
+  .tone-amber  { color: var(--amber);  background: var(--amber-soft); }
+  .tone-red    { color: var(--red);    background: var(--red-soft); }
+  .tone-violet { color: var(--violet); background: var(--violet-soft); }
+  .tone-accent { color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------- lifecycle stepper ---------- */
+  .stepper {
+    display: flex; align-items: flex-start; margin: 20px 0 26px;
+    padding: 18px 22px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; position: relative; }
+  .step::before {
+    content: ""; position: absolute; top: 8px; left: -50%; width: 100%; height: 2px;
+    background: var(--border); border-radius: 2px;
+  }
+  .step:first-child::before { display: none; }
+  .step.done::before { background: var(--accent); }
+  .step .knob {
+    width: 17px; height: 17px; border-radius: 50%;
+    border: 2px solid var(--border-strong); background: var(--panel); z-index: 1;
+  }
+  .step.done .knob { border-color: var(--accent); background: var(--accent); }
+  .step.current .knob {
+    border-color: var(--accent); background: var(--panel);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+  .step .label { font-size: 12px; color: var(--faint); }
+  .step.done .label { color: var(--muted); }
+  .step.current .label { color: var(--text); font-weight: 650; }
+
+  /* ---------- stat cards ---------- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 30px; }
+  @media (max-width: 820px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; box-shadow: var(--shadow); min-width: 0;
+  }
+  .stat .num { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .stat .num small { font-size: 15px; color: var(--faint); font-weight: 500; }
+  .stat .cap { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .segbar { display: flex; height: 6px; border-radius: 4px; overflow: hidden; margin-top: 12px; background: var(--zinc-soft); }
+  .segbar span { display: block; height: 100%; }
+  .progressbar { height: 6px; border-radius: 4px; background: var(--zinc-soft); margin-top: 12px; overflow: hidden; }
+  .progressbar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+
+  /* ---------- tasks ---------- */
+  .section-title { font-size: 13px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin: 0 0 12px; }
+  .task {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow);
+  }
+  .task-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .task-code { font-size: 12px; color: var(--faint); }
+  .task-title { font-size: 16px; font-weight: 640; letter-spacing: -0.005em; }
+  .task-head .pill { margin-left: auto; }
+  .task-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+  .task-outcome { color: var(--muted); margin: 10px 0 0; font-size: 13.5px; }
+  details.task-more { margin-top: 12px; }
+  details.task-more summary {
+    cursor: pointer; color: var(--muted); font-size: 12.5px; list-style: none; user-select: none;
+  }
+  details.task-more summary::before { content: "▸ "; color: var(--faint); }
+  details.task-more[open] summary::before { content: "▾ "; }
+  details.task-more .more-body {
+    margin-top: 10px; padding: 12px 14px; background: var(--panel-soft);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 13px;
+  }
+  .more-body dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+  .more-body dt { color: var(--faint); }
+  .more-body dd { margin: 0; }
+
+  /* ---------- node DAG ---------- */
+  .dag-wrap { margin-top: 14px; overflow-x: auto; padding-bottom: 4px; }
+  .dag { position: relative; display: inline-block; min-width: 100%; }
+  .dag svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+  .dag svg.edges path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; opacity: 0.85; }
+  .dag-cols { position: relative; display: flex; gap: 36px; z-index: 1; }
+  .dag-col { display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+  .dag-node {
+    width: 176px; padding: 7px 11px; border: 1px solid var(--border-strong); border-radius: 10px;
+    background: var(--panel-soft); flex: none;
+  }
+  .dag-node .n-code { display: block; font-size: 10.5px; color: var(--faint); }
+  .dag-node .n-title {
+    display: block; font-size: 12.5px; font-weight: 560;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dag.tone-green .dag-node { border-color: var(--green); background: var(--green-soft); }
+  .dag.tone-blue .dag-node { border-color: var(--blue); }
+  .dag.tone-red .dag-node { border-color: var(--red); background: var(--red-soft); }
+
+  /* ---------- empty / drop ---------- */
+  .empty {
+    border: 1.5px dashed var(--border-strong); border-radius: 16px; padding: 64px 32px;
+    text-align: center; color: var(--muted); background: var(--panel);
+  }
+  .empty h2 { margin: 0 0 8px; color: var(--text); font-size: 18px; }
+  .empty p { margin: 4px 0; font-size: 13.5px; }
+  .empty .mono { color: var(--faint); font-size: 12.5px; }
+  #drop-veil {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    align-items: center; justify-content: center;
+  }
+  #drop-veil.on { display: flex; }
+  #drop-veil .inner {
+    border: 2px dashed var(--accent); border-radius: 18px; padding: 42px 64px;
+    background: var(--panel); color: var(--accent); font-weight: 650; font-size: 16px;
+  }
+  #load-error {
+    display: none; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px;
+    background: var(--red-soft); color: var(--red); font-size: 13px;
+  }
+  .footer { margin-top: 40px; color: var(--faint); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="topbar">
+    <div class="wordmark"><span class="gem">◆</span> Better Plan</div>
+    <div class="spacer"></div>
+    <span class="generated" id="generated"></span>
+    <select id="plan-switcher" hidden></select>
+    <button class="btn" id="open-btn" type="button">Open…</button>
+    <input id="file-input" type="file" accept=".json,application/json" multiple hidden>
+  </div>
+  <div id="load-error"></div>
+  <main id="app"></main>
+  <div class="footer" id="footer"></div>
+</div>
+<div id="drop-veil"><div class="inner">Drop Plan.json + Checkpoints.json</div></div>
+<script id="bp-data" type="application/json">__BETTER_PLAN_REPORT_DATA__</script>
+<script>
+"use strict";
+
+/* ---------- data ---------- */
+
+var LIFECYCLE = ["draft", "designing", "ready", "authorized", "completed"];
+var PHASE_TONE = {
+  draft: "zinc", designing: "violet", ready: "blue", authorized: "amber",
+  revising: "accent", blocked: "red", completed: "green"
+};
+var STATUS_TONE = {
+  planned: "zinc", pending: "zinc", in_progress: "blue", completed: "green",
+  blocked_by_authority: "red", blocked_by_environment: "red"
+};
+var DISPATCH_LABEL = {
+  worker_running: "worker running",
+  worker_correction: "correction running",
+  awaiting_acceptance: "awaiting acceptance"
+};
+
+var state = { plans: [], selected: 0, generatedAt: null };
+var pendingDraws = [];
+
+/* ---------- helpers ---------- */
+
+function el(tag, className, text) {
+  var node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+function pill(label, tone, withDot) {
+  var p = el("span", "pill tone-" + tone);
+  if (withDot) p.appendChild(el("span", "dot"));
+  p.appendChild(document.createTextNode(label));
+  return p;
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  var m = String(iso).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return m ? m[1] + " " + m[2] + " UTC" : String(iso);
+}
+
+function taskStates(checkpoints) {
+  var map = {};
+  if (checkpoints && Array.isArray(checkpoints.tasks)) {
+    checkpoints.tasks.forEach(function (t) { if (t && t.code) map[t.code] = t; });
+  }
+  return map;
+}
+
+function statusOf(stateEntry, hasCheckpoints) {
+  if (!stateEntry) return hasCheckpoints ? "pending" : "planned";
+  return stateEntry.status || "pending";
+}
+
+function dispatchLabel(stateEntry) {
+  var d = stateEntry && stateEntry.dispatch;
+  if (!d || !d.phase) return null;
+  var label = DISPATCH_LABEL[d.phase] || d.phase;
+  if (d.attempts && d.attempts > 1) label += " · attempt " + d.attempts;
+  return label;
+}
+
+/* ---------- node DAG ---------- */
+
+function dagLayers(nodes) {
+  var byCode = {};
+  nodes.forEach(function (n) { byCode[n.code] = n; });
+  var depth = {};
+  function visit(n, stack) {
+    if (depth[n.code] !== undefined) return depth[n.code];
+    if (stack[n.code]) return 0; /* cycle guard: state is validated upstream, never trust it */
+    stack[n.code] = true;
+    var d = 0;
+    (n.prerequisites || []).forEach(function (p) {
+      if (byCode[p]) d = Math.max(d, visit(byCode[p], stack) + 1);
+    });
+    stack[n.code] = false;
+    depth[n.code] = d;
+    return d;
+  }
+  nodes.forEach(function (n) { visit(n, {}); });
+  var layers = [];
+  nodes.forEach(function (n) {
+    var d = depth[n.code];
+    if (!layers[d]) layers[d] = [];
+    layers[d].push(n);
+  });
+  return layers.filter(Boolean);
+}
+
+function renderDag(nodes, tone) {
+  var wrap = el("div", "dag-wrap");
+  var dag = el("div", "dag tone-" + tone);
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "edges");
+  var cols = el("div", "dag-cols");
+  dagLayers(nodes).forEach(function (layer) {
+    var col = el("div", "dag-col");
+    layer.forEach(function (n) {
+      var pillNode = el("div", "dag-node");
+      pillNode.dataset.code = n.code;
+      pillNode.title = (n.outcome || n.title || "") + "";
+      pillNode.appendChild(el("span", "n-code mono", n.code));
+      pillNode.appendChild(el("span", "n-title", n.title));
+      col.appendChild(pillNode);
+    });
+    cols.appendChild(col);
+  });
+  dag.appendChild(svg);
+  dag.appendChild(cols);
+  wrap.appendChild(dag);
+  pendingDraws.push(function () { drawEdges(dag, svg, nodes); });
+  return wrap;
+}
+
+function drawEdges(dag, svg, nodes) {
+  if (!dag.isConnected) return;
+  var base = dag.getBoundingClientRect();
+  svg.setAttribute("width", dag.scrollWidth);
+  svg.setAttribute("height", dag.scrollHeight);
+  var byCode = {};
+  nodes.forEach(function (n) { byCode[n.code] = n; });
+  nodes.forEach(function (n) {
+    var target = dag.querySelector('[data-code="' + CSS.escape(n.code) + '"]');
+    if (!target) return;
+    var tr = target.getBoundingClientRect();
+    (n.prerequisites || []).forEach(function (p) {
+      if (!byCode[p]) return;
+      var source = dag.querySelector('[data-code="' + CSS.escape(p) + '"]');
+      if (!source) return;
+      var sr = source.getBoundingClientRect();
+      var x1 = sr.right - base.left, y1 = sr.top + sr.height / 2 - base.top;
+      var x2 = tr.left - base.left, y2 = tr.top + tr.height / 2 - base.top;
+      var bend = Math.max(14, (x2 - x1) / 2);
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M " + x1 + " " + y1 + " C " + (x1 + bend) + " " + y1 + ", " + (x2 - bend) + " " + y2 + ", " + x2 + " " + y2);
+      svg.appendChild(path);
+    });
+  });
+}
+
+function flushDraws() {
+  var draws = pendingDraws;
+  pendingDraws = [];
+  requestAnimationFrame(function () { draws.forEach(function (draw) { draw(); }); });
+}
+
+/* ---------- plan view ---------- */
+
+function renderStepper(phase) {
+  var holder = el("div", "stepper");
+  var effective = phase === "revising" || phase === "blocked" ? "authorized" : phase;
+  var current = LIFECYCLE.indexOf(effective);
+  if (current < 0) current = 0;
+  LIFECYCLE.forEach(function (name, i) {
+    var cls = i < current ? "step done" : i === current ? (phase === "completed" ? "step done current" : "step current") : "step";
+    if (phase === "completed" && i === current) cls = "step done current";
+    var step = el("div", cls);
+    step.appendChild(el("span", "knob"));
+    step.appendChild(el("span", "label", name));
+    holder.appendChild(step);
+  });
+  return holder;
+}
+
+function renderStats(plan, checkpoints, states) {
+  var tasks = (plan.spec && plan.spec.tasks) || [];
+  var totalTasks = tasks.length;
+  var totalNodes = tasks.reduce(function (sum, t) { return sum + ((t.nodes || []).length); }, 0);
+  var counts = { completed: 0, in_progress: 0, pending: 0, blocked: 0 };
+  tasks.forEach(function (t) {
+    var s = statusOf(states[t.code], !!checkpoints);
+    if (s === "completed") counts.completed++;
+    else if (s === "in_progress") counts.in_progress++;
+    else if (s.indexOf("blocked") === 0) counts.blocked++;
+    else counts.pending++;
+  });
+  var pct = totalTasks ? Math.round((counts.completed / totalTasks) * 100) : 0;
+
+  var stats = el("div", "stats");
+
+  var stTasks = el("div", "stat");
+  stTasks.appendChild(el("div", "num", String(totalTasks)));
+  stTasks.appendChild(el("div", "cap", "Tasks"));
+  var seg = el("div", "segbar");
+  [["completed", "var(--green)"], ["in_progress", "var(--blue)"], ["pending", "var(--border-strong)"], ["blocked", "var(--red)"]].forEach(function (pair) {
+    if (!counts[pair[0]] || !totalTasks) return;
+    var span = el("span");
+    span.style.width = (counts[pair[0]] / totalTasks * 100) + "%";
+    span.style.background = pair[1];
+    span.title = pair[0] + ": " + counts[pair[0]];
+    seg.appendChild(span);
+  });
+  stTasks.appendChild(seg);
+  stats.appendChild(stTasks);
+
+  var stNodes = el("div", "stat");
+  stNodes.appendChild(el("div", "num", String(totalNodes)));
+  stNodes.appendChild(el("div", "cap", "Nodes"));
+  stats.appendChild(stNodes);
+
+  var stProg = el("div", "stat");
+  var num = el("div", "num");
+  num.appendChild(document.createTextNode(pct + "%"));
+  stProg.appendChild(num);
+  stProg.appendChild(el("div", "cap", counts.completed + " of " + totalTasks + " tasks completed"));
+  var bar = el("div", "progressbar");
+  var fill = el("i");
+  fill.style.width = pct + "%";
+  bar.appendChild(fill);
+  stProg.appendChild(bar);
+  stats.appendChild(stProg);
+
+  var stReg = el("div", "stat");
+  var fr = checkpoints && checkpoints.full_regression;
+  if (fr) {
+    var passed = fr.passed === true;
+    var regNum = el("div", "num");
+    regNum.style.color = passed ? "var(--green)" : "var(--red)";
+    regNum.appendChild(document.createTextNode(passed ? "✓" : "✗"));
+    stReg.appendChild(regNum);
+    stReg.appendChild(el("div", "cap", "Full regression " + (passed ? "passed" : "failed") + " · " + ((fr.commands || []).length) + " commands · " + fmtTime(fr.recorded_at)));
+  } else {
+    var regNone = el("div", "num");
+    regNone.style.color = "var(--faint)";
+    regNone.appendChild(document.createTextNode("—"));
+    stReg.appendChild(regNone);
+    stReg.appendChild(el("div", "cap", checkpoints ? "Full regression not run yet" : "No execution state yet"));
+  }
+  stats.appendChild(stReg);
+  return stats;
+}
+
+function renderTask(task, stateEntry, hasCheckpoints) {
+  var card = el("section", "task");
+  var status = statusOf(stateEntry, hasCheckpoints);
+  var tone = STATUS_TONE[status] || "zinc";
+
+  var head = el("div", "task-head");
+  head.appendChild(el("span", "task-code mono", task.code));
+  head.appendChild(el("span", "task-title", task.title));
+  head.appendChild(pill(status.replace(/_/g, " "), tone, true));
+  var dLabel = dispatchLabel(stateEntry);
+  if (status === "in_progress" && dLabel) head.appendChild(pill(dLabel, "accent", false));
+  if (stateEntry && stateEntry.input_request) head.appendChild(pill("awaiting input", "amber", true));
+  card.appendChild(head);
+
+  var meta = el("div", "task-meta");
+  [task.difficulty, task.workload, task.worker && task.worker + " worker", task.verification && task.verification + " verification"]
+    .filter(Boolean)
+    .forEach(function (value) { meta.appendChild(el("span", "chip", value)); });
+  var evidenceCount = stateEntry && Array.isArray(stateEntry.evidence) ? stateEntry.evidence.length : 0;
+  if (evidenceCount) meta.appendChild(el("span", "chip", "evidence ×" + evidenceCount));
+  card.appendChild(meta);
+
+  var nodes = task.nodes || [];
+  if (nodes.length) {
+    card.appendChild(renderDag(nodes, tone === "zinc" ? "zinc" : tone));
+  }
+
+  if (task.outcome) card.appendChild(el("p", "task-outcome", task.outcome));
+
+  var more = el("details", "task-more");
+  more.appendChild(el("summary", null, "Details"));
+  var body = el("div", "more-body");
+  var dl = el("dl");
+  var rows = [
+    ["Scope in", ((task.scope || {}).in || []).join("; ")],
+    ["Scope out", ((task.scope || {}).out || []).join("; ")],
+    ["Acceptance", (task.acceptance || []).length + " criteria"],
+    ["Outputs", (task.outputs || []).map(function (o) { return o.title || o.code; }).join("; ")],
+    ["Regression", ((task.focused_regression || {}).commands || []).length + " commands"],
+    ["Risks", (task.risks || []).join(", ")]
+  ];
+  rows.forEach(function (row) {
+    if (!row[1]) return;
+    dl.appendChild(el("dt", null, row[0]));
+    dl.appendChild(el("dd", null, row[1]));
+  });
+  body.appendChild(dl);
+  more.appendChild(body);
+  card.appendChild(more);
+  return card;
+}
+
+function renderPlan(entry) {
+  var plan = entry.plan || {};
+  var checkpoints = entry.checkpoints || null;
+  var states = taskStates(checkpoints);
+  var frag = document.createDocumentFragment();
+
+  var hero = el("div", "hero");
+  var codeLine = el("div", "code-line");
+  codeLine.appendChild(el("span", "chip mono", plan.code || "—"));
+  var sealed = plan.lifecycle && plan.lifecycle.sealed;
+  if (sealed && sealed.revision) codeLine.appendChild(el("span", "chip", "revision " + sealed.revision));
+  hero.appendChild(codeLine);
+  hero.appendChild(el("h1", null, plan.title || "Untitled plan"));
+  var badges = el("div", "badges");
+  var phase = plan.phase || "draft";
+  badges.appendChild(pill(phase, PHASE_TONE[phase] || "zinc", true));
+  if (checkpoints && checkpoints.delivery_status) {
+    badges.appendChild(pill("delivery: " + checkpoints.delivery_status.replace(/_/g, " "), STATUS_TONE[checkpoints.delivery_status] || "zinc", false));
+  }
+  hero.appendChild(badges);
+  frag.appendChild(hero);
+
+  frag.appendChild(renderStepper(phase));
+  frag.appendChild(renderStats(plan, checkpoints, states));
+
+  var tasks = (plan.spec && plan.spec.tasks) || [];
+  if (tasks.length) {
+    frag.appendChild(el("h2", "section-title", "Tasks · " + tasks.length));
+    tasks.forEach(function (t) {
+      frag.appendChild(renderTask(t, states[t.code], !!checkpoints));
+    });
+  }
+  return frag;
+}
+
+/* ---------- app shell ---------- */
+
+function render() {
+  var app = document.getElementById("app");
+  app.textContent = "";
+  var switcher = document.getElementById("plan-switcher");
+  switcher.textContent = "";
+
+  if (!state.plans.length) {
+    var empty = el("div", "empty");
+    empty.appendChild(el("h2", null, "Render any Better Plan"));
+    empty.appendChild(el("p", null, "Drop a Plan.json — plus its Checkpoints.json for live progress — anywhere on this page,"));
+    empty.appendChild(el("p", null, "or generate a snapshot with data baked in:"));
+    var hint = el("p", null);
+    hint.appendChild(el("span", "mono", "python3 scripts/manifest_tool.py report <workspace> --out report.html"));
+    empty.appendChild(hint);
+    app.appendChild(empty);
+    switcher.hidden = true;
+    document.getElementById("generated").textContent = "";
+    document.getElementById("footer").textContent = "";
+    document.title = "Better Plan Report";
+    return;
+  }
+
+  state.plans.forEach(function (entry, i) {
+    var phase = entry.plan.phase || "draft";
+    var option = el("option", null, (entry.plan.code || "?") + " — " + (entry.plan.title || "") + " · " + phase);
+    option.value = String(i);
+    switcher.appendChild(option);
+  });
+  switcher.hidden = state.plans.length < 2;
+  switcher.value = String(state.selected);
+
+  var current = state.plans[state.selected];
+  app.appendChild(renderPlan(current));
+  document.getElementById("generated").textContent = state.generatedAt ? "generated " + fmtTime(state.generatedAt) : "live files";
+  document.getElementById("footer").textContent = "Better Plan v3 · rendered locally, no data leaves this page";
+  document.title = (current.plan.title || "Plan") + " · Better Plan";
+  flushDraws();
+}
+
+function showError(message) {
+  var box = document.getElementById("load-error");
+  box.textContent = message;
+  box.style.display = message ? "block" : "none";
+}
+
+/* ---------- loading ---------- */
+
+function adopt(plans, generatedAt) {
+  plans.sort(function (a, b) {
+    return String(a.plan.code || "").localeCompare(String(b.plan.code || ""));
+  });
+  state.plans = plans;
+  state.selected = pickDefault(plans);
+  state.generatedAt = generatedAt || null;
+  showError("");
+  render();
+}
+
+var PHASE_RANK = { authorized: 0, revising: 0, blocked: 1, ready: 2, designing: 2, draft: 3, completed: 4 };
+function pickDefault(plans) {
+  /* The "current" plan: real content first (empty review-followup shells never win),
+     then live delivery over history, then the newest of what remains. */
+  var best = 0, bestKey = null;
+  plans.forEach(function (entry, i) {
+    var plan = entry.plan || {};
+    var tasks = (plan.spec && plan.spec.tasks) || [];
+    var phase = plan.phase || "draft";
+    var rank = PHASE_RANK[phase] !== undefined ? PHASE_RANK[phase] : 3;
+    var key = [tasks.length ? 0 : 1, rank, -i];
+    if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) {
+      bestKey = key;
+      best = i;
+    }
+  });
+  return best;
+}
+
+function readBaked() {
+  var raw = document.getElementById("bp-data").textContent.trim();
+  try {
+    var parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.plans)) return parsed;
+  } catch (err) { /* unreplaced marker or malformed payload: fall back to drop zone */ }
+  return null;
+}
+
+function loadFiles(files) {
+  var plans = [], checkpoints = [], pending = files.length;
+  if (!pending) return;
+  Array.prototype.forEach.call(files, function (file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      pending--;
+      try {
+        var doc = JSON.parse(reader.result);
+        var schema = doc && doc.schema;
+        if (schema === "better-plan.plan/v3") plans.push(doc);
+        else if (schema === "better-plan.checkpoints/v3") checkpoints.push(doc);
+      } catch (err) { /* not JSON: ignore */ }
+      if (pending === 0) {
+        if (!plans.length) {
+          showError("No better-plan.plan/v3 document found in the dropped files.");
+          return;
+        }
+        adopt(plans.map(function (plan) {
+          var match = null;
+          checkpoints.forEach(function (c) { if (c.plan === plan.code) match = c; });
+          return { plan: plan, checkpoints: match };
+        }), null);
+      }
+    };
+    reader.onerror = function () { pending--; };
+    reader.readAsText(file);
+  });
+}
+
+/* ---------- wiring ---------- */
+
+document.getElementById("plan-switcher").addEventListener("change", function (event) {
+  state.selected = Number(event.target.value) || 0;
+  render();
+});
+document.getElementById("open-btn").addEventListener("click", function () {
+  document.getElementById("file-input").click();
+});
+document.getElementById("file-input").addEventListener("change", function (event) {
+  loadFiles(event.target.files);
+  event.target.value = "";
+});
+
+var veil = document.getElementById("drop-veil");
+var dragDepth = 0;
+window.addEventListener("dragenter", function (event) {
+  event.preventDefault();
+  dragDepth++;
+  veil.classList.add("on");
+});
+window.addEventListener("dragleave", function (event) {
+  event.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) veil.classList.remove("on");
+});
+window.addEventListener("dragover", function (event) { event.preventDefault(); });
+window.addEventListener("drop", function (event) {
+  event.preventDefault();
+  dragDepth = 0;
+  veil.classList.remove("on");
+  loadFiles(event.dataTransfer.files);
+});
+
+var resizeTimer = null;
+window.addEventListener("resize", function () {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 160);
+});
+
+var baked = readBaked();
+if (baked) adopt(baked.plans, baked.generated_at);
+else render();
+</script>
+</body>
+</html>
