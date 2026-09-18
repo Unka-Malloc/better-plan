@@ -23,6 +23,7 @@ from ..domain.models import (
     DESIGN_PRISTINE_NAME,
     MANIFEST_NAME,
     PLAN_NAME,
+    REPORT_NAME,
     ToolError,
     is_relative_workspace_path,
     plain_regression_paths,
@@ -171,6 +172,7 @@ def plan_paths(root: Path, entry: Mapping[str, Any]) -> dict[str, Path]:
         "checkpoints": plan_dir / CHECKPOINTS_NAME,
         "design": plan_dir / DESIGN_NAME,
         "design_pristine": plan_dir / DESIGN_PRISTINE_NAME,
+        "report": plan_dir / REPORT_NAME,
     }
 
 

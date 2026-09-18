@@ -317,7 +317,8 @@ All commands use `scripts/manifest_tool.py`.
   `main-complete`, `accept-task`, `record-task-input`, `block-task`.
 - Closure: `run-full-regression`, `open-reviewer-session`, `record-reviewer-findings`,
   `close-reviewer-session`.
-- Inspection: `validate`, `status`, `tree`, `schema manifest|plan|task|question|checkpoints|design`.
+- Inspection: `validate`, `status`, `tree`, `report`,
+  `schema manifest|plan|task|question|checkpoints|design`.
 
 Removed v1 and v2 top-level commands — Node, Gate, capability, rewire, repair-plan, decision-session,
 seal-plan, render-plan, import-plan-edits, check-host-readiness, visual-verifier, and generic

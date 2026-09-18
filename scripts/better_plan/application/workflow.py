@@ -934,7 +934,7 @@ def _full_regression_fingerprint(
     return fingerprint_paths(
         project,
         plan["spec"]["full_regression"]["paths"],
-        excluded_paths=(paths["plan"], paths["checkpoints"]),
+        excluded_paths=(paths["plan"], paths["checkpoints"], paths["report"]),
     )
 
 
