@@ -1115,10 +1115,40 @@ def dispatch_task(args: Any) -> int:
     """Dispatch one pending parallel Task, or re-dispatch a failed acceptance."""
 
     root = workspace_root(Path(args.root))
+    request_id = getattr(args, "request_id", None)
+    if request_id is not None:
+        request_id = _opaque_event_id(request_id, "request id")
     with workspace_lock(root):
         plan, paths, checkpoints = _execution_context(root, args.plan)
         task = _task_by_code(plan, args.task)
         state = _state_by_code(checkpoints, args.task)
+        if request_id is not None:
+            matches = [
+                (str(item.get("code")), item.get("dispatch"))
+                for item in checkpoints.get("tasks", [])
+                if isinstance(item, Mapping)
+                and isinstance(item.get("dispatch"), Mapping)
+                and item["dispatch"].get("id") == request_id
+            ]
+            if matches:
+                owner, existing = matches[0]
+                if len(matches) != 1 or owner != args.task or existing.get("phase") != "worker_running":
+                    raise ToolError("request id collides with another dispatch")
+                role = str(existing.get("role"))
+                selector = dict(existing.get("selector") or {})
+                payload = {
+                    "action": "dispatch_worker",
+                    "dispatch_id": request_id,
+                    "task": args.task,
+                    "correction": int(existing.get("attempts", 1)) > 1,
+                    "assignment": WORKER_ASSIGNMENT_PREFIX,
+                    "prompt_cache_group": role,
+                    "role_reference": "references/worker.md",
+                    "brief": _leaf_brief(plan, task),
+                }
+                payload.update(selector)
+                print(json.dumps(payload))
+                return 0
         if state.get("input_request"):
             raise ToolError("resolve this Task's recorded user input before dispatch")
         prior = state.get("dispatch")
@@ -1131,7 +1161,7 @@ def dispatch_task(args: Any) -> int:
             raise ToolError("Task is not eligible for dispatch")
         attempts = int(prior.get("attempts", 0)) + 1 if correction and isinstance(prior, Mapping) else 1
         role, selector = _task_worker_selector(task, args.native_host, args.codex_home)
-        dispatch_id = generate_id()
+        dispatch_id = request_id or generate_id()
         state.update(
             {
                 "status": "in_progress",

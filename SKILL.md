@@ -307,7 +307,15 @@ share the Task's Worker, ownership, acceptance, and Checkpoint; they add no orch
 
 ## Command entry points
 
-All commands use `scripts/manifest_tool.py`.
+Lifecycle commands use `scripts/manifest_tool.py`.
+
+For explicitly requested multi-plan execution, use `scripts/coordination_tool.py` and read
+[Plan coordination](references/coordination.md). Mainline and collaboration lanes retain their
+native state owners; external acceptance requirements gate only their consumers. Configure a
+host-neutral execution adapter and record existing user authorization for exact units before
+`tick` or `watch`. A host completion is only a Worker handoff; native source acceptance releases
+successors. The private journal records transport correlation, not Task progress. v3 Nodes remain
+within their owning Task and are never dispatched individually.
 
 - Authoring: `init-plan`, `build-dossier`, `resolve-dossier`.
 - Design and authorization: `open-designer-session`, `compile-design --check|--apply`,

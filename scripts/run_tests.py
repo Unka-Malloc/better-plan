@@ -33,6 +33,12 @@ SHARDS = {
         "tests.test_parallel_test_runner",
         "tests.test_report",
         "tests.test_workload_tools",
+        "tests.test_coordination",
+        "tests.test_coordinator",
+        "tests.test_coordination_sources",
+        "tests.test_coordination_host",
+        "tests.test_coordination_cli",
+        "tests.test_coordination_integration",
     ),
 }
 

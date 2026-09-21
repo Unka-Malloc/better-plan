@@ -280,6 +280,10 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("task")
     _add_plan(dispatch)
     _add_host(dispatch)
+    dispatch.add_argument(
+        "--request-id",
+        help="reuse one caller correlation id for idempotent active dispatch",
+    )
     dispatch.set_defaults(func=workflow.dispatch_task)
 
     bind = subparsers.add_parser("bind-agent", help="bind one host agent id to one dispatch")

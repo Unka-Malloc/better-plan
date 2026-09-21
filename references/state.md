@@ -30,6 +30,13 @@ Manifest.json
 `Manifest.json` indexes Delivery Plans and marks the workspace root for Hook detection. It owns no
 semantic delivery status.
 
+`better-plan.coordination/v1` is the optional [multi-plan coordination contract](coordination.md).
+It owns lane selection, external input requirements, execution routing, and concurrency policy,
+not source Task progress. Its portfolio explicitly selects native sources; a private journal binds
+user-authorized units to native dispatches and host jobs. Execution uses a host-neutral command
+interface. Only source-native acceptance completes a Task. This outer contract does not turn the
+v3 Node DAG into independent lifecycle objects or replace whole-Plan review and closure.
+
 `Report.html` is a self-contained interactive projection of `Plan.json` and `Checkpoints.json`. The
 CLI refreshes it after every state-changing command and `report` renders any workspace or single
 Plan on demand. Like `Plan.md` it is never parsed back, owns no semantics, and a projection failure
