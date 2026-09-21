@@ -861,6 +861,14 @@ class InstallToolTests(unittest.TestCase):
             "scripts/better_plan/domain/model_catalog.json",
             "scripts/better_plan/domain/coding_agent_catalog.json",
             "scripts/better_plan/domain/model_routing.py",
+            "scripts/coordination_tool.py",
+            "references/coordination.md",
+            "scripts/better_plan/domain/coordination.py",
+            "scripts/better_plan/application/coordinator.py",
+            "scripts/better_plan/adapters/coordination_cli.py",
+            "scripts/better_plan/adapters/coordination_sources.py",
+            "scripts/better_plan/adapters/coordination_portfolio.py",
+            "scripts/better_plan/adapters/coordination_host.py",
         }
         for target, filenames in NATIVE_ROLE_FILES.items():
             source_target = native_source_target(target)

@@ -103,6 +103,27 @@ python3 scripts/manifest_tool.py close-reviewer-session ...
 See [SKILL.md](SKILL.md), the [general design principles](references/design-principles.md), and the
 [state protocol](references/state.md) for the complete contract and its rationale.
 
+## Mainlines and collaboration plans
+
+The optional multi-plan coordinator keeps each repository's native plan authoritative.
+Collaboration plans can wait for accepted upstream inputs while independent work continues.
+It dispatches an authorized, conflict-free frontier through a configured execution adapter,
+recovers dispatch correlations after restart, and accepts work through each source's native verifier.
+
+```sh
+python3 scripts/coordination_tool.py status --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json
+python3 scripts/coordination_tool.py grant --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json \
+  --lane integration --reference "User authorized this integration delivery"
+python3 scripts/coordination_tool.py watch --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json
+```
+
+A host-neutral JSON command interface connects an existing asynchronous execution service.
+Configure its command and role profiles before granting execution; omit `host` for inspection only.
+`tick` advances once; `watch` observes repeatedly. `pause`, `resume`, `revoke`, `reconcile`, and
+`wake` control coordination without terminating running workers. Native source acceptance unlocks
+successors; v3 Nodes remain part of their owning Task. See [configuration and the execution adapter
+contract](references/coordination.md).
+
 ## Reference skills
 
 The repository includes [效率督查](skills/efficiency-inspector/SKILL.md), an audit skill for
