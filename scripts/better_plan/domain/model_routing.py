@@ -89,7 +89,7 @@ _CODING_AGENT_TOP_LEVEL_FIELDS = frozenset(
 
 @dataclass(frozen=True)
 class ModelRecord:
-    """One current model-only leaderboard row."""
+    """One model-only leaderboard row, including measured historical entries."""
 
     model_id: str
     model: str
@@ -196,7 +196,7 @@ def _parse_model_catalog(payload: Any) -> ModelCatalog:
     ):
         if not _string_field(payload.get(field)):
             raise _catalog_error()
-    if payload.get("status_filter") != "current":
+    if payload.get("status_filter") not in {"current", "all"}:
         raise _catalog_error()
     if payload.get("selection_policy") != _MODEL_SELECTION_POLICY:
         raise _catalog_error()

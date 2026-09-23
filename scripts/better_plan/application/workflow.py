@@ -278,11 +278,13 @@ def _immutable_snapshot(plan: Mapping[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
-def _selector_payload(role: str, native_host: str | None, codex_home: str | None) -> dict[str, Any]:
+def _selector_payload(
+    role: str, native_host: str | None, codex_home: str | None, project_root: Path | None = None
+) -> dict[str, Any]:
     if native_host != "codex":
         return {"agent_type": role}
     home = Path(codex_home) if codex_home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    selector = resolve_codex_role(role, home)
+    selector = resolve_codex_role(role, home, project_root=project_root)
     if selector is None:
         return {"agent_type": role, "main_thread_fallback": True}
     return {
@@ -292,7 +294,7 @@ def _selector_payload(role: str, native_host: str | None, codex_home: str | None
         "model_provider": selector.model_provider,
         "selector_source": selector.source,
         "assignment_line": (
-            f"assignment: agent={role} | model={selector.model} | "
+            f"assignment: agent={role} | model={selector.model or 'host-default'} | "
             f"reasoning_effort={selector.reasoning_effort or 'host-default'} | source={selector.source}"
         ),
     }
@@ -323,16 +325,24 @@ def _run_commands_with_diagnostics(
         # Observation windows never impose an execution deadline. A declared
         # command may enforce its own project-required limit; cancellation
         # remains controlled by the caller.
-        completed = subprocess.run(
+        output_tail = bytearray()
+        with subprocess.Popen(
             plain_shell_command(command),
             cwd=str(project_root),
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-        )
-        exit_code = completed.returncode
+        ) as process:
+            assert process.stdout is not None
+            while True:
+                chunk = process.stdout.read(8192)
+                if not chunk:
+                    break
+                output_tail.extend(chunk)
+                del output_tail[:-OUTPUT_TAIL_CHARACTERS * 4]
+            exit_code = process.wait()
         outcome = "passed" if exit_code == 0 else "failed"
-        output = completed.stdout.decode("utf-8", "replace") if completed.stdout else ""
+        output = output_tail.decode("utf-8", "replace")
         receipts.append(
             {
                 "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
@@ -492,7 +502,7 @@ def open_designer_session(args: Any) -> int:
         if not paths["design"].exists():
             write_text(paths["design"], DESIGN_TEMPLATE)
         dispatch_id = generate_id()
-        selector = _selector_payload("designer", args.native_host, args.codex_home)
+        selector = _selector_payload("designer", args.native_host, args.codex_home, _project_root(root))
         plan["lifecycle"]["designer_session"] = {
             "count": 1,
             "id": dispatch_id,
@@ -1076,23 +1086,24 @@ def next_action(args: Any) -> int:
 
 
 def _leaf_brief(plan: Mapping[str, Any], task: Mapping[str, Any]) -> dict[str, Any]:
+    intent = plan.get("intent", {})
+    spec = plan.get("spec", {})
     ledger = plan.get("ledger", {})
-    policy = [
-        "Do not ask the user directly; promptly report missing input or authority to the native main.",
-        "Resolve ordinary implementation decisions within existing authorization, without confirmation.",
-        "Execute every currently ready Task Node concurrently; wait only at declared Node joins.",
-        "Never serialize independent Nodes merely for convenience.",
-        "Resolve local choices from the frozen contract, then the simplest safe implementation.",
-        "Return every changed repository-relative path and focused evidence.",
-    ]
-    if task.get("verification") in RENDERED_VERIFICATIONS:
-        policy.append("This Task's acceptance requires real rendered evidence, not source inspection.")
+    requirements = set(task.get("requirements", []))
     return {
-        "goal": plan.get("intent", {}).get("goal"),
-        "authorized_scope": plan.get("intent", {}).get("scope"),
+        "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
+        "goal": intent.get("goal"),
+        "authorized_scope": intent.get("scope"),
+        "success": intent.get("success"),
+        "risk_boundary": intent.get("risk_boundary"),
+        "requirements": [
+            item for item in spec.get("requirements", []) if item.get("code") in requirements
+        ],
+        "architecture": spec.get("architecture"),
+        # v3 records decisions by Dossier question, with no Task applicability link.
+        # Keep every resolved decision and the global architecture; do not guess relevance.
         "decisions": list(ledger.get("user_decided", [])) + list(ledger.get("defaulted", [])),
         "task": task,
-        "execution_policy": policy,
     }
 
 
@@ -1100,15 +1111,16 @@ def _task_worker_selector(
     task: Mapping[str, Any],
     native_host: str | None,
     codex_home: str | None,
+    project_root: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Prefer the optional configured Codex Frontend Worker for frontend Tasks."""
 
     tier_role = "worker-%s" % task.get("difficulty")
     if task.get("worker") == "frontend" and native_host == "codex":
-        frontend = _selector_payload(FRONTEND_WORKER_ROLE, native_host, codex_home)
+        frontend = _selector_payload(FRONTEND_WORKER_ROLE, native_host, codex_home, project_root)
         if frontend.get("main_thread_fallback") is not True:
             return FRONTEND_WORKER_ROLE, frontend
-    return tier_role, _selector_payload(tier_role, native_host, codex_home)
+    return tier_role, _selector_payload(tier_role, native_host, codex_home, project_root)
 
 
 def dispatch_task(args: Any) -> int:
@@ -1160,7 +1172,7 @@ def dispatch_task(args: Any) -> int:
         if not correction and state.get("status") != "pending":
             raise ToolError("Task is not eligible for dispatch")
         attempts = int(prior.get("attempts", 0)) + 1 if correction and isinstance(prior, Mapping) else 1
-        role, selector = _task_worker_selector(task, args.native_host, args.codex_home)
+        role, selector = _task_worker_selector(task, args.native_host, args.codex_home, _project_root(root))
         dispatch_id = request_id or generate_id()
         state.update(
             {
@@ -1618,13 +1630,18 @@ def _reviewer_brief(
     regression: Mapping[str, Any],
     rendered: list[Any],
 ) -> dict[str, Any]:
+    audit_checkpoints = {
+        key: deepcopy(value) for key, value in checkpoints.items() if key != "full_regression"
+    }
+    for state in audit_checkpoints.get("tasks", []):
+        state.pop("dispatch", None)
     return {
         "plan_path": "%s/%s" % (plan["directory"], PLAN_NAME),
         "checkpoints_path": "%s/%s" % (plan["directory"], CHECKPOINTS_NAME),
         "plan": semantic_payload(plan),
-        "checkpoints": deepcopy(dict(checkpoints)),
+        "checkpoints": audit_checkpoints,
         "full_regression": {
-            "contract": deepcopy(plan["spec"]["full_regression"]),
+            # The command contract is already in plan.spec.full_regression.
             "result": deepcopy(dict(regression)),
             "diagnostics_handoff": (
                 "Attach the ephemeral diagnostics from the immediately preceding "
@@ -1632,38 +1649,6 @@ def _reviewer_brief(
             ),
         },
         "rendered_evidence_tasks": list(rendered),
-        "out_of_scope_finding_contract": {
-            "rule": (
-                "Return one item per cohesive confirmed defect outside the authorized Plan; "
-                "return an empty array when there are none."
-            ),
-            "fields": [
-                "title",
-                "summary",
-                "impact",
-                "evidence",
-                "paths",
-                "scope_reason",
-                "success",
-                "risk_boundary",
-            ],
-            "handoff": (
-                "The native main records the complete array after every Reviewer return. "
-                "Only close-reviewer-session creates separate draft repair Plans."
-            ),
-        },
-        "execution_policy": [
-            "Audit the current source, tests, Task evidence, and supplied full-regression diagnostics.",
-            "Directly repair every defect inside the authorized Plan, across all Task ownership boundaries.",
-            "Do not repair a confirmed defect outside the authorized Plan or create its repair Plan yourself.",
-            "A defect required for this Plan's success or safety is in scope, not a follow-up.",
-            "Return the complete structured out_of_scope_findings array after every response, including resumes.",
-            "Do not run or wait for the full regression; Python runs it outside Reviewer model time.",
-            "Use bounded focused checks only when they materially guide a repair.",
-            "Do not create or stage a Git commit; the native main owns that action after close.",
-            "Do not ask the user directly or create another Reviewer or Repair Task.",
-            "Promptly report missing user input or authority to the native main; continue independent repairs.",
-        ],
     }
 
 
@@ -1758,7 +1743,7 @@ def open_reviewer_session(args: Any) -> int:
             for task in plan.get("spec", {}).get("tasks", [])
             if task.get("verification") in RENDERED_VERIFICATIONS
         ]
-        selector = _selector_payload("reviewer", args.native_host, args.codex_home)
+        selector = _selector_payload("reviewer", args.native_host, args.codex_home, project)
         dispatch_id = generate_id()
         plan["lifecycle"]["reviewer_session"] = {
             "count": 1,

@@ -35,10 +35,10 @@ INTELLIGENCE_ROLE_BASE: Final[Mapping[str, str]] = MappingProxyType(
 INTELLIGENCE_ROLES = tuple(INTELLIGENCE_ROLE_BASE)
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "designer": ("designer", "gpt-6-astra", "max", "not-measured"),
-        "worker-standard": ("worker", "gpt-5.6-luna", "max", "codex-gpt-5-6-luna-max"),
-        "worker-complex": ("worker", "gpt-6-astra", "low", "not-measured"),
-        "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "not-measured"),
+        "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra"),
+        "worker-standard": ("worker", "gpt-6-luna", "max", "codex-gpt-6-luna-max"),
+        "worker-complex": ("worker", "gpt-6-sol", "high", "gpt-6-sol-high"),
+        "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
     }
 )
 CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
@@ -49,10 +49,10 @@ CODEX_FINDER_MATRIX: Final[Mapping[str, tuple[str, str]]] = MappingProxyType(
 )
 CURSOR_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "designer": ("designer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6"),
-        "worker-standard": ("worker", "cursor-grok-4.6-high-fast", "high", "grok-build-grok-4-5-high"),
-        "worker-complex": ("worker", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-build-grok-4-5-high"),
-        "reviewer": ("reviewer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6"),
+        "designer": ("designer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh"),
+        "worker-standard": ("worker", "cursor-grok-4.6-high-fast", "high", "grok-4-6"),
+        "worker-complex": ("worker", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh"),
+        "reviewer": ("reviewer", "cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh"),
     }
 )
 OPENCODE_GO_DEFAULT_MATRIX: Final[
@@ -78,8 +78,6 @@ OPENCODE_GO_DEFAULT_MATRIX: Final[
     }
 )
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/+-]{1,128}$")
-_TOML_MODEL = re.compile(r'(?m)^model\s*=\s*"([A-Za-z0-9._:/+-]{1,128})"\s*$')
-_TOML_EFFORT = re.compile(r'(?m)^model_reasoning_effort\s*=\s*"([A-Za-z0-9._+-]{1,64})"\s*$')
 _YAML_MODEL = re.compile(r"(?m)^model:\s*['\"]?([A-Za-z0-9._:/+-]{1,128})['\"]?\s*$")
 _YAML_EFFORT = re.compile(
     r"(?m)^(?:reasoningEffort|reasoning_effort|model_reasoning_effort):"
@@ -127,15 +125,13 @@ def _codex_default_delivery_assignments(
             # The receipt keeps its existing integer field; this sentinel has no score.
             index_score = 0
             cost_per_task_usd = None
-        elif role == "worker":
-            benchmark = variants.get(benchmark_id)
-            if benchmark is None:
-                raise ToolError("the Codex default Worker benchmark is unavailable")
+        elif role == "worker" and benchmark_id in variants:
+            benchmark = variants[benchmark_id]
             index_score = benchmark.index_score
             cost_per_task_usd = benchmark.cost_per_task_usd
         else:
             benchmark = models.get(benchmark_id)
-            if benchmark is None:
+            if benchmark is None or benchmark.intelligence_index is None:
                 raise ToolError("the Codex default intelligence benchmark is unavailable")
             index_score = int(benchmark.intelligence_index)
             cost_per_task_usd = None
@@ -171,33 +167,23 @@ def _codex_finder_assignments() -> dict[str, RoleAssignment]:
 
 
 def _cursor_default_delivery_assignments(
-    agent_catalog: CodingAgentCatalog,
     model_catalog: ModelCatalog,
 ) -> dict[str, RoleAssignment]:
     """Resolve curated Cursor defaults against packaged benchmark rows.
 
-    Worker selectors use Grok 4.6. The Coding Agent rows still reference the
-    grok-build Grok 4.5 (high) measurement, the nearest published grok-build
-    row; no cursor-cli or Grok 4.6 grok-build measurement exists yet.
-    Designer and Reviewer use the Grok 4.6 Intelligence Index row.
+    No cursor-cli measurement is published in Coding Agent Index v1.5.
+    Use the exact model/effort Intelligence Index as a proxy, without
+    presenting another harness's task cost as a Cursor measurement.
     """
 
-    variants = {variant.variant_id: variant for variant in agent_catalog.variants}
     models = {model.model_id: model for model in model_catalog.models}
     assignments: dict[str, RoleAssignment] = {}
     for agent_name, (role, configured_model, effort, benchmark_id) in CURSOR_DEFAULT_MATRIX.items():
-        if role == "worker":
-            benchmark = variants.get(benchmark_id)
-            if benchmark is None:
-                raise ToolError("the Cursor default Worker benchmark is unavailable")
-            index_score = benchmark.index_score
-            cost_per_task_usd = benchmark.cost_per_task_usd
-        else:
-            benchmark = models.get(benchmark_id)
-            if benchmark is None or benchmark.intelligence_index is None:
-                raise ToolError("the Cursor default intelligence benchmark is unavailable")
-            index_score = int(benchmark.intelligence_index)
-            cost_per_task_usd = None
+        benchmark = models.get(benchmark_id)
+        if benchmark is None or benchmark.intelligence_index is None:
+            raise ToolError("the Cursor default intelligence benchmark is unavailable")
+        index_score = int(benchmark.intelligence_index)
+        cost_per_task_usd = None
         assignments[agent_name] = RoleAssignment(
             role=role,
             agent_name=agent_name,
@@ -279,7 +265,7 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
     values: list[LocalModel] = []
     seen: set[tuple[str, str | None]] = set()
     for path in sorted(directory.iterdir(), key=lambda item: item.name):
-        if path.name in excluded or path.is_symlink() or path.suffix not in {".toml", ".md"}:
+        if path.name in excluded or path.is_symlink() or path.suffix != ".md":
             continue
         try:
             if not path.is_file() or path.stat().st_size > 262_144:
@@ -287,8 +273,8 @@ def _read_local_models(directory: Path, excluded_names: Iterable[str]) -> tuple[
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        model_match = _TOML_MODEL.search(text) or _YAML_MODEL.search(text)
-        effort_match = _TOML_EFFORT.search(text) or _YAML_EFFORT.search(text)
+        model_match = _YAML_MODEL.search(text)
+        effort_match = _YAML_EFFORT.search(text)
         if model_match is None:
             continue
         model = model_match.group(1)
@@ -410,13 +396,17 @@ def select_role_assignments(
     excluded_names: Iterable[str] = (),
     available_model_selectors: Iterable[str] | None = None,
 ) -> dict[str, RoleAssignment]:
-    """Select once, preferring matching native agent configuration over table fallback."""
+    """Choose first-install defaults; existing native roles are preserved by the installer."""
 
     harness = HOST_HARNESSES.get(target)
     if harness is None:
         raise ToolError("native role assignments are unavailable for this target")
     agent_catalog = load_coding_agent_catalog()
     model_catalog = load_model_catalog()
+    if target == "codex":
+        assignments = _codex_default_delivery_assignments(agent_catalog, model_catalog)
+        assignments.update(_codex_finder_assignments())
+        return assignments
     if target == "opencode" and available_model_selectors is not None:
         return _opencode_go_default_assignments(
             agent_catalog,
@@ -425,12 +415,8 @@ def select_role_assignments(
         )
     harness_variants = tuple(variant for variant in agent_catalog.variants if variant.harness == harness)
     local_models = _read_local_models(native_role_directory(paths, target), excluded_names)
-    if target == "codex" and not local_models:
-        assignments = _codex_default_delivery_assignments(agent_catalog, model_catalog)
-        assignments.update(_codex_finder_assignments())
-        return assignments
     if target == "cursor" and not local_models:
-        return _cursor_default_delivery_assignments(agent_catalog, model_catalog)
+        return _cursor_default_delivery_assignments(model_catalog)
     eligible_variants = _matching_variants(harness_variants, local_models)
     source = "local-config" if local_models and eligible_variants else "catalog-fallback"
     if local_models and not eligible_variants:
@@ -505,10 +491,4 @@ def select_role_assignments(
             cost_per_task_usd=None,
             source=assignment_source,
         )
-    if target == "codex":
-        for agent_name, assignment in _codex_default_delivery_assignments(
-            agent_catalog, model_catalog
-        ).items():
-            assignments.setdefault(agent_name, assignment)
-        assignments.update(_codex_finder_assignments())
     return assignments

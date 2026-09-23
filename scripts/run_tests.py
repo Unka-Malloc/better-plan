@@ -27,7 +27,7 @@ SHARDS = {
         "tests.test_native_role_resolution",
     ),
     "installation": ("tests.test_install_tool",),
-    "workflow": ("tests.test_v3_workflow",),
+    "workflow": ("tests.test_v3_workflow", "tests.test_workflow_briefs"),
     "tooling": (
         "tests.test_efficiency_inspector",
         "tests.test_parallel_test_runner",
