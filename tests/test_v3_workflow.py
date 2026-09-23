@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import io
 import json
 import subprocess
 import sys
@@ -32,20 +33,38 @@ class V3WorkflowTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_long_running_verification_can_finish_without_a_framework_deadline(self) -> None:
-        def finish_command(command, *, timeout=None, **kwargs):
-            # Model a valid command whose duration exceeds any polling window;
-            # this does not spend wall-clock time waiting in the test suite.
-            if timeout is not None:
-                raise subprocess.TimeoutExpired(command, timeout)
-            return subprocess.CompletedProcess(command, 0, stdout=b"verified\n")
-
-        with mock.patch("scripts.better_plan.application.workflow.subprocess.run", side_effect=finish_command):
+        process = mock.MagicMock()
+        process.__enter__.return_value = process
+        process.stdout = io.BytesIO(b"verified\n")
+        process.wait.return_value = 0
+        with mock.patch("scripts.better_plan.application.workflow.subprocess.Popen", return_value=process) as popen:
             passed, receipts, diagnostics = _run_commands_with_diagnostics(self.root, ["project-verification"])
 
+        self.assertNotIn("timeout", popen.call_args.kwargs)
+        process.wait.assert_called_once_with()
         self.assertTrue(passed)
         self.assertEqual(receipts[0]["outcome"], "passed")
         self.assertEqual(receipts[0]["exit_code"], 0)
         self.assertEqual(diagnostics, [])
+
+    def test_large_verification_output_keeps_only_bounded_safe_diagnostics(self) -> None:
+        class BoundedReads(io.BytesIO):
+            def read(self, size=-1):
+                if not 0 < size <= 8192:
+                    raise AssertionError("verification output must be read in bounded chunks")
+                return super().read(size)
+
+        process = mock.MagicMock()
+        process.__enter__.return_value = process
+        process.stdout = BoundedReads(b"discarded prefix\n" * 100000 + b"assertion failed: expected 2, got 1\n")
+        process.wait.return_value = 1
+        with mock.patch("scripts.better_plan.application.workflow.subprocess.Popen", return_value=process):
+            with mock.patch("sys.stderr", new_callable=io.StringIO):
+                passed, receipts, diagnostics = _run_commands_with_diagnostics(self.root, ["project-verification"])
+        self.assertFalse(passed)
+        self.assertEqual(receipts[0]["exit_code"], 1)
+        self.assertLessEqual(len(diagnostics[0]["output_tail"]), 2000)
+        self.assertIn("assertion failed: expected 2, got 1", diagnostics[0]["output_tail"])
 
     def cli(
         self,
@@ -170,8 +189,7 @@ class V3WorkflowTests(unittest.TestCase):
         dispatched = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
         self.assertEqual(dispatched["agent_type"], "worker-standard")
         self.assertFalse(dispatched["correction"])
-        self.assertIn("Do not ask the user", json.dumps(dispatched["brief"]))
-        self.assertIn("Execute every currently ready Task Node concurrently", json.dumps(dispatched["brief"]))
+        self.assertEqual(dispatched["role_reference"], "references/worker.md")
         self.assertTrue(dispatched["brief"]["task"]["nodes"])
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", "worker.agent")
         returned = self.payload("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.agent", "--final")
@@ -780,7 +798,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.plan = write_workspace(self.root, value)
         self.design_and_authorize()
         dispatched = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
-        self.assertIn("rendered evidence", json.dumps(dispatched["brief"]["execution_policy"]))
+        self.assertEqual(dispatched["brief"]["task"]["verification"], "hybrid")
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", "worker.visual")
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.visual", "--final")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
@@ -791,24 +809,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(review["brief"]["plan"]["code"], PLAN)
         self.assertEqual(review["brief"]["checkpoints"]["tasks"][0]["status"], "completed")
         self.assertTrue(review["brief"]["full_regression"]["result"]["passed"])
-        self.assertEqual(
-            review["brief"]["out_of_scope_finding_contract"]["fields"],
-            [
-                "title",
-                "summary",
-                "impact",
-                "evidence",
-                "paths",
-                "scope_reason",
-                "success",
-                "risk_boundary",
-            ],
-        )
-        self.assertIn("out_of_scope_findings", json.dumps(review["brief"]))
-        self.assertIn(
-            "Do not create or stage a Git commit",
-            " ".join(review["brief"]["execution_policy"]),
-        )
+        self.assertEqual(review["role_reference"], "references/reviewer.md")
         self.assertEqual(regression["action"], "open_reviewer_session")
 
     def test_authorization_can_prove_the_host_harness_without_mutating_inputs(self) -> None:

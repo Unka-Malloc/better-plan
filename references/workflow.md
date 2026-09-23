@@ -30,6 +30,10 @@ python3 scripts/manifest_tool.py <command> <root> --plan <plan>
 - Host role dispatch is performed by the native agent tool, not by the Python CLI.
 - Whenever a CLI command returns an `assignment`, `brief`, `role_reference`, selector, or `dispatch_id`, the native
   main forwards or binds that exact value instead of recreating it from memory.
+- Each role reads its returned reference from the installed skill. Do not append this walkthrough,
+  other role guides, or paraphrased policy to a compiled brief. Consult only the current stage here.
+- Brief record paths are relative to `<root>`; include its repository-relative location in the
+  dispatch so roles can read original records on demand.
 
 ## Workflow at a glance
 
@@ -130,22 +134,12 @@ The command precreates the neutral `Design.md` skeleton and returns:
 - `references/designer.md` and the Design format references; and
 - an `assignment` that the native main must forward unchanged.
 
-The assignment has this operational meaning:
-
-```text
-Write the complete solution design to the returned draft_path before returning.
-Group dependent work inside one Task so every Task is mutually parallel-safe.
-Inside each Task, design a minimal Node DAG: branch independent Nodes, declare only real
-dependencies, and list every predecessor at joins. Mark each Task's relative Workload as light,
-medium, or heavy without estimating clock time. Do not edit Plan.json.spec while the draft path is
-available. Use the direct-write path only when the host cannot create the draft.
-```
-
 The native main passes the confirmed goal, scope, success conditions, risk boundary, requirements,
 resolved decisions, repository facts, returned assignment, and knowledge references. It does not
 pre-design the Task graph. The Designer decides architecture, tradeoffs, risks, Task boundaries,
 Node dependencies, and acceptance semantics without authoring canonical codes or strict JSON
-bookkeeping.
+bookkeeping. Its complete operating contract is in `references/designer.md`; forward the returned
+assignment unchanged instead of composing another instruction block.
 
 After host dispatch, bind the returned agent id:
 
@@ -279,20 +273,15 @@ python3 scripts/manifest_tool.py dispatch-task TASK-001 <root> \
 
 Run the command once per eligible Task. Each result contains the exact Worker tier, `dispatch_id`,
 the selected `agent_type`, a byte-stable Worker `assignment`, and a compiled brief with the
-authorized scope, relevant decisions, complete Task contract, Node DAG, and execution policy. A
+authorized goal/scope/success/risk boundary, owned requirement definitions, global architecture,
+resolved decisions, and complete Task contract including its Node DAG. Decisions remain complete
+because v3 has no Task applicability mapping. Original context is available at `plan_path`. A
 Task marked `worker: frontend` first checks Codex's optional local `frontend-worker`; when that valid
 configuration exists it must be dispatched, and only its absence falls back to the Task's
 standard/complex tier.
 
-The Worker receives this operating prompt with the returned brief:
-
-```text
-Implement this one independently acceptable Task. Do not ask the user directly; report truly missing
-input or authority promptly to the native main and resolve ordinary choices yourself.
-Execute every currently ready Task Node concurrently; wait only at declared joins,
-and never serialize independent Nodes for convenience. Stay inside the Task's ownership and return
-changed repository-relative paths plus focused evidence.
-```
+Forward `role_reference: references/worker.md` with that brief. It owns the fixed execution, evidence,
+and escalation rules; do not copy them into another operating prompt.
 
 For all eligible Tasks with the same returned `agent_type`, forward the returned `assignment`
 byte-for-byte as the common prompt prefix and append each Task's own brief. The stable prefix is
@@ -302,17 +291,8 @@ concurrently; prompt reuse never authorizes sharing one live agent ID or combini
 Bind each Worker agent id to exactly one dispatch using `bind-agent`. A spawn result is not a
 completion signal. Record a Worker only when its exact final callback arrives:
 
-For Codex, spawn every configured role with `fork_turns` set to `none`; a full-history fork inherits
-the parent role and is incompatible with `agent_type`. Use a unique lower-snake `task_name` for each
-attempt, dispatch no more children than the currently available collaboration slots, and never
-substitute a generic `worker` for either Better Plan Worker tier.
-
-Pass the canonical task name returned by Codex spawn, such as `/root/backend_worker`, unchanged to
-both `bind-agent` and `agent-complete`. Better Plan recognizes that narrow form as a host identity;
-do not replace `/` with punctuation, use the UI thread UUID, or invent a second correlation id.
-Codex completion is parent-driven: wait for that task's exact final callback and then invoke
-`agent-complete`. Do not install or rely on a Codex completion Hook because its subagent-stop UUID
-cannot be correlated safely with the returned canonical task name.
+Use `references/host-configuration.md` for the host's exact spawn, capacity, identity, and completion
+rules. Those platform details do not change the Task contract or its independent acceptance.
 
 ```sh
 python3 scripts/manifest_tool.py agent-complete <root> \
@@ -462,21 +442,13 @@ creates the sole Reviewer session and returns the selector, `dispatch_id`, role 
 compiled audit brief.
 
 The native main attaches the ephemeral diagnostics returned by the immediately preceding
-`run-full-regression` call and dispatches this prompt:
-
-```text
-You are this Plan's sole writable Reviewer. The independent complete-regression stage has already
-finished; do not run or wait for it. Audit the current source, tests, authorized Plan, Task evidence,
-regression receipt, and supplied diagnostics. Directly repair every in-scope defect instead of only
-recommending a patch; Task ownership does not limit repairs inside the authorized Plan. Leave a
-confirmed defect outside that Plan untouched and return it in the complete structured
-out_of_scope_findings array, using an empty array when there are none. Do not create its repair Plan.
-Use bounded focused checks only when they materially guide a repair. If later independent
-verification fails, resume this same session; do not create a Repair Task or a second Reviewer.
-```
-
-For visual or hybrid Tasks, the Reviewer also exercises the real rendered interface with browser
-and vision and obtains rendered evidence.
+`run-full-regression` call and forwards `role_reference: references/reviewer.md` with the brief.
+That reference owns source/test/design auditing, direct in-scope repairs, rendered evidence, and the
+findings return contract. The brief contains the full semantic Plan and Task evidence without
+dispatch metadata. Read the regression contract at `plan.spec.full_regression` and the sole receipt
+at `full_regression.result`; `checkpoints` does not repeat it. `rendered_evidence_tasks` names the
+visual/hybrid Tasks. Use `plan_path` and `checkpoints_path` for complete original records only as
+needed; do not resend those records beside their compiled contents.
 
 Bind and complete the Reviewer through the same exact correlation tools:
 
@@ -521,13 +493,9 @@ for it. If project rules explicitly reserve a failed complete regression for a d
 record the needed input and obtain that decision before dependent repairs or reruns.
 
 If the rerun passes, close the session. If it fails, the command returns `resume_reviewer` with new
-ephemeral diagnostics. Send them to the already bound Reviewer agent with this follow-up:
-
-```text
-Resume the current Reviewer session. The independent complete regression still fails. Directly
-repair the supplied diagnostics, run only bounded focused checks, and return. Do not run or wait for
-the complete regression. Return the complete out_of_scope_findings array again.
-```
+ephemeral diagnostics. Send the new diagnostics and regression receipt, plus any resolved prerequisite,
+to the already bound Reviewer, subject to required developer decisions. Its existing role contract
+continues to apply; do not resend the unchanged Plan or role guide.
 
 Never create another Reviewer. Record the complete findings array after every resumed return, then
 repeat the independent verification and same-session repair loop until it is green or the Reviewer

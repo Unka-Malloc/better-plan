@@ -24,12 +24,38 @@ Better Plan installs four delivery roles per supported host:
 | 角色 | 用途 | Codex 推荐选择器 |
 |---|---|---|
 | `designer` | 单次完成结构化方案草稿，由 Python 编译 Plan | `gpt-6-astra / max` |
-| `worker-standard` | 经济档：普通有界 Task | `gpt-5.6-luna / max` |
-| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-6-astra / low` |
+| `worker-standard` | 经济档：普通有界 Task | `gpt-6-luna / max` |
+| `worker-complex` | 强力档：高风险或结构耦合 Task | `gpt-6-sol / high` |
 | `reviewer` | 全量回归后的唯一可写终审，审计源码、测试、诊断与渲染证据 | `gpt-6-astra / xhigh` |
 
-These Codex defaults are explicit preferences. Astra has no measurement in the packaged benchmark
-snapshot; do not reuse another model's score or cost for it.
+Codex uses this explicit matrix only for first initialization; it does not import model choices
+from unrelated local agents. Any existing same-name native role (identified by its TOML `name`,
+even under another filename) or role receipt prevents matrix initialization. Existing role files
+and receipts remain unchanged. These defaults are independent of generic Worker difficulty floors.
+The 2026-09-23 AA snapshots record Astra Max / XHigh at Intelligence Index 53 / 52, Sol High at
+Intelligence Index 43, and Codex Luna Max at Coding Agent Index 41 ($0.1759 per task). Sol High has
+model benchmark data, including $0.3746 per Intelligence Index task; it has no exact Codex row in
+Coding Agent Index v1.5. Its Worker receipt therefore identifies an Intelligence Index proxy and
+leaves Coding Agent cost unset. Never substitute Sol Max results for Sol High or compare the two
+different indices as the same scale. These API benchmark costs are not Codex subscription usage.
+
+Both routing catalogs are derived from the complete
+[AA source snapshot](artificial-analysis-snapshot.json): all 673 model rows (275 current, 398
+historical) and all 19 Coding Agent configurations, with every published source field preserved.
+The model table uses Intelligence Index v4.3.2; the agent table uses Coding Agent Index v1.5.
+Historical rows retain reference data for explicitly configured models; inclusion does not prove
+local availability. Scores in the compact routing catalogs follow AA's rounded display; original
+precision, component results, pricing, latency, throughput, token usage, and run versions remain in
+the source snapshot. Load the snapshot only for benchmark research, never ordinary dispatch.
+Cursor's selectors remain unchanged; its references now use the exact Grok 4.6 model/effort
+Intelligence Index rows because v1.5 publishes no Cursor harness measurements.
+
+The generic Worker floors (standard 42, complex 55) remain explicit, uncalibrated policy values
+for the v1.5 snapshot, not measured delivery-success thresholds. Recalibration needs comparable
+local deliveries with model/effort, first acceptance outcome, correction count, and elapsed time.
+Use the existing dispatch and acceptance records to evaluate those outcomes; do not create another
+tracking system or adjust floors from model Intelligence Index scores. An AA snapshot refresh
+alone never changes the explicit Codex matrix or an installed role.
 
 Codex may additionally define an unmanaged optional `frontend-worker`. Better Plan never installs,
 updates, receipts, or recommends a selector for it. For a Task compiled with `worker: frontend`, the
@@ -46,8 +72,11 @@ one of those selectors is unavailable.
 
 A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
 user to choose between installed and recommended matrices, and never pause delivery for that choice.
-The package recommendation is only a per-role fallback for an absent, unreadable, unsafe, or
-model-less role, and never overrides or mutates an installed role.
+Resolve a role by its TOML `name`, preferring the delivery project's `.codex/agents` over personal
+roles in `$CODEX_HOME/agents`. A role with no model or effort pin inherits the host's settings;
+report `host-default` rather than replacing it with a recommendation. Report an unreadable or
+invalid requested role without silently substituting a default. The package recommendation is
+only an absent-role reference and never overrides or mutates a configured role.
 
 Show the installed-versus-recommended comparison only when the matrix is missing or invalid, or when
 the user asks about role configuration. Render selectors as `model / effort`; when either side pins a
@@ -149,9 +178,11 @@ assignment as a byte-identical prompt prefix. Append each Task's compiled brief 
 stable prefix improves provider prompt-cache hits and Token efficiency without merging Tasks,
 serializing the frontier, or reusing one live agent ID.
 
-Codex collaboration capacity is bounded and includes the native main. Inspect current capacity
-before `dispatch-task`, then dispatch only the eligible Tasks that can be spawned immediately. Keep
-the rest pending until a slot opens. Capacity-limited batching is a host constraint, not permission
+Use the active host's reported spawn capacity and counting semantics before `dispatch-task`.
+Do not infer a fixed limit or whether the primary is counted: Codex's configuration key
+`agents.max_concurrent_threads_per_session` excludes the primary, while a live tool may expose
+a different capacity contract. The live host controls which eligible Tasks can start; keep the
+rest pending until it admits more work. Capacity-limited batching is a host constraint, not permission
 to merge Tasks, serialize their internal Nodes, or substitute a generic `worker`. If the exact
 `worker-standard` or `worker-complex` role cannot start, use the existing `delegation-failed`, retry,
 and `main-complete` lifecycle for that same role.

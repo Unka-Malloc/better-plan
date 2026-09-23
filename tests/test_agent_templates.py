@@ -349,9 +349,9 @@ class AgentTemplateTests(unittest.TestCase):
                 message for message in messages if "immutable after first installation" in message
             )
             self.assertIn("Coding Agent", assignment_message)
-            self.assertIn("benchmark not measured", assignment_message)
+            self.assertNotIn("benchmark not measured", assignment_message)
             self.assertIn("Codex read-only utility", assignment_message)
-            self.assertNotIn("Intelligence Index", assignment_message)
+            self.assertIn("Intelligence Index proxy", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
             self.assertNotIn("Arena WebDev", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
@@ -366,8 +366,8 @@ class AgentTemplateTests(unittest.TestCase):
             },
             {
                 "designer": ("gpt-6-astra", "max"),
-                "worker-standard": ("gpt-5.6-luna", "max"),
-                "worker-complex": ("gpt-6-astra", "low"),
+                "worker-standard": ("gpt-6-luna", "max"),
+                "worker-complex": ("gpt-6-sol", "high"),
                 "reviewer": ("gpt-6-astra", "xhigh"),
             },
         )
@@ -386,6 +386,9 @@ class AgentTemplateTests(unittest.TestCase):
             )
 
         self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
+        expected_scores = {
+            "designer": 53, "worker-standard": 41, "worker-complex": 43, "reviewer": 52,
+        }
         for agent_name, (role, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
             with self.subTest(agent_name=agent_name):
                 assignment = assignments[agent_name]
@@ -399,6 +402,13 @@ class AgentTemplateTests(unittest.TestCase):
                     ),
                     (role, model, effort, benchmark_id, "codex-default-matrix"),
                 )
+                self.assertEqual(assignment.index_score, expected_scores[agent_name])
+                if agent_name == "worker-standard":
+                    self.assertEqual(assignment.benchmark_id, "codex-gpt-6-luna-max")
+                    self.assertAlmostEqual(assignment.cost_per_task_usd, 0.17591172304455457)
+                else:
+                    self.assertIsNone(assignment.cost_per_task_usd)
+        self.assertEqual(assignments["worker-complex"].benchmark_id, "gpt-6-sol-high")
         for agent_name, (model, effort) in CODEX_FINDER_MATRIX.items():
             with self.subTest(agent_name=agent_name):
                 assignment = assignments[agent_name]
@@ -426,80 +436,39 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("do not inspect the workspace or call tools", template)
                 self.assertIn("payload-delivery-failed", template)
 
-    def test_existing_local_model_configuration_wins_before_first_pin(self) -> None:
+    def test_codex_initialization_uses_defaults_without_importing_unrelated_roles(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             install_paths = paths(Path(tmpdir))
             directory = install_paths.codex_home / "agents"
             directory.mkdir(parents=True)
-            (directory / "user-agent.toml").write_text(
-                'name = "user"\nmodel = "gpt-5.6-sol"\nmodel_reasoning_effort = "high"\n',
-                encoding="utf-8",
-            )
-            assignments = select_role_assignments(
-                install_paths,
-                "codex",
-                excluded_names=NATIVE_ROLE_FILES["codex"],
-            )
+            local_role = directory / "user-agent.toml"
+            content = 'name = "user"\nmodel = "gpt-6-sol"\nmodel_reasoning_effort = "max"\n'
+            local_role.write_text(content, encoding="utf-8")
+
+            assignments = select_role_assignments(install_paths, "codex")
             self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            local = [assignments[name] for name in DELIVERY_ROLE_NAMES]
-            self.assertTrue(all(value.model == "gpt-5.6-sol" for value in local))
-            self.assertTrue(all(value.reasoning_effort == "high" for value in local))
-            self.assertTrue(all(value.source == "local-config" for value in local))
-            self.assertTrue(
-                all(assignments[name].source == "codex-default-matrix" for name in CODEX_FINDER_MATRIX)
-            )
+            for role, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items():
+                self.assertEqual((assignments[role].model, assignments[role].reasoning_effort), (model, effort))
+                self.assertEqual(assignments[role].source, "codex-default-matrix")
             install_role_templates(install_paths, "codex", dry_run=False)
+            self.assertEqual(local_role.read_text(encoding="utf-8"), content)
             rendered_worker = (directory / "worker-standard.toml").read_text(encoding="utf-8")
-            self.assertIn('model = "gpt-5.6-sol"', rendered_worker)
-            self.assertIn('model_reasoning_effort = "high"', rendered_worker)
+            self.assertIn('model = "gpt-6-luna"', rendered_worker)
+            self.assertIn('model_reasoning_effort = "max"', rendered_worker)
 
-    def test_model_only_local_configuration_can_fill_intelligence_roles(self) -> None:
+    def test_existing_codex_role_name_prevents_initialization_with_another_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             install_paths = paths(Path(tmpdir))
             directory = install_paths.codex_home / "agents"
             directory.mkdir(parents=True)
-            (directory / "user-agent.toml").write_text(
-                'name = "user"\nmodel = "gemini-3-6-flash"\n',
-                encoding="utf-8",
-            )
-            assignments = select_role_assignments(
-                install_paths,
-                "codex",
-                excluded_names=NATIVE_ROLE_FILES["codex"],
-            )
-            self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in ("designer", "reviewer"):
-                self.assertEqual(assignments[role].model, "gemini-3-6-flash")
-                self.assertIsNone(assignments[role].reasoning_effort)
-                self.assertEqual(assignments[role].source, "local-config")
-            for role in ("worker-standard", "worker-complex"):
-                self.assertEqual(assignments[role].source, "codex-default-matrix")
+            role = directory / "my-design-role.toml"
+            content = "name = 'designer'\nmodel = 'my-model'\n"
+            role.write_text(content, encoding="utf-8")
             messages = install_role_templates(install_paths, "codex", dry_run=False)
-            self.assertTrue(any("host-default" in message for message in messages))
-            rendered = (directory / "designer.toml").read_text(encoding="utf-8")
-            self.assertIn('model = "gemini-3-6-flash"', rendered)
-            self.assertNotIn("model_reasoning_effort", rendered)
-            self.assertNotIn("gemini-3-6-flash", rendered.split('developer_instructions = """', 1)[1])
-
-    def test_unspecified_local_effort_does_not_claim_a_tiered_intelligence_score(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            directory = install_paths.codex_home / "agents"
-            directory.mkdir(parents=True)
-            (directory / "user-agent.toml").write_text(
-                'name = "user"\nmodel = "gpt-5.6-sol"\n',
-                encoding="utf-8",
-            )
-
-            assignments = select_role_assignments(
-                install_paths,
-                "codex",
-                excluded_names=NATIVE_ROLE_FILES["codex"],
-            )
-
-            self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role in DELIVERY_ROLE_NAMES:
-                self.assertEqual(assignments[role].source, "codex-default-matrix")
+            self.assertEqual(messages, ["native: preserved codex role templates"])
+            self.assertEqual(role.read_text(encoding="utf-8"), content)
+            self.assertEqual(list(directory.iterdir()), [role])
+            self.assertFalse(directory.with_name("agents.better-plan.json").exists())
 
     def test_obsolete_receipt_is_reported_without_translation_or_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -539,20 +508,20 @@ class AgentTemplateTests(unittest.TestCase):
             assignments = select_role_assignments(install_paths, "cursor")
             self.assertEqual(set(assignments), DELIVERY_ROLE_NAMES)
             expected = {
-                "designer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6", "designer"),
+                "designer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh", "designer"),
                 "worker-standard": (
                     "cursor-grok-4.6-high-fast",
                     "high",
-                    "grok-build-grok-4-5-high",
+                    "grok-4-6",
                     "worker",
                 ),
                 "worker-complex": (
                     "cursor-grok-4.6-xhigh-fast",
                     "xhigh",
-                    "grok-build-grok-4-5-high",
+                    "grok-4-6-xhigh",
                     "worker",
                 ),
-                "reviewer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6", "reviewer"),
+                "reviewer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh", "reviewer"),
             }
             for role, values in expected.items():
                 assignment = assignments[role]
@@ -599,7 +568,7 @@ class AgentTemplateTests(unittest.TestCase):
             assignments = select_role_assignments(paths(Path(tmpdir)), "opencode")
             self.assertTrue({"designer", "reviewer"}.issubset(assignments))
             self.assertTrue(
-                all(assignments[role].benchmark_id == "muse-spark-1-1" for role in ("designer", "reviewer"))
+                all(assignments[role].benchmark_id == "glm-5-3" for role in ("designer", "reviewer"))
             )
 
     def test_callable_opencode_go_defaults_create_the_complete_role_matrix(self) -> None:

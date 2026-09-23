@@ -23,19 +23,23 @@ AGENT_PATH = ROOT / "scripts" / "better_plan" / "domain" / "coding_agent_catalog
 
 
 class RoleRoutingTests(unittest.TestCase):
-    def test_model_table_is_complete_current_primary_intelligence_reference(self) -> None:
+    def test_model_table_is_complete_primary_intelligence_reference(self) -> None:
         payload = json.loads(MODEL_PATH.read_text(encoding="utf-8"))
         catalog = load_model_catalog()
         self.assertEqual(payload["schema_version"], 3)
+        self.assertEqual(payload["status_filter"], "all")
         self.assertEqual(payload["selection_policy"], "intelligence_rank_for_non_worker_roles")
         self.assertNotIn("difficulty_floors", payload)
-        self.assertEqual(payload["model_count"], 252)
-        self.assertEqual(catalog.model_count, 252)
+        self.assertEqual(payload["model_count"], 673)
+        self.assertEqual(catalog.model_count, 673)
         by_id = {model.model_id: model for model in catalog.models}
-        self.assertEqual(by_id["claude-opus-5"].intelligence_index, 63)
-        self.assertEqual(by_id["grok-4-6"].intelligence_index, 61)
-        self.assertEqual(by_id["gemini-3-5-flash"].intelligence_index, 50)
-        self.assertEqual(by_id["gemini-3-6-flash"].intelligence_index, 52)
+        self.assertEqual(by_id["gpt-6-astra"].intelligence_index, 53)
+        self.assertEqual(by_id["gpt-6-astra-xhigh"].intelligence_index, 52)
+        sol_high = by_id["gpt-6-sol-high"]
+        self.assertEqual(sol_high.intelligence_index, 43)
+        self.assertFalse(sol_high.intelligence_index_estimated)
+        self.assertAlmostEqual(sol_high.cost_per_task_usd, 0.3746326907148203)
+        self.assertEqual(by_id["gpt-6-luna"].intelligence_index, 37)
 
     def test_coding_agent_table_is_the_worker_reference_with_task_floors(self) -> None:
         payload = json.loads(AGENT_PATH.read_text(encoding="utf-8"))
@@ -43,12 +47,12 @@ class RoleRoutingTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["usage"], "worker_routing_reference")
         self.assertEqual(dict(catalog.difficulty_floors), {"standard": 42, "complex": 55})
-        self.assertEqual(catalog.variant_count, 52)
+        self.assertEqual(catalog.variant_count, 19)
 
     def test_codex_worker_uses_cheapest_measured_agent_above_each_floor(self) -> None:
         expected = {
-            "standard": ("codex-gpt-5-6-luna-medium", 42, 0.09),
-            "complex": ("codex-gpt-5-6-luna-xhigh", 55, 0.25),
+            "standard": ("codex-deepseek-v4-pro-0813-max", 43, 0.23804610720792058),
+            "complex": ("codex-gpt-6-sol-max", 57, 2.989729004180416),
         }
         for difficulty, values in expected.items():
             with self.subTest(difficulty=difficulty):
@@ -64,11 +68,11 @@ class RoleRoutingTests(unittest.TestCase):
             harness="claude-code",
             available_variant_ids={
                 "not-in-the-table",
-                "claude-code-opus-4-8-medium",
-                "claude-code-opus-4-6-medium",
+                "claude-code-opus-5-max",
+                "claude-code-qwen3-8-max",
             },
         )
-        self.assertEqual(selected.variant_id, "claude-code-opus-4-6-medium")
+        self.assertEqual(selected.variant_id, "claude-code-qwen3-8-max")
         with self.assertRaises(ToolError):
             select_worker_agent(
                 "complex",
@@ -79,8 +83,8 @@ class RoleRoutingTests(unittest.TestCase):
     def test_non_worker_roles_rank_intelligence_without_cost(self) -> None:
         designer = select_intelligence_model("designer")
         reviewer = select_intelligence_model("reviewer")
-        self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5", 63))
-        self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5", 63))
+        self.assertEqual((designer.model_id, designer.intelligence_index), ("claude-opus-5-5", 58))
+        self.assertEqual((reviewer.model_id, reviewer.intelligence_index), ("claude-opus-5-5", 58))
 
     def test_only_designer_and_reviewer_are_intelligence_roles(self) -> None:
         for role in ("verifier", "visual-reviewer", "worker"):

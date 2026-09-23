@@ -18,6 +18,7 @@ from ..hooks.config import (
     install_hook_config as _install_hook_config,
     uninstall_hook_config as _uninstall_hook_config,
 )
+from ..infrastructure.native_roles import configured_codex_role_names
 from .models import (
     AGENTS,
     DESCRIPTION,
@@ -224,6 +225,10 @@ def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
     destination = _native_role_directory(paths, target)
     receipt = _native_receipt_path(destination)
     if receipt.exists() or receipt.is_symlink():
+        return True
+    if target == "codex" and configured_codex_role_names(paths.codex_home).intersection(
+        Path(filename).stem for filename in NATIVE_ROLE_FILES[target]
+    ):
         return True
     return any(
         (destination / filename).exists() or (destination / filename).is_symlink()
