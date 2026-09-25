@@ -172,7 +172,9 @@ ordering.
 Because a Task is one Worker dispatch, its execution shape is bounded. Readiness rejects an
 unauthorized Task that exceeds the single-session ceiling for Nodes, critical-path Nodes, parallel
 Nodes, write paths, acceptance criteria, or verification commands. The ceiling is a design-time
-budget: a sealed Plan keeps its frozen Task shapes and is never re-judged against it.
+budget: a Task that already began keeps the frozen shape its user authorized, so it is never
+re-judged. A Task that never began is still design work even inside a Plan sealed earlier, which is
+how a continuation that adds or rewrites unstarted Tasks is judged against the ceiling.
 
 Each Task contains a non-empty static `nodes` DAG. A Node is exactly
 `{code, title, outcome, prerequisites}`; its prerequisites may name only Nodes in that Task.
@@ -288,7 +290,10 @@ reopen through the input command.
 
 Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`, and
 `blocked_by_environment`. Dispatch phases are `worker_running`, `worker_correction`, and
-`awaiting_acceptance`.
+`awaiting_acceptance`. A Worker that returns `task-exceeds-session` is a handoff, not a failure and
+not a completion: it stays `in_progress`, its canonical acceptance still runs, and the remaining
+frontier is carried by `worker_correction` under the same frozen contract. No new status, ledger, or
+receipt records that handoff.
 
 ## Commands
 

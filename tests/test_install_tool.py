@@ -237,6 +237,19 @@ class InstallToolTests(unittest.TestCase):
                 receipt["assignments"]["worker.toml"]["cost_per_task_usd"],
                 variants["codex-gpt-6-luna-max"].cost_per_task_usd,
             )
+            # The two published indices are different scales, so the receipt names the one it used.
+            self.assertEqual(
+                {
+                    name: receipt["assignments"][f"{name}.toml"]["index_basis"]
+                    for name in ("designer", "hybrid-worker", "reviewer", "worker")
+                },
+                {
+                    "designer": "intelligence",
+                    "hybrid-worker": "intelligence",
+                    "reviewer": "intelligence",
+                    "worker": "coding_agent",
+                },
+            )
             assignment_message = next(
                 message for message in messages if "immutable after first installation" in message
             )
@@ -639,6 +652,79 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(tampered_role.read_text(encoding="utf-8"), "tampered\n")
             self.assertEqual(receipt.read_bytes(), receipt_before)
 
+    def test_doctor_warns_when_the_managed_receipt_records_no_roles(self) -> None:
+        """An emptied receipt verifies nothing and must never be reported as a verified matrix."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            directory = native_role_directory(paths)
+            receipt = directory.with_name("agents.better-plan.json")
+            roles_before = {path.name: path.read_bytes() for path in directory.iterdir()}
+
+            def empty_receipt(value: dict) -> None:
+                value["files"] = {}
+                value["assignments"] = {}
+
+            rewrite_receipt(receipt, empty_receipt)
+            receipt_before = receipt.read_bytes()
+
+            check = install_doctor.check_native_roles(paths, "codex")
+
+            self.assertEqual(check.status, "WARN")
+            self.assertEqual(check.target, "codex native roles")
+            self.assertIn("records no role files", check.message)
+            self.assertNotIn(tmpdir, check.message)
+            self.assertEqual(receipt.read_bytes(), receipt_before)
+            self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, roles_before)
+
+    def test_a_receipt_written_before_index_basis_still_verifies(self) -> None:
+        """The receipt is immutable: an older record must keep working after the format grows."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["codex"], dry_run=False)
+            directory = native_role_directory(paths)
+            receipt = directory.with_name("agents.better-plan.json")
+
+            def drop_basis(value: dict) -> None:
+                for assignment in value["assignments"].values():
+                    assignment.pop("index_basis")
+
+            rewrite_receipt(receipt, drop_basis)
+            receipt_before = receipt.read_bytes()
+
+            check = install_doctor.check_native_roles(paths, "codex")
+
+            self.assertEqual(check.status, "OK")
+            self.assertIn("local roles verified", check.message)
+            self.assertEqual(receipt.read_bytes(), receipt_before)
+
+    def test_kilo_status_reports_a_receipt_that_disagrees_without_repairing_it(self) -> None:
+        """The Kilo receipt is report-only context: it is read, never rewritten or acted on."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = make_paths(Path(tmpdir))
+            install_service.install_agents(paths, ["kilo"], dry_run=False)
+            receipt = paths.kilo_agents.with_name("agents.better-plan.json")
+            agents_before = {path.name: path.read_bytes() for path in paths.kilo_agents.iterdir()}
+
+            def stale_digest(value: dict) -> None:
+                value["files"]["better-plan-worker.md"] = "0" * 64
+
+            rewrite_receipt(receipt, stale_digest)
+            receipt_before = receipt.read_bytes()
+
+            ok, message = install_targets.kilo_agent_status(paths)
+
+            self.assertTrue(ok)
+            self.assertIn("changed outside Better Plan", message)
+            self.assertIn("report only", message)
+            self.assertEqual(receipt.read_bytes(), receipt_before)
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in paths.kilo_agents.iterdir()}, agents_before
+            )
+
     def test_doctor_reports_a_stale_role_inventory_as_one_bounded_sentence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
@@ -722,6 +808,7 @@ class InstallToolTests(unittest.TestCase):
             "scripts/better_plan/domain/model_catalog.json",
             "scripts/better_plan/domain/coding_agent_catalog.json",
             "scripts/better_plan/domain/model_routing.py",
+            "scripts/better_plan/domain/task_shape.py",
         }
         for target, filenames in NATIVE_ROLE_FILES.items():
             expected_runtime_payload.update(

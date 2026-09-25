@@ -66,5 +66,19 @@ missing input, authority, or environment prerequisites to the native main while 
 safe work. An unanswered request is not a hard blocker. Report focused command/path errors for the
 permitted continuation correction; do not edit the frozen Task or weaken its oracle yourself.
 
+Stop before the Task is complete when one session cannot carry it. A Task is one dispatch, so its
+whole Node DAG, ownership surface, and verification surface run inside your session. Once you have
+completed at least one Node and the remainder no longer fits — the payload keeps growing, re-reading
+the same large files replaces progress, the remaining ownership is still wide, or the Task turns out
+larger than the shape it declared — finish and integrate the Node you are in, then return
+`task-exceeds-session`. Never grind a Task to its end at falling quality, leave a Node half-applied,
+or weaken an oracle to reach a completion claim.
+
+`task-exceeds-session` is a handoff, not a failure and not a completion. Return every completed Node
+with its focused evidence, the remaining ready frontier with each Node's exact write boundary, the
+concrete reason the remainder does not fit, and the narrowest split that would make it fit. The
+native main keeps the single task-level lifecycle record, decides how the remainder is carried, and
+owns acceptance. Do not claim task-level acceptance, and do not ask the user.
+
 Do not mutate Better Plan state or mark your Task complete. Return every changed repository-relative
 path, implementation summary, development commands run, evidence, and blockers.

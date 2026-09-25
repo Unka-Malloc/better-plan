@@ -10,7 +10,7 @@ satisfying is deliberately absent.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 import hashlib
 
 from .models import (
@@ -28,6 +28,7 @@ from .models import (
     SENSITIVE_TOKEN_PATTERN,
     SHA256_PATTERN,
     LEGACY_WORKERS,
+    LEGACY_VERIFICATIONS,
     TASK_STATUSES,
     VALID_AUTHORIZATION_SOURCES,
     VALID_WORKERS,
@@ -36,6 +37,7 @@ from .models import (
     VALID_VERIFICATIONS,
     Issue,
     task_worker_kind,
+    task_verification_kind,
     is_code,
     is_relative_workspace_path,
     normalize_workspace_path,
@@ -532,7 +534,10 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
         issues.append(_issue(path, "%s.worker" % label, "must be code or hybrid"))
     if task.get("workload") not in VALID_WORKLOADS:
         issues.append(_issue(path, "%s.workload" % label, "must be light, medium, or heavy"))
-    if task.get("verification") not in VALID_VERIFICATIONS:
+    if (
+        task.get("verification") not in VALID_VERIFICATIONS
+        and task.get("verification") not in LEGACY_VERIFICATIONS
+    ):
         issues.append(_issue(path, "%s.verification" % label, "must be code or hybrid"))
     ownership = task.get("ownership")
     if not _mapping(ownership):
@@ -1073,8 +1078,17 @@ def _task_shape_issues(path: Path, task: Mapping[str, Any]) -> list[Issue]:
 
     try:
         shape = task_execution_shape(task)
-    except ValueError:
-        return []
+    except ValueError as error:
+        # A DAG whose shape cannot be measured is itself a readiness defect. Swallowing this
+        # error would let an empty or cyclic Node graph pass readiness simply because its size
+        # could not be counted, so the failure stays visible here.
+        return [
+            _issue(
+                path,
+                "%s.nodes" % str(task.get("code") or "spec.tasks"),
+                "Task Node graph cannot be measured: %s" % error,
+            )
+        ]
     code = str(task.get("code") or "spec.tasks")
     issues: list[Issue] = []
     for field, ceiling in (
@@ -1116,8 +1130,18 @@ def _task_shape_issues(path: Path, task: Mapping[str, Any]) -> list[Issue]:
     return issues
 
 
-def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
-    """The single semantic gate: prove the Plan can start and finish execution."""
+def plan_readiness_issues(
+    path: Path,
+    plan: Mapping[str, Any],
+    dispatched_tasks: Collection[str] | None = None,
+) -> list[Issue]:
+    """The single semantic gate: prove the Plan can start and finish execution.
+
+    `dispatched_tasks` names the Tasks that already began. They keep their frozen shape and are
+    never re-judged here. Passing nothing means the caller cannot tell, and every Task counts as
+    already begun; pass the exact set (an empty set for a Plan that has not started) to let the
+    design-time ceilings judge the Tasks that are still design work.
+    """
 
     issues = validate_plan_document(path, plan)
     if issues:
@@ -1171,9 +1195,13 @@ def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     else:
         issues.extend(_unknown_fields(path, "spec.architecture", architecture, {"summary", "notes"}))
     implemented: set[str] = set()
-    # The size ceilings are design-time rules. A sealed Plan is already authorized and executing,
-    # so its frozen Task shapes must never be re-judged here.
-    design_gate = plan.get("lifecycle", {}).get("sealed") is None
+    # The size ceilings are design-time rules, so they judge design work and never running work.
+    # A Task that already began keeps the frozen shape its user authorized; a Task that never
+    # began is still design work, even inside a Plan that was sealed before it was added. A caller
+    # that cannot tell which Tasks began passes nothing, and every Task counts as frozen.
+    sealed = plan.get("lifecycle", {}).get("sealed") is not None
+    frozen = None if dispatched_tasks is None else frozenset(str(code) for code in dispatched_tasks)
+    design_gate = not sealed
     for task in tasks:
         if not _mapping(task):
             continue
@@ -1184,14 +1212,15 @@ def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
         missing = TASK_DESIGN_FIELDS - set(task)
         if missing:
             issues.append(_issue(path, "%s" % task.get("code"), "readiness requires %s" % ", ".join(sorted(missing))))
+        if not sealed or (frozen is not None and str(task.get("code")) not in frozen):
+            issues.extend(_task_shape_issues(path, task))
         if not design_gate:
             continue
-        issues.extend(_task_shape_issues(path, task))
         # Responsibility and evidence answer the same question, so they must agree: only the
         # hybrid Worker owes a rendered result. Judged on unsealed Plans only, because sealed
         # deliveries predate the rule.
         kind = task_worker_kind(task)
-        needs_visual = task.get("verification") == "hybrid"
+        needs_visual = task_verification_kind(task) == "hybrid"
         if needs_visual != (kind == "hybrid"):
             issues.append(
                 _issue(

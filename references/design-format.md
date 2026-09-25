@@ -51,7 +51,7 @@ Notes:
 ## Task fields
 
 Each Task accepts this closed field catalog. `Owns` and `Write paths` are aliases; `Difficulty`
-and `Tier` are rejected by name because no Task is tiered.
+and `Tier` are rejected as unmapped content because no Task is tiered.
 
 ```md
 ## Task: bounded-delivery
@@ -116,8 +116,10 @@ work instead, because readiness judges this Task against the single-session ceil
 | Acceptance criteria | 8 |
 | Focused verification commands | 6 |
 
-A sealed Plan keeps its frozen Task shapes and is never re-judged. An unsealed Task above any
-ceiling is rejected before authorization; split it into more mutually parallel-safe Tasks.
+A Task that already began keeps the frozen shape its user authorized and is never re-judged. A Task
+that never began is still design work even inside a sealed Plan, so a continuation that adds or
+rewrites unstarted Tasks is judged here too. An unsealed Task above any ceiling is rejected before
+authorization; split it into more mutually parallel-safe Tasks.
 
 `Workload` is a separate, required execution-volume estimate. Choose `light`, `medium`, or `heavy`
 from the breadth and number of touchpoints, amount of inspection and change, critical-path depth,

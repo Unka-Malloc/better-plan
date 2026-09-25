@@ -52,7 +52,7 @@ covariate。框架新增、删除或改变期限设置时，同步更新 `timeou
 每行是一项真实执行：
 
 ```json
-{"schema":"efficiency-inspector/timeout-sample/v1","sample_id":"conversation-001:worker-01","agent":"codex","batch":"snapshot-001","cluster":"conversation-001","policy_key":"role.worker.poll","configured_timeouts_ms":[60000,60000,60000],"expired_timeout_count":2,"elapsed_ms":154200,"outcome":"completed","correlation":"direct","measurement":"trace_pair","covariates":{"worker_tier":"complex","attempt":1}}
+{"schema":"efficiency-inspector/timeout-sample/v1","sample_id":"conversation-001:worker-01","agent":"codex","batch":"snapshot-001","cluster":"conversation-001","policy_key":"role.worker.poll","configured_timeouts_ms":[60000,60000,60000],"expired_timeout_count":2,"elapsed_ms":154200,"outcome":"completed","correlation":"direct","measurement":"trace_pair","covariates":{"worker":"code","workload":"heavy","attempt":1}}
 ```
 
 字段约束：

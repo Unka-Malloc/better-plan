@@ -355,6 +355,15 @@ conclusive host refusal, unavailability, terminal failure, or confirmed terminat
 ceiling, `main-complete` completes the same role contract in the native main; it does not create a
 new role.
 
+A Worker may also stop short and return `task-exceeds-session` when the remaining Nodes no longer fit
+one session. That is a handoff, not a failure and not a completion: record the final callback, then run
+that Task's canonical acceptance exactly as usual instead of skipping it. If acceptance passes, the
+Task is complete, because a Task is judged by its oracle rather than by a Node count. If it fails, the
+Task enters `worker_correction`, and one correction Worker carries the remaining frontier the Worker
+named, under the same frozen contract and the existing retry ceiling. Never accept a Task on partial
+work, never widen its oracle, and never answer the handoff by creating a second workspace or Plan for
+the remainder.
+
 ## 8. Run focused acceptance serially in one build directory
 
 Workers edit source and run only their own bounded focused checks, inside the build, test, and cache

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .models import task_worker_kind
+
 
 def task_execution_shape(task: Mapping[str, Any]) -> dict[str, Any]:
     """Return small, judgment-free facts about one Task's execution shape."""
@@ -70,7 +72,7 @@ def task_execution_shape(task: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "task": task.get("code"),
         "title": task.get("title"),
-        "worker": task.get("worker", "code"),
+        "worker": task_worker_kind(task),
         "workload": task.get("workload"),
         "node_count": len(nodes),
         "critical_path_nodes": max(depth.values()),
