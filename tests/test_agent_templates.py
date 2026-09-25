@@ -385,10 +385,10 @@ class AgentTemplateTests(unittest.TestCase):
             self.assertIn("source codex-default-matrix", assignment_message)
             self.assertNotIn("benchmark not measured", assignment_message)
             self.assertNotIn("Arena WebDev", assignment_message)
-            # The Worker pins a measured Coding Agent row, so its receipt reports that
-            # score and task cost rather than an Intelligence Index basis.
+            # Every pin reports the same standard basis: one Intelligence Index score and the
+            # task cost that row publishes.
             self.assertIn(
-                "worker -> worker, gpt-6-luna/max, Coding Agent score 41, cost $0.18/task",
+                "worker -> worker, gpt-6-luna/max, Intelligence Index score 37, cost $0.07/task",
                 assignment_message,
             )
             # The hybrid Worker keeps its Astra low-effort pin under the same Worker role.
@@ -409,7 +409,7 @@ class AgentTemplateTests(unittest.TestCase):
             },
             {
                 "designer": ("gpt-6-astra", "max", "gpt-6-astra"),
-                "worker": ("gpt-6-luna", "max", "codex-gpt-6-luna-max"),
+                "worker": ("gpt-6-luna", "max", "gpt-6-luna"),
                 "hybrid-worker": ("gpt-6-astra", "low", "gpt-6-astra-low"),
                 "reviewer": ("gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
             },
@@ -428,7 +428,13 @@ class AgentTemplateTests(unittest.TestCase):
                 "reviewer": "reviewer",
             },
         )
-        expected_scores = {"designer": 53, "worker": 41, "hybrid-worker": 46, "reviewer": 52}
+        expected_scores = {"designer": 53, "worker": 37, "hybrid-worker": 46, "reviewer": 52}
+        expected_costs = {
+            "designer": 3.2575003134834164,
+            "worker": 0.06809498628701058,
+            "hybrid-worker": 0.8175139285656057,
+            "reviewer": 2.308795912269076,
+        }
         for agent_name, (role, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
             with self.subTest(agent_name=agent_name):
                 assignment = assignments[agent_name]
@@ -443,11 +449,9 @@ class AgentTemplateTests(unittest.TestCase):
                     (role, model, effort, benchmark_id, "codex-default-matrix"),
                 )
                 self.assertEqual(assignment.index_score, expected_scores[agent_name])
-                if agent_name == "worker":
-                    self.assertEqual(assignment.benchmark_id, "codex-gpt-6-luna-max")
-                    self.assertAlmostEqual(assignment.cost_per_task_usd, 0.17591172304455457)
-                else:
-                    self.assertIsNone(assignment.cost_per_task_usd)
+                self.assertAlmostEqual(
+                    assignment.cost_per_task_usd, expected_costs[agent_name]
+                )
 
     def test_codex_worker_fails_closed_when_the_task_payload_is_absent(self) -> None:
         for agent_name in ("worker", "hybrid-worker"):

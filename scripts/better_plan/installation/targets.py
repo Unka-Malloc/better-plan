@@ -328,8 +328,9 @@ def _assignment_value(value: object) -> _RoleAssignment:
         "role", "agent_name", "model", "reasoning_effort", "benchmark_id",
         "index_score", "cost_per_task_usd", "source",
     }
-    # Receipts written before `index_basis` existed stay readable: this record is immutable and is
-    # never regenerated, so an older receipt must not become invalid.
+    # A receipt is immutable and is never regenerated, so the shapes written by earlier versions
+    # must stay readable: `index_basis` is accepted and ignored, because evaluation now always uses
+    # the single standard Intelligence Index.
     if not isinstance(value, dict) or set(value) not in (required, required | {"index_basis"}):
         raise _InstallError("native role template receipt is invalid")
     strings = ("role", "agent_name", "model", "benchmark_id", "source")
@@ -343,8 +344,8 @@ def _assignment_value(value: object) -> _RoleAssignment:
     cost = value.get("cost_per_task_usd")
     if cost is not None and (isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0):
         raise _InstallError("native role template receipt is invalid")
-    basis = value.get("index_basis", "")
-    if not isinstance(basis, str) or basis not in ("", "coding_agent", "intelligence"):
+    legacy_basis = value.get("index_basis", "")
+    if not isinstance(legacy_basis, str) or legacy_basis not in ("", "coding_agent", "intelligence"):
         raise _InstallError("native role template receipt is invalid")
     return _RoleAssignment(
         role=str(value["role"]),
@@ -353,7 +354,6 @@ def _assignment_value(value: object) -> _RoleAssignment:
         reasoning_effort=None if effort is None else str(effort),
         benchmark_id=str(value["benchmark_id"]),
         index_score=int(value["index_score"]),
-        index_basis=str(basis),
         cost_per_task_usd=None if cost is None else float(cost),
         source=str(value["source"]),
     )
@@ -398,7 +398,6 @@ def _assignment_payload(assignment: _RoleAssignment) -> dict[str, object]:
         "reasoning_effort": assignment.reasoning_effort,
         "benchmark_id": assignment.benchmark_id,
         "index_score": assignment.index_score,
-        "index_basis": assignment.index_basis,
         "cost_per_task_usd": assignment.cost_per_task_usd,
         "source": assignment.source,
     }
@@ -572,30 +571,16 @@ def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssign
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
     effort = assignment.reasoning_effort or "host-default"
-    # The recorded basis tells the two published indices apart. A receipt written before the field
-    # existed is read the old way: a Worker row with a task cost is the Coding Agent row.
-    basis_kind = assignment.index_basis or (
-        "coding_agent"
-        if assignment.role == "worker" and assignment.cost_per_task_usd is not None
-        else "intelligence"
+    # One standard basis: every pin reports its Intelligence Index score, and the task cost the
+    # same table publishes for that row.
+    cost = (
+        f"cost ${assignment.cost_per_task_usd:.2f}/task"
+        if assignment.cost_per_task_usd is not None
+        else "cost unavailable"
     )
-    if basis_kind == "coding_agent":
-        basis = "Coding Agent"
-        cost = (
-            f"cost ${assignment.cost_per_task_usd:.2f}/task"
-            if assignment.cost_per_task_usd is not None
-            else "cost unavailable"
-        )
-        metric = f"score {assignment.index_score}, {cost}"
-    elif assignment.role == "worker":
-        basis = "Intelligence Index proxy"
-        metric = f"score {assignment.index_score}, price ignored"
-    else:
-        basis = "Intelligence Index"
-        metric = f"score {assignment.index_score}, price ignored"
     return (
         f"{assignment.agent_name} -> {assignment.role}, {assignment.model}/{effort}, "
-        f"{basis} {metric}, source {assignment.source}"
+        f"Intelligence Index score {assignment.index_score}, {cost}, source {assignment.source}"
     )
 
 

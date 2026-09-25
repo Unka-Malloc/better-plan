@@ -1,10 +1,11 @@
 """Select the packaged Codex role matrix once at first installation.
 
 Codex is the only host with packaged native roles, and its matrix is a fixed
-preset. The benchmark tables are read for the receipt's provenance only:
-``index_score`` and ``cost_per_task_usd`` record which published row justified
-each pin. They never choose a role, a model, or an effort. Kilo packages no
-preset at all and keeps host-owned model selection.
+preset. One benchmark table is read, for the receipt's provenance only: the
+Intelligence Index row behind each pin records ``index_score`` and
+``cost_per_task_usd``. Nothing here selects a role, a model, or an effort, and
+no second index is consulted. Kilo packages no preset at all and keeps
+host-owned model selection.
 """
 
 from __future__ import annotations
@@ -13,12 +14,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Mapping
 
-from ..domain.model_routing import (
-    CodingAgentCatalog,
-    ModelCatalog,
-    load_coding_agent_catalog,
-    load_model_catalog,
-)
+from ..domain.model_routing import ModelCatalog, load_model_catalog
 from ..domain.models import ToolError
 from .models import InstallPaths as _InstallPaths
 
@@ -28,7 +24,7 @@ from .models import InstallPaths as _InstallPaths
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra"),
-        "worker": ("worker", "gpt-6-luna", "max", "codex-gpt-6-luna-max"),
+        "worker": ("worker", "gpt-6-luna", "max", "gpt-6-luna"),
         "hybrid-worker": ("worker", "gpt-6-astra", "low", "gpt-6-astra-low"),
         "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
     }
@@ -44,47 +40,32 @@ class RoleAssignment:
     model: str
     reasoning_effort: str | None
     benchmark_id: str
+    # The one standard evaluation basis: the model row's Intelligence Index score and its
+    # published task cost from the same table.
     index_score: int
-    # Which published index `index_score` comes from: `coding_agent` or `intelligence`. The two
-    # indices are different scales, so a receipt that mixed them without saying which one it used
-    # would be unreadable later.
-    index_basis: str
     cost_per_task_usd: float | None
     source: str
 
 
 def _codex_default_delivery_assignments(
-    agent_catalog: CodingAgentCatalog,
     model_catalog: ModelCatalog,
 ) -> dict[str, RoleAssignment]:
-    """Resolve the packaged Codex preset against packaged benchmark rows."""
+    """Resolve the packaged Codex preset against the packaged Intelligence Index rows."""
 
-    variants = {variant.variant_id: variant for variant in agent_catalog.variants}
     models = {model.model_id: model for model in model_catalog.models}
     assignments: dict[str, RoleAssignment] = {}
     for agent_name, (role, configured_model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
-        if role == "worker" and benchmark_id in variants:
-            # A measured Coding Agent combination also receipts its task cost.
-            benchmark = variants[benchmark_id]
-            index_score = benchmark.index_score
-            index_basis = "coding_agent"
-            cost_per_task_usd = benchmark.cost_per_task_usd
-        else:
-            benchmark = models.get(benchmark_id)
-            if benchmark is None or benchmark.intelligence_index is None:
-                raise ToolError("the Codex default intelligence benchmark is unavailable")
-            index_score = int(benchmark.intelligence_index)
-            index_basis = "intelligence"
-            cost_per_task_usd = None
+        benchmark = models.get(benchmark_id)
+        if benchmark is None or benchmark.intelligence_index is None:
+            raise ToolError("the Codex default intelligence benchmark is unavailable")
         assignments[agent_name] = RoleAssignment(
             role=role,
             agent_name=agent_name,
             model=configured_model,
             reasoning_effort=effort,
             benchmark_id=benchmark_id,
-            index_score=index_score,
-            index_basis=index_basis,
-            cost_per_task_usd=cost_per_task_usd,
+            index_score=int(benchmark.intelligence_index),
+            cost_per_task_usd=benchmark.cost_per_task_usd,
             source="codex-default-matrix",
         )
     return assignments
@@ -102,4 +83,4 @@ def select_role_assignments(
 
     if target != "codex":
         raise ToolError("native role assignments are unavailable for this target")
-    return _codex_default_delivery_assignments(load_coding_agent_catalog(), load_model_catalog())
+    return _codex_default_delivery_assignments(load_model_catalog())

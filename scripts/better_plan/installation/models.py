@@ -73,7 +73,6 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/domain/validation.py",
     "scripts/better_plan/domain/task_shape.py",
     "scripts/better_plan/domain/model_catalog.json",
-    "scripts/better_plan/domain/coding_agent_catalog.json",
     "scripts/better_plan/domain/model_routing.py",
     "scripts/better_plan/infrastructure/__init__.py",
     "scripts/better_plan/infrastructure/workspace.py",
