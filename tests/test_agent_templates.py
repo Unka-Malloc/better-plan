@@ -305,6 +305,19 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("resume the same reviewer with task_id", guidance)
         self.assertIn("inherits the invoking primary agent's model", guidance)
 
+    def test_hybrid_worker_template_states_its_rendered_evidence_obligation(self) -> None:
+        """The hybrid role shares one role reference, but its own template must say why it exists.
+
+        Without this the two Worker templates differ only in name, and a host that reads only its
+        own template has no reason to produce rendered evidence.
+        """
+
+        for relative in ("codex/hybrid-worker.toml", "kilo/better-plan-hybrid-worker.md"):
+            template = (ROOT / "agents" / relative).read_text(encoding="utf-8")
+            with self.subTest(template=relative):
+                self.assertIn("judged visually", template)
+                self.assertIn("rendered evidence", template)
+
     def test_delivery_templates_resolve_one_shared_role_contract(self) -> None:
         # Both Worker sessions share the single `worker` role contract; `hybrid-worker`
         # names the installed agent, not a second role reference.

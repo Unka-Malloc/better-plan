@@ -192,14 +192,36 @@ def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
     """Compare the installed Kilo Agents with the packaged matrix.
 
     Kilo pins no model, so its Agent files are installed verbatim and can be compared byte for
-    byte. No receipt is required: Better Plan never rewrites a local Agent file, so a receipt that
-    exists records history rather than authority.
+    byte. The managed receipt is never required and never rewritten; it is read only as report-only
+    context, so a receipt that disagrees with the local files is reported rather than repaired.
     """
 
     try:
         sources = _validate_kilo_sources(paths)
     except _InstallError:
         return False, "the packaged Kilo Agent sources are unreadable"
+    notes: list[str] = []
+    try:
+        receipt = _load_kilo_receipt(_kilo_receipt_path(paths))
+    except _InstallError:
+        receipt = None
+        notes.append("managed receipt is unreadable; report only")
+    if receipt is None:
+        notes.append("no managed receipt to verify against; report only")
+    else:
+        try:
+            for filename, digest in sorted(receipt.items()):
+                path = paths.kilo_agents / filename
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if _content_digest(path.read_bytes()) != digest:
+                    notes.append(
+                        "managed receipt reports %s changed outside Better Plan; report only"
+                        % filename
+                    )
+        except OSError:
+            notes.append("Kilo Agent files are unreadable; report only")
+    suffix = f" ({'; '.join(notes)})" if notes else ""
     missing: list[str] = []
     changed: list[str] = []
     try:
@@ -212,10 +234,16 @@ def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
     except OSError:
         return False, "Kilo Agent files are unreadable"
     if missing:
-        return False, "missing Agent file(s): %s" % ", ".join(missing)
+        return False, "missing Agent file(s): %s%s" % (", ".join(missing), suffix)
     if changed:
-        return False, "Agent file(s) differ from the packaged matrix: %s" % ", ".join(changed)
-    return True, "current namespaced Kilo Agent matrix verified (%d files)" % len(sources)
+        return False, "Agent file(s) differ from the packaged matrix: %s%s" % (
+            ", ".join(changed),
+            suffix,
+        )
+    return True, "current namespaced Kilo Agent matrix verified (%d files)%s" % (
+        len(sources),
+        suffix,
+    )
 
 
 def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
@@ -240,10 +268,13 @@ def _content_digest(content: bytes) -> str:
 
 
 def _assignment_value(value: object) -> _RoleAssignment:
-    if not isinstance(value, dict) or set(value) != {
+    required = {
         "role", "agent_name", "model", "reasoning_effort", "benchmark_id",
         "index_score", "cost_per_task_usd", "source",
-    }:
+    }
+    # Receipts written before `index_basis` existed stay readable: this record is immutable and is
+    # never regenerated, so an older receipt must not become invalid.
+    if not isinstance(value, dict) or set(value) not in (required, required | {"index_basis"}):
         raise _InstallError("native role template receipt is invalid")
     strings = ("role", "agent_name", "model", "benchmark_id", "source")
     if any(not isinstance(value.get(field), str) or not str(value[field]).strip() for field in strings):
@@ -256,6 +287,9 @@ def _assignment_value(value: object) -> _RoleAssignment:
     cost = value.get("cost_per_task_usd")
     if cost is not None and (isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0):
         raise _InstallError("native role template receipt is invalid")
+    basis = value.get("index_basis", "")
+    if not isinstance(basis, str) or basis not in ("", "coding_agent", "intelligence"):
+        raise _InstallError("native role template receipt is invalid")
     return _RoleAssignment(
         role=str(value["role"]),
         agent_name=str(value["agent_name"]),
@@ -263,6 +297,7 @@ def _assignment_value(value: object) -> _RoleAssignment:
         reasoning_effort=None if effort is None else str(effort),
         benchmark_id=str(value["benchmark_id"]),
         index_score=int(value["index_score"]),
+        index_basis=str(basis),
         cost_per_task_usd=None if cost is None else float(cost),
         source=str(value["source"]),
     )
@@ -307,6 +342,7 @@ def _assignment_payload(assignment: _RoleAssignment) -> dict[str, object]:
         "reasoning_effort": assignment.reasoning_effort,
         "benchmark_id": assignment.benchmark_id,
         "index_score": assignment.index_score,
+        "index_basis": assignment.index_basis,
         "cost_per_task_usd": assignment.cost_per_task_usd,
         "source": assignment.source,
     }
@@ -427,9 +463,21 @@ def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssign
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
     effort = assignment.reasoning_effort or "host-default"
-    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
+    # The recorded basis tells the two published indices apart. A receipt written before the field
+    # existed is read the old way: a Worker row with a task cost is the Coding Agent row.
+    basis_kind = assignment.index_basis or (
+        "coding_agent"
+        if assignment.role == "worker" and assignment.cost_per_task_usd is not None
+        else "intelligence"
+    )
+    if basis_kind == "coding_agent":
         basis = "Coding Agent"
-        metric = f"score {assignment.index_score}, cost ${assignment.cost_per_task_usd:.2f}/task"
+        cost = (
+            f"cost ${assignment.cost_per_task_usd:.2f}/task"
+            if assignment.cost_per_task_usd is not None
+            else "cost unavailable"
+        )
+        metric = f"score {assignment.index_score}, {cost}"
     elif assignment.role == "worker":
         basis = "Intelligence Index proxy"
         metric = f"score {assignment.index_score}, price ignored"
@@ -440,20 +488,6 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
         f"{assignment.agent_name} -> {assignment.role}, {assignment.model}/{effort}, "
         f"{basis} {metric}, source {assignment.source}"
     )
-
-
-def _role_inventory_summary(installed: set[str]) -> str:
-    """Return one bounded sentence fragment naming unequal role names."""
-
-    expected = _codex_role_names()
-    missing = [name for name in expected if name not in installed]
-    extra = sorted(installed - set(expected))
-    parts: list[str] = []
-    if missing:
-        parts.append(f"missing {', '.join(missing)}")
-    if extra:
-        parts.append(f"extra {', '.join(extra)}")
-    return "; ".join(parts) if parts else "roles differ"
 
 
 def _installed_role_names(paths: _InstallPaths) -> set[str]:
@@ -495,6 +529,10 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
         files = receipt.get("files")
         if not isinstance(files, dict):
             notes.append("managed receipt is invalid; report only")
+        elif not files:
+            # A receipt that records no file verifies nothing, so it must never be reported as a
+            # verified matrix. The local roles stay untouched: this is a report-only warning.
+            return failure("managed receipt records no role files", ["report only"])
         else:
             try:
                 for filename, digest in files.items():
@@ -600,5 +638,5 @@ def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[s
         _remove_path(paths.codex_skill)
     return [
         "codex: preserved immutable native role templates",
-        f"codex: {'would remove' if dry_run else 'removed'}",
+        f"codex: {'would remove' if dry_run else 'removed'} native skill",
     ]

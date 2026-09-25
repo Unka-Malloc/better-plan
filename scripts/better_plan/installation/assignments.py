@@ -23,8 +23,8 @@ from ..domain.models import ToolError
 from .models import InstallPaths as _InstallPaths
 
 
-# Installed agent name -> (delivery role, configured model, effort, benchmark row).
-# The order is the installed matrix order: designer, worker, hybrid-worker, reviewer.
+# Installed agent name -> (delivery role, configured model, effort, benchmark row). The matrix is
+# written and receipted in this order; the packaged role names themselves sort alphabetically.
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra"),
@@ -45,6 +45,10 @@ class RoleAssignment:
     reasoning_effort: str | None
     benchmark_id: str
     index_score: int
+    # Which published index `index_score` comes from: `coding_agent` or `intelligence`. The two
+    # indices are different scales, so a receipt that mixed them without saying which one it used
+    # would be unreadable later.
+    index_basis: str
     cost_per_task_usd: float | None
     source: str
 
@@ -63,12 +67,14 @@ def _codex_default_delivery_assignments(
             # A measured Coding Agent combination also receipts its task cost.
             benchmark = variants[benchmark_id]
             index_score = benchmark.index_score
+            index_basis = "coding_agent"
             cost_per_task_usd = benchmark.cost_per_task_usd
         else:
             benchmark = models.get(benchmark_id)
             if benchmark is None or benchmark.intelligence_index is None:
                 raise ToolError("the Codex default intelligence benchmark is unavailable")
             index_score = int(benchmark.intelligence_index)
+            index_basis = "intelligence"
             cost_per_task_usd = None
         assignments[agent_name] = RoleAssignment(
             role=role,
@@ -77,6 +83,7 @@ def _codex_default_delivery_assignments(
             reasoning_effort=effort,
             benchmark_id=benchmark_id,
             index_score=index_score,
+            index_basis=index_basis,
             cost_per_task_usd=cost_per_task_usd,
             source="codex-default-matrix",
         )

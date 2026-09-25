@@ -13,6 +13,8 @@ from scripts.better_plan.domain.models import (
     task_worker_kind,
 )
 from scripts.better_plan.domain.validation import (
+    MAX_TASK_ACCEPTANCE,
+    MAX_TASK_CRITICAL_PATH,
     MAX_TASK_NODES,
     MAX_TASK_VERIFICATION_COMMANDS,
     MAX_TASK_WRITE_PATHS,
@@ -431,6 +433,63 @@ class V3ProtocolTests(unittest.TestCase):
         self.assertEqual(validate_plan_document(self.path, plan), [])
         self.assertEqual(plan_readiness_issues(self.path, plan), [])
 
+    def test_legacy_evidence_value_still_loads_an_authorized_plan(self) -> None:
+        """`visual` was the pre-rename evidence value, so a sealed Plan must stay readable.
+
+        The rename maps `frontend`/`visual` onto the hybrid Worker instead of invalidating the
+        revision a user already authorized.
+        """
+
+        plan = complete_plan()
+        plan["spec"]["tasks"][0]["worker"] = "frontend"
+        plan["spec"]["tasks"][0]["verification"] = "visual"
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+        self.assertEqual(task_worker_kind(plan["spec"]["tasks"][0]), "hybrid")
+
+    def test_unmeasurable_task_dag_is_reported_by_readiness(self) -> None:
+        """An empty or cyclic Node DAG must never pass merely because its size cannot be counted."""
+
+        plan = complete_plan()
+        plan["phase"] = "ready"
+        plan["spec"]["tasks"][0]["nodes"] = []
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        self.assertEqual(
+            [issue.message.split(":", 1)[0] for issue in plan_readiness_issues(self.path, plan)],
+            ["TASK-001.nodes"],
+        )
+
+    def test_deep_or_wide_acceptance_surface_is_rejected_before_authorization(self) -> None:
+        """The remaining two ceilings are enforced on their own evidence, not only via Node count."""
+
+        plan = complete_plan()
+        target = plan["spec"]["tasks"][0]
+        target["nodes"] = [
+            {
+                "code": "NODE-%03d" % index,
+                "title": "step-%03d" % index,
+                "outcome": "Complete one ordered step of the Task.",
+                "prerequisites": [] if index == 1 else ["NODE-%03d" % (index - 1)],
+            }
+            for index in range(1, MAX_TASK_CRITICAL_PATH + 2)
+        ]
+        target["acceptance"] = [
+            {
+                "code": "AC-%03d" % index,
+                "covers": ["REQ-001", "OUT-001"],
+                "given": "A valid authorized workspace state",
+                "when": "One bounded behavior is exercised",
+                "then": "That behavior is observed",
+                "oracle": "The observed behavior matches the requirement",
+                "evidence": {"type": "command", "source": "focused regression"},
+            }
+            for index in range(1, MAX_TASK_ACCEPTANCE + 2)
+        ]
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        fields = {issue.message.split(":", 1)[0] for issue in plan_readiness_issues(self.path, plan)}
+        self.assertIn("TASK-001.critical_path_nodes", fields)
+        self.assertIn("TASK-001.acceptance_count", fields)
+
     def test_a_single_ready_node_declares_no_shared_resource(self) -> None:
         """One ready Node has no intra-Task contention, so no declaration is required."""
 
@@ -445,6 +504,23 @@ class V3ProtocolTests(unittest.TestCase):
         self.assertEqual(plan_readiness_issues(self.path, plan), [])
 
     def test_sealed_plan_is_not_re_judged_against_the_task_size_ceiling(self) -> None:
+        plan = self._sealed_oversized_plan()
+        # Without execution state the caller cannot tell what began, so nothing is re-judged.
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_an_unstarted_task_in_a_sealed_plan_is_still_judged(self) -> None:
+        """The ceiling is a design-time rule, and a Task that never began is still design work."""
+
+        plan = self._sealed_oversized_plan()
+        started = plan_readiness_issues(self.path, plan, frozenset({"TASK-001"}))
+        self.assertEqual(started, [])
+
+        unstarted = plan_readiness_issues(self.path, plan, frozenset())
+        fields = {issue.message.split(":", 1)[0] for issue in unstarted}
+        self.assertIn("TASK-001.node_count", fields)
+        self.assertIn("TASK-001.write_path_count", fields)
+
+    def _sealed_oversized_plan(self) -> dict:
         plan = self._oversized_ready_plan()
         plan["phase"] = "authorized"
         digest = semantic_digest(plan)
@@ -459,7 +535,7 @@ class V3ProtocolTests(unittest.TestCase):
         }
         plan["lifecycle"]["reviewer_session"] = None
         self.assertEqual(validate_plan_document(self.path, plan), [])
-        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+        return plan
 
     def test_checkpoints_project_every_task_exactly_once(self) -> None:
         plan = complete_plan()

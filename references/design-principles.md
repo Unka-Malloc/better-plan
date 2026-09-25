@@ -89,9 +89,12 @@ actually requires reasoning about Better Plan's cross-cutting design.
     the machine. A plan must also attribute the resources parallel units contend on — build and
     artifact directories, version-control indexes and locks, test stores, ports, devices, toolchain
     caches — at both Task and intra-Task frontier level. Because Nodes share their Task's ownership,
-    every resource under a wide frontier must be `isolated`: concurrent Nodes cannot hold one
-    exclusively among themselves, and the cross-Task collision check has no second Task to compare
-    with, so an `exclusive` claim there is parallelism on paper only. Readiness rejects it. These
+    a resource under a wide frontier cannot be held exclusively among those Nodes, and the cross-Task
+    collision check has no second Task to compare with, so only an `isolated` path per Node gives
+    real parallelism. Readiness enforces the declaration, not the wording: an empty resource list
+    under a frontier wider than one is rejected, while whether the named paths really separate the
+    Nodes is the Reviewer's audit, because the ownership field carries free text rather than a
+    disposition the schema can check. These
     declarations are what a Worker actually uses: it runs its own focused checks only inside the
     isolated build, test, and cache paths its Task assigns it, while the native main keeps the single
     canonical acceptance stage. Module

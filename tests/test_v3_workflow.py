@@ -227,6 +227,58 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertIn("already began", refused.stderr)
         self.assertEqual(self.read_plan()["dossier"]["questions"][0]["selected"], "safe")
 
+    def test_supersede_decision_refuses_before_authorization_and_after_the_reviewer_opens(self) -> None:
+        """Supersession is valid only between authorization and the sole Reviewer session."""
+
+        self._resolved_dossier_plan()
+        unauthorized = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "replace",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(unauthorized.returncode, 0)
+        self.assertIn("requires an authorized Plan", unauthorized.stderr)
+
+        self.design_and_authorize()
+        reviewed = self.read_plan()
+        reviewed["lifecycle"]["reviewer_session"] = {"count": 1, "status": "active"}
+        self.write_plan(reviewed)
+        refused = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "replace",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("Reviewer session opens", refused.stderr)
+
+    def test_supersede_decision_refuses_a_decision_the_dossier_never_resolved(self) -> None:
+        """A supersession replaces one resolved decision; it never invents the decision itself."""
+
+        self._resolved_dossier_plan()
+        self.design_and_authorize()
+        refused = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-999", "--option", "replace",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("not a resolved decision", refused.stderr)
+
+    def test_supersede_decision_refuses_the_selection_already_in_force(self) -> None:
+        self._resolved_dossier_plan()
+        self.design_and_authorize()
+        refused = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "safe",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("already selects", refused.stderr)
+
     def cli(
         self,
         *arguments: str,

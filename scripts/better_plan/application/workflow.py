@@ -759,12 +759,29 @@ def compile_design(args: Any) -> int:
     return 0 if not problems and not open_items else 1
 
 
+def _dispatched_task_codes(checkpoints: Mapping[str, Any] | None) -> frozenset[str]:
+    """Return every Task that already began, so readiness never re-judges frozen execution."""
+
+    if not isinstance(checkpoints, Mapping):
+        return frozenset()
+    codes: set[str] = set()
+    for state in checkpoints.get("tasks", []) or []:
+        if not isinstance(state, Mapping):
+            continue
+        if state.get("dispatch") is None and state.get("status") == "pending":
+            continue
+        codes.add(str(state.get("code")))
+    return frozenset(codes)
+
+
 def check_readiness(args: Any) -> int:
     """List every remaining readiness issue in one pass."""
 
     root = workspace_root(Path(args.root))
     _, plan, paths = load_plan(root, args.plan)
-    issues = plan_readiness_issues(paths["plan"], plan)
+    # Checkpoints may not exist before authorization; an unauthorized Plan has dispatched nothing.
+    checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
+    issues = plan_readiness_issues(paths["plan"], plan, _dispatched_task_codes(checkpoints))
     print(
         json.dumps(
             {
@@ -931,7 +948,9 @@ def close_continuation(args: Any) -> int:
             }
         )
         del candidate["lifecycle"]["continuation_session"]
-        issues = plan_readiness_issues(paths["plan"], candidate)
+        issues = plan_readiness_issues(
+            paths["plan"], candidate, _dispatched_task_codes(checkpoints)
+        )
         if issues:
             raise ToolError("continuation is not ready: %s" % "; ".join(issue.message for issue in issues))
         plan = candidate
@@ -1061,7 +1080,9 @@ def supersede_decision(args: Any) -> int:
                 "recorded_at": _now(),
             }
         )
-        issues = plan_readiness_issues(paths["plan"], candidate)
+        issues = plan_readiness_issues(
+            paths["plan"], candidate, _dispatched_task_codes(checkpoints)
+        )
         if issues:
             raise ToolError("supersession is not ready: %s" % "; ".join(issue.message for issue in issues))
         plan = candidate

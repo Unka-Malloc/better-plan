@@ -58,19 +58,29 @@ DISPATCH_PHASES = ("worker_running", "worker_correction", "awaiting_acceptance")
 VALID_WORKERS = ("code", "hybrid")
 VALID_WORKLOADS = ("light", "medium", "heavy")
 VALID_VERIFICATIONS = ("code", "hybrid")
-# Plans sealed before the rename carry `general` and `frontend`.
+# Plans sealed before the rename carry `general` and `frontend`, and their evidence field
+# distinguished `visual` from `hybrid`. Pre-rename values stay readable so an already-sealed
+# Plan keeps the responsibility it was authorized with instead of failing to load.
 LEGACY_WORKERS = {"general": "code", "frontend": "hybrid"}
+LEGACY_VERIFICATIONS = {"visual": "hybrid"}
 
 
 def task_worker_kind(task: Mapping[str, Any]) -> str:
-    """Return whether a Task asks for the `code` or the `hybrid` Worker.
-
-    Pre-rename values stay readable so an already-sealed Plan keeps the responsibility it was
-    authorized with instead of silently degrading to a plain code Task.
-    """
+    """Return whether a Task asks for the `code` or the `hybrid` Worker."""
 
     value = str(task.get("worker") or "code")
     return LEGACY_WORKERS.get(value, value)
+
+
+def task_verification_kind(task: Mapping[str, Any]) -> str:
+    """Return the `code` or `hybrid` evidence a Task owes, reading pre-rename values.
+
+    New designs write `code` or `hybrid`; `visual` is accepted only so a Plan authorized before
+    the rename still loads and still owes the rendered evidence it was sealed with.
+    """
+
+    value = str(task.get("verification") or "code")
+    return LEGACY_VERIFICATIONS.get(value, value)
 VALID_AUTHORIZATION_SOURCES = (
     "explicit",
     "inherited_host_plan",

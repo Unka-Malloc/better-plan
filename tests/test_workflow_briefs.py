@@ -1,9 +1,14 @@
 """Fresh-context briefs retain binding contracts without repeated role guidance."""
 
 from copy import deepcopy
+from pathlib import Path
 import unittest
 
-from scripts.better_plan.application.workflow import _leaf_brief, _reviewer_brief
+from scripts.better_plan.application.workflow import (
+    _dispatched_task_codes,
+    _leaf_brief,
+    _reviewer_brief,
+)
 from scripts.better_plan.domain.models import checkpoints_template, semantic_payload
 from tests.v3_fixtures import complete_plan, task
 
@@ -84,6 +89,36 @@ class WorkflowBriefTests(unittest.TestCase):
         self.assertEqual(brief["rendered_evidence_tasks"], ["TASK-001"])
         self.assertIn("ephemeral diagnostics", brief["full_regression"]["diagnostics_handoff"])
         self.assertEqual((plan, checkpoints, regression), original)
+
+    def test_dispatched_task_codes_name_every_task_that_already_began(self) -> None:
+        """Readiness re-judges only design work, so the execution state must be read exactly."""
+
+        checkpoints = {
+            "tasks": [
+                {"code": "TASK-001", "status": "pending", "dispatch": None},
+                {"code": "TASK-002", "status": "in_progress", "dispatch": {"id": "dispatch-1"}},
+                {"code": "TASK-003", "status": "completed", "dispatch": None},
+            ]
+        }
+        self.assertEqual(
+            _dispatched_task_codes(checkpoints), frozenset({"TASK-002", "TASK-003"})
+        )
+        self.assertEqual(_dispatched_task_codes(None), frozenset())
+
+    def test_worker_handoff_contract_is_stated_on_both_sides(self) -> None:
+        """A Task one session cannot carry hands back instead of grinding to its end.
+
+        The Worker-side token and the native-main response are one contract: dropping either half
+        leaves an oversized Task with no way out but to run to exhaustion.
+        """
+
+        root = Path(__file__).resolve().parents[1]
+        worker = (root / "references" / "worker.md").read_text(encoding="utf-8")
+        workflow = (root / "references" / "workflow.md").read_text(encoding="utf-8")
+        self.assertIn("task-exceeds-session", worker)
+        self.assertIn("handoff, not a failure and not a completion", worker)
+        self.assertIn("task-exceeds-session", workflow)
+        self.assertIn("worker_correction", workflow)
 
 
 if __name__ == "__main__":

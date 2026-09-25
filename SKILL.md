@@ -221,6 +221,9 @@ commands inside each Task retain their declared order.
 A focused failure enters `worker_correction`: repair ordinary defects in the native main and rerun
 acceptance, or use `dispatch-task` for one correction Worker with the same frozen contract. Worker
 development checks do not replace this canonical acceptance.
+A Worker that returns `task-exceeds-session` is handing back a Task one session could not carry, not
+reporting a failure: run acceptance the same way, and let its outcome decide between completion and one
+correction Worker that carries the remaining frontier under the same frozen contract.
 
 Resolve implementation choices by selected options, authorized goal/scope/risk, existing public
 contracts, safest reversible compatible behavior, then the simplest adequate code. For a Plan defect,
