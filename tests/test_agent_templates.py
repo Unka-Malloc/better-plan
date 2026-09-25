@@ -36,7 +36,7 @@ REMOVED_ROLE_NAMES = {
     "finder",
     "fallback_finder",
 }
-REMOVED_AGENT_DIRECTORIES = ("claude-code", "cursor", "opencode")
+REMOVED_AGENT_DIRECTORIES = ("opencode", "copilot", "antigravity", "pi", "craft", "kimi")
 CATALOG_PATTERNS = (
     "Factory Method",
     "Abstract Factory",
@@ -68,6 +68,8 @@ def paths(root: Path) -> InstallPaths:
         repo_root=ROOT,
         codex_home=root / "codex",
         shared_home=root / "shared",
+        claude_home=root / "claude",
+        cursor_home=root / "cursor",
         kilo_home=root / "kilo-home",
         kilo_config=root / "kilo-config",
     )
@@ -109,12 +111,13 @@ class AgentTemplateTests(unittest.TestCase):
             self.assertNotRegex(text, r"(?m)^reasoningEffort:\s*")
             self.assertNotRegex(text, r"(?m)^reasoning_effort:\s*")
 
-    def test_only_codex_and_kilo_package_native_role_templates(self) -> None:
-        self.assertEqual(tuple(AGENTS), ("codex", "kilo"))
-        self.assertEqual(set(NATIVE_ROLE_FILES), {"codex"})
+    def test_every_supported_host_packages_its_role_templates(self) -> None:
+        self.assertEqual(tuple(AGENTS), ("codex", "claude", "cursor", "kilo"))
+        # Codex is the only host with packaged presets; every supported host still ships roles.
+        self.assertEqual(set(NATIVE_ROLE_FILES), {"codex", "claude", "cursor"})
         self.assertEqual(
             {path.name for path in (ROOT / "agents").iterdir() if path.is_dir()},
-            {"codex", "kilo"},
+            {"codex", "claude-code", "cursor", "kilo"},
         )
         for removed in REMOVED_AGENT_DIRECTORIES:
             with self.subTest(directory=removed):
@@ -124,14 +127,15 @@ class AgentTemplateTests(unittest.TestCase):
                 )
 
     def test_each_native_host_bundles_the_complete_role_shape(self) -> None:
+        source_directories = {"codex": "codex", "claude": "claude-code", "cursor": "cursor"}
         for target, filenames in NATIVE_ROLE_FILES.items():
             with self.subTest(target=target):
                 expected = CODEX_AGENT_NAMES if target == "codex" else DELIVERY_ROLE_NAMES
                 self.assertEqual({Path(name).stem for name in filenames}, set(expected))
-                directory = ROOT / "agents" / target
+                directory = ROOT / "agents" / source_directories[target]
                 self.assertEqual({path.name for path in directory.iterdir()}, set(filenames))
                 for filename in filenames:
-                    self.assertIn(f"agents/{target}/{filename}", CURRENT_SKILL_FILES)
+                    self.assertIn(f"agents/{source_directories[target]}/{filename}", CURRENT_SKILL_FILES)
                     text = (directory / filename).read_text(encoding="utf-8")
                     self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
                     self.assertNotRegex(text, r"(?m)^model\s*[:=]")
@@ -188,7 +192,8 @@ class AgentTemplateTests(unittest.TestCase):
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
 
         self.assertIn("worker: code|hybrid", skill)
-        self.assertIn("checks the local `hybrid-worker`", skill)
+        self.assertIn("checks the host's hybrid role", skill)
+        self.assertIn("--native-host codex|claude|cursor|kilo", skill)
         self.assertIn("a valid configured role must be dispatched", skill)
         self.assertIn("reuse the returned worker assignment byte-for-byte", skill)
         self.assertIn("prompt-cache hit rate and token efficiency", skill)

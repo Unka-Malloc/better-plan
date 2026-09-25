@@ -26,6 +26,12 @@ def default_paths(args: argparse.Namespace) -> _InstallPaths:
         shared_home=Path(
             args.shared_home or os.environ.get("BETTER_PLAN_SHARED_HOME") or home / ".agents"
         ).expanduser(),
+        claude_home=Path(
+            args.claude_home or os.environ.get("CLAUDE_HOME") or home / ".claude"
+        ).expanduser(),
+        cursor_home=Path(
+            args.cursor_home or os.environ.get("CURSOR_HOME") or home / ".cursor"
+        ).expanduser(),
         kilo_home=Path(
             args.kilo_home or os.environ.get("KILO_HOME") or home / ".kilo"
         ).expanduser(),
@@ -72,11 +78,13 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets: all, codex, kilo",
+        help="agent targets: all, codex, claude, cursor, kilo",
     )
     parser.add_argument("--source", help="source tree for installation or Doctor comparison; defaults to the running package")
     parser.add_argument("--codex-home", help="Codex home directory")
     parser.add_argument("--shared-home", help="shared agent home")
+    parser.add_argument("--claude-home", help="Claude Code home directory")
+    parser.add_argument("--cursor-home", help="Cursor home directory")
     parser.add_argument("--kilo-home", help="Kilo skill home directory")
     parser.add_argument("--kilo-config", help="Kilo configuration directory")
 

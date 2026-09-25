@@ -189,7 +189,7 @@ def _add_plan(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_host(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--native-host", choices=("codex", "kilo"))
+    parser.add_argument("--native-host", choices=("codex", "claude", "cursor", "kilo"))
     parser.add_argument("--codex-home", help=argparse.SUPPRESS)
 
 

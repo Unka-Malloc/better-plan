@@ -189,10 +189,10 @@ Plan for explicit approval. Never reauthorize an already sealed Plan.
 
 Use `next-action` to dispatch all eligible Tasks separately and concurrently; serialize only short
 state writes. Structural eligibility never overrides the functional-readiness prerequisite for
-performance work. Pass `--native-host codex` on Codex or `--native-host kilo` on Kilo so the returned
-`agent_type` matches the installed role names. For a Codex hybrid Task, the native main checks the
-local `hybrid-worker` before implementation: a valid configured role must be dispatched; an absent
-role falls back to the `worker` role. Host batching never changes contracts or permits an
+performance work. Pass the exact `--native-host codex|claude|cursor|kilo` so the returned
+`agent_type` matches that host's installed role names. For a hybrid Task, the native main checks the
+host's hybrid role before implementation: a valid configured role must be dispatched; an absent role
+falls back to the `worker` role. Host batching never changes contracts or permits an
 unconfigured fallback.
 
 Group prompts by the exact returned `agent_type`. Reuse the returned Worker assignment byte-for-byte

@@ -166,18 +166,28 @@ contract from the installed skill's `references/designer.md`, `references/worker
 the v3 stored Plan field names and original authorization bindings; updating a skill does not
 migrate or reauthorize project Plans.
 
-Codex and Kilo Code use their native role and Hook formats. Installed selectors remain
-authoritative; package selectors are fallbacks only.
+Codex, Claude Code, Cursor, and Kilo Code use their native role and Hook formats. Installed
+selectors remain authoritative; package selectors are fallbacks only.
 
-Codex installs its four native roles once, with fixed preset selectors that no later update
-rewrites: `designer` `gpt-6-astra / max`, `worker` `gpt-6-luna / max`, `hybrid-worker`
-`gpt-6-astra / low`, and `reviewer` `gpt-6-astra / xhigh`.
+Codex is the only host with packaged role presets. It installs its four native roles once, with
+fixed selectors that no later update rewrites: `designer` `gpt-6-astra / max`, `worker`
+`gpt-6-luna / max`, `hybrid-worker` `gpt-6-astra / low`, and `reviewer` `gpt-6-astra / xhigh`.
+
+Claude Code installs a plugin (`.claude-plugin/plugin.json` plus the skill payload) and four
+unpinned role files in `~/.claude/agents/`; Cursor installs the same four roles in
+`~/.cursor/agents/`. Neither pins a model, variant, or reasoning effort: both inherit the model and
+effort the user configured in the host, so the installer writes one static
+`source=host-inheritance` assignment line instead of a selector.
 
 The Kilo target installs one short `better-plan` primary Agent and four exact namespaced Subagents.
 It uses Kilo's native or shared Agent Skills scan path and pins no model, variant, or reasoning
 effort, so each Subagent inherits the invoking primary Agent's model and the host's default
 reasoning behaviour. Kilo Agent files and their receipt are created only when no same-name local
 state exists and remain immutable afterward.
+
+Role files for every host are created only when no same-name local state exists and are never
+rewritten afterwards; only Codex keeps a selector receipt, because it is the only host whose
+installed roles encode a packaged choice.
 
 ## Development
 

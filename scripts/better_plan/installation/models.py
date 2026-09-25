@@ -7,9 +7,24 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "3.1.0"
-AGENTS = ("codex", "kilo")
-SHARED_SCAN_AGENTS = frozenset({"codex", "kilo"})
+VERSION = "3.2.0"
+# Four supported hosts. Only Codex has packaged role presets: it is the only host whose role
+# files pin a model and reasoning effort. Claude Code, Cursor, and Kilo install unpinned role
+# files and inherit whatever the host and the user configured locally.
+AGENTS = ("codex", "claude", "cursor", "kilo")
+SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "kilo"})
+CURSOR_APP_BUNDLE_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
+OPTIONAL_CLIENT_CLI_COMMANDS = {
+    "cursor": (
+        ("cursor-agent", "--version"),
+        ("cursor", "--version"),
+        (CURSOR_APP_BUNDLE_CLI, "--version"),
+    ),
+}
+DESCRIPTION = (
+    "Decision-complete Better Plan v3 orchestration with one design session, autonomous in-scope "
+    "delivery, and one writable review session."
+)
 # This is the minimum executable payload, not a compatibility inventory. Removed
 # top-level implementations must never reappear here.
 CURRENT_SKILL_FILES = (
@@ -79,6 +94,8 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/hooks/adapters/__init__.py",
     "scripts/better_plan/hooks/adapters/base.py",
     "scripts/better_plan/hooks/adapters/codex.py",
+    "scripts/better_plan/hooks/adapters/claude.py",
+    "scripts/better_plan/hooks/adapters/cursor.py",
     "scripts/better_plan/installation/__init__.py",
     "scripts/better_plan/installation/assignments.py",
     "scripts/better_plan/installation/models.py",
@@ -95,6 +112,14 @@ CURRENT_SKILL_FILES = (
     "agents/kilo/better-plan-worker.md",
     "agents/kilo/better-plan-hybrid-worker.md",
     "agents/kilo/better-plan-reviewer.md",
+    "agents/claude-code/designer.md",
+    "agents/claude-code/worker.md",
+    "agents/claude-code/hybrid-worker.md",
+    "agents/claude-code/reviewer.md",
+    "agents/cursor/designer.md",
+    "agents/cursor/worker.md",
+    "agents/cursor/hybrid-worker.md",
+    "agents/cursor/reviewer.md",
     "web/plan-report.html",
 )
 
@@ -108,6 +133,8 @@ class InstallPaths:
     repo_root: Path
     codex_home: Path
     shared_home: Path
+    claude_home: Path
+    cursor_home: Path
     kilo_home: Path
     kilo_config: Path
 
@@ -122,6 +149,26 @@ class InstallPaths:
     @property
     def shared_skill(self) -> Path:
         return self.shared_home / "skills" / SKILL_NAME
+
+    @property
+    def claude_plugin(self) -> Path:
+        return self.claude_home / "skills" / SKILL_NAME
+
+    @property
+    def claude_skill(self) -> Path:
+        return self.claude_plugin / "skills" / SKILL_NAME
+
+    @property
+    def claude_settings(self) -> Path:
+        return self.claude_home / "settings.json"
+
+    @property
+    def cursor_skill(self) -> Path:
+        return self.cursor_home / "skills" / SKILL_NAME
+
+    @property
+    def cursor_hooks(self) -> Path:
+        return self.cursor_home / "hooks.json"
 
     @property
     def kilo_skill(self) -> Path:
