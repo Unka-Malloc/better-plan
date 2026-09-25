@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -11,7 +12,9 @@ from . import skills as _skills
 from . import targets as _targets
 from .models import (
     CURRENT_SKILL_FILES,
+    OPTIONAL_CLIENT_CLI_COMMANDS,
     Check as _Check,
+    InstallError as _InstallError,
     InstallPaths as _InstallPaths,
 )
 
@@ -78,6 +81,53 @@ def check_shared_scan_agent(paths: _InstallPaths, target: str) -> _Check:
     return _Check("OK", target, f"installed via {kind} skill")
 
 
+def check_claude(paths: _InstallPaths) -> _Check:
+    """Verify the Claude Code plugin layout, without validating an installed selector."""
+
+    manifest = paths.claude_plugin / ".claude-plugin" / "plugin.json"
+    if not manifest.is_file():
+        return _Check("FAIL", "claude", "plugin manifest is missing")
+    skill_check = check_skill_tree("claude", paths.claude_skill)
+    if skill_check.status != "OK":
+        return skill_check
+    claude = shutil.which("claude")
+    if claude is None:
+        return _Check(
+            "WARN", "claude", "plugin structure verified; claude CLI not found for runtime validation"
+        )
+    result = _targets.run_text_command(
+        [claude, "plugin", "validate", str(paths.claude_plugin)], timeout=30
+    )
+    if result.returncode != 0:
+        return _Check("FAIL", "claude", "plugin validation failed")
+    return _Check("OK", "claude", "plugin structure and runtime validation passed")
+
+
+def check_optional_client_cli(target: str) -> _Check:
+    """Verify a host CLI that has no other runtime validation, when it is installed."""
+
+    for command in OPTIONAL_CLIENT_CLI_COMMANDS[target]:
+        name = command[0]
+        if os.path.isabs(name):
+            executable = name if os.path.isfile(name) else None
+        else:
+            executable = shutil.which(name)
+        if executable is None:
+            continue
+        try:
+            result = _targets.run_text_command([executable, *command[1:]], timeout=30)
+        except _InstallError:
+            continue
+        if result.returncode in (126, 127):
+            continue
+        if result.returncode != 0:
+            return _Check("FAIL", target, f"{name} CLI version check failed")
+        return _Check("OK", target, f"adapter structure and {name} CLI verified")
+    return _Check(
+        "WARN", target, f"adapter structure verified; {target} CLI not found for runtime validation"
+    )
+
+
 def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
     """Return bounded structural and optional runtime checks for selected agents."""
     checks: list[_Check] = []
@@ -86,6 +136,16 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_native_roles(paths, "codex"))
         checks.append(check_shared_scan_agent(paths, "codex"))
         checks.append(check_agent_hooks(paths, "codex"))
+    if "claude" in agents:
+        checks.append(check_native_roles(paths, "claude"))
+        checks.append(check_claude(paths))
+        checks.append(check_agent_hooks(paths, "claude"))
+    if "cursor" in agents:
+        checks.append(check_native_roles(paths, "cursor"))
+        checks.append(check_shared_scan_agent(paths, "cursor"))
+        checks.append(check_agent_hooks(paths, "cursor"))
+        if "cursor" in OPTIONAL_CLIENT_CLI_COMMANDS:
+            checks.append(check_optional_client_cli("cursor"))
     if "kilo" in agents:
         checks.append(check_kilo_agents(paths))
         checks.append(check_shared_scan_agent(paths, "kilo"))

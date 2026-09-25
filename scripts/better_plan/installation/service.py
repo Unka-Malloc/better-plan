@@ -9,7 +9,7 @@ from . import targets as _targets
 from .models import AGENTS, InstallPaths as _InstallPaths
 
 
-_MANAGED_HOOK_AGENTS = frozenset({"codex"})
+_MANAGED_HOOK_AGENTS = frozenset({"codex", "claude", "cursor"})
 
 
 def install_agents(

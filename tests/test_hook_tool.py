@@ -144,10 +144,10 @@ class HookToolTests(unittest.TestCase):
         with self.assertRaises(protocols.HookProtocolError):
             protocols.context_response("codex", "agent-complete", "ignored")
 
-    def test_codex_owns_its_completion_protocol_in_one_adapter(self) -> None:
-        """Kilo installs no completion Hook, so Codex is the only Hook host left."""
+    def test_every_supported_hook_host_owns_its_completion_protocol(self) -> None:
+        """Codex, Claude Code, and Cursor keep one adapter each; Kilo installs no Hook."""
 
-        self.assertEqual(set(hook_adapters.BY_NAME), {"codex"})
+        self.assertEqual(set(hook_adapters.BY_NAME), {"codex", "claude", "cursor"})
         for name, adapter in hook_adapters.BY_NAME.items():
             with self.subTest(agent=name):
                 self.assertEqual(adapter.context_encoder.__module__.rsplit(".", 1)[-1], name)

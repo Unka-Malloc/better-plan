@@ -4,7 +4,9 @@ Read this reference only before the first Better Plan role dispatch in a convers
 configuration changes, installation/update/Doctor work, selector diagnosis, or host integration.
 Ordinary planning and delivery turns do not load it.
 
-Better Plan supports exactly two hosts: Codex and Kilo Code.
+Better Plan supports four hosts: Codex, Claude Code, Cursor, and Kilo Code. Codex is the only one
+with packaged role presets; every other host installs unpinned roles and inherits its model and
+reasoning effort from the host and the user's own configuration.
 
 ## Stable roles and current workflow guidance
 
@@ -31,9 +33,17 @@ Better Plan installs four delivery roles per supported host:
 | `reviewer` | the sole writable terminal audit after complete regression | `gpt-6-astra / xhigh` |
 
 Codex writes these four selectors once at first installation and never rewrites them afterwards.
-Kilo Code installs the same four roles as one short primary Agent plus the namespaced Subagents
-`better-plan-designer`, `better-plan-worker`, `better-plan-hybrid-worker`, and
+Claude Code installs the same four roles as unpinned `~/.claude/agents/*.md` files beside its
+plugin, and Cursor installs them as unpinned `~/.cursor/agents/*.md` files. Neither pins a model,
+variant, or reasoning effort: each role file carries one static
+`source=host-inheritance` assignment line, and the host and the user's own configuration decide what
+the session runs on. Kilo Code installs the same four roles as one short primary Agent plus the
+namespaced Subagents `better-plan-designer`, `better-plan-worker`, `better-plan-hybrid-worker`, and
 `better-plan-reviewer`, and pins no model, variant, or reasoning effort for any of them.
+
+Only Codex keeps a role receipt, because it is the only host whose installed files encode a packaged
+choice. Claude Code and Cursor roles are verified by comparing the installed files with the rendered
+templates: an edit the user made is reported, never repaired and never used to re-sign anything.
 
 The two Workers are responsibilities, not strength tiers. `worker: code` runs on `worker` because
 the Task's own commands prove its result; `worker: hybrid` runs on `hybrid-worker` because its
@@ -113,7 +123,9 @@ exception permits changing them.
 
 The current local native role matrix is authoritative whether or not its receipt still matches. On
 Codex, runtime reads the installed selector and uses the packaged selector only when no local role
-exists; its four presets are written once at first installation and never rewritten. Never reselect
+exists; its four presets are written once at first installation and never rewritten. Claude Code,
+Cursor, and Kilo have no packaged selector at all, so there is nothing to substitute and nothing to
+compare: their roles inherit the host. Never reselect
 from conversation memory or leaderboard changes. Normal updates and explicit requests both preserve
 every local role byte and receipt byte. Verify that immutability first, then verify skill structure
 and the separate Hook, plugin, and adapter Doctor results.
@@ -136,6 +148,27 @@ names and payload fields, response encoding, spawn options, capacity semantics, 
 host exposes at each boundary. Each host adapter is isolated; adding or changing one must not alter
 another host's event inventory or completion parser. If a new host already satisfies the shared
 framework contract, its adapter stays declarative and minimal.
+
+## Claude Code and Cursor adapters
+
+Both hosts install the four delivery roles as unpinned Markdown agent files: Claude Code under
+`~/.claude/agents/`, Cursor under `~/.cursor/agents/`. The file names are the dispatch names
+(`designer`, `worker`, `hybrid-worker`, `reviewer`), so `--native-host claude` and
+`--native-host cursor` return the role name as `agent_type` and the native main spawns that exact
+role. Neither host receives a packaged selector: the rendered identity line reports
+`model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance`, because the host
+and the user's own configuration own that choice. Never synthesize a model or effort for them.
+
+Claude Code loads the skill from its plugin layout (`~/.claude/skills/better-plan`, with
+`.claude-plugin/plugin.json` and the payload under `skills/better-plan`). Cursor uses the shared
+Agent Skills scan path, or its native `~/.cursor/skills/better-plan` tree when that already exists.
+
+Both install managed lifecycle handlers: Claude Code in the nested Hook map of
+`~/.claude/settings.json` (`SessionStart`, `UserPromptSubmit`, `SubagentStop`), and Cursor in its
+flat `hooks.json` (`version: 1`, `sessionStart`, `beforeSubmitPrompt`, `postToolUse`). The handlers
+inject bounded session context and normalize a host-reported subagent completion. The native main
+still owns correlation: bind every spawn with `bind-agent` and consume only the exact final callback
+with `agent-complete`, exactly as for any other host.
 
 ## Kilo Task adapter
 

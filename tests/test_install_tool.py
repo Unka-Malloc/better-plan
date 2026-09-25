@@ -29,9 +29,7 @@ from tests.v3_fixtures import complete_plan, write_workspace
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_TOOL_PATH = REPO_ROOT / "scripts" / "install.py"
 RETIRED_HOST_SURFACES = (
-    ".claude",
     ".config/opencode",
-    ".cursor",
     ".copilot",
     ".gemini",
     ".pi",
@@ -68,18 +66,26 @@ def make_paths(root: Path, *, repo_root: Path = REPO_ROOT) -> object:
         repo_root=repo_root,
         codex_home=home / ".codex",
         shared_home=home / ".agents",
+        claude_home=home / ".claude",
+        cursor_home=home / ".cursor",
         kilo_home=home / ".kilo",
         kilo_config=home / ".config" / "kilo",
     )
 
 
 NATIVE_ROLE_FILES = install_targets.NATIVE_ROLE_FILES
+# The packaged source directory for each target; Claude Code keeps its roles under claude-code.
+NATIVE_SOURCE_DIRECTORIES = {"codex": "codex", "claude": "claude-code", "cursor": "cursor", "kilo": "kilo"}
 
 
 def native_role_directory(paths: object, target: str = "codex") -> Path:
-    if target != "codex":
-        raise AssertionError(f"no packaged native roles for {target}")
-    return paths.codex_home / "agents"
+    if target == "codex":
+        return paths.codex_home / "agents"
+    if target == "claude":
+        return paths.claude_home / "agents"
+    if target == "cursor":
+        return paths.cursor_home / "agents"
+    raise AssertionError(f"no packaged native roles for {target}")
 
 
 def rewrite_receipt(receipt: Path, transform) -> None:
@@ -89,30 +95,38 @@ def rewrite_receipt(receipt: Path, transform) -> None:
 
 
 class InstallToolTests(unittest.TestCase):
-    def test_only_codex_and_kilo_remain_supported_targets(self) -> None:
-        self.assertEqual(install_models.AGENTS, ("codex", "kilo"))
-        self.assertEqual(set(install_models.SHARED_SCAN_AGENTS), {"codex", "kilo"})
-        self.assertEqual(install_cli.parse_agents(["all"]), ["codex", "kilo"])
+    def test_four_hosts_are_supported_and_only_codex_packages_presets(self) -> None:
+        self.assertEqual(install_models.AGENTS, ("codex", "claude", "cursor", "kilo"))
+        self.assertEqual(set(install_models.SHARED_SCAN_AGENTS), {"codex", "cursor", "kilo"})
+        self.assertEqual(install_cli.parse_agents(["all"]), ["codex", "claude", "cursor", "kilo"])
         self.assertEqual(install_cli.parse_agents(["kilo,codex"]), ["kilo", "codex"])
-        self.assertEqual(install_cli.parse_agents(["kilo"]), ["kilo"])
-        for name in ("ADAPTER_SKILL_AGENTS", "OPTIONAL_CLIENT_CLI_COMMANDS", "CURSOR_APP_BUNDLE_CLI"):
-            with self.subTest(constant=name):
-                self.assertFalse(hasattr(install_models, name), name)
-        for retired in ("claude", "opencode", "cursor", "copilot", "antigravity", "pi", "craft", "kimi", "gemini"):
+        self.assertEqual(install_cli.parse_agents(["claude", "cursor"]), ["claude", "cursor"])
+        # Only Codex carries a packaged selector, so only Codex has preset constants.
+        self.assertTrue(hasattr(install_models, "OPTIONAL_CLIENT_CLI_COMMANDS"))
+        self.assertTrue(hasattr(install_models, "CURSOR_APP_BUNDLE_CLI"))
+        self.assertFalse(hasattr(install_models, "ADAPTER_SKILL_AGENTS"))
+        self.assertEqual(set(install_targets.UNPINNED_HOSTS), {"claude", "cursor"})
+        for retired in ("opencode", "copilot", "antigravity", "pi", "craft", "kimi", "gemini"):
             with self.subTest(target=retired), self.assertRaises(install_models.InstallError):
                 install_cli.parse_agents([retired])
 
-    def test_install_paths_keep_only_the_two_host_surfaces(self) -> None:
-        self.assertEqual(install_models.VERSION, "3.1.0")
+    def test_install_paths_keep_exactly_the_four_host_surfaces(self) -> None:
+        self.assertEqual(install_models.VERSION, "3.2.0")
         self.assertEqual(
             {field.name for field in dataclasses.fields(install_models.InstallPaths)},
-            {"repo_root", "codex_home", "shared_home", "kilo_home", "kilo_config"},
+            {
+                "repo_root",
+                "codex_home",
+                "shared_home",
+                "claude_home",
+                "cursor_home",
+                "kilo_home",
+                "kilo_config",
+            },
         )
         paths = make_paths(Path("/tmp/better-plan-install-paths-probe"))
         for removed in (
-            "claude_home",
             "opencode_config",
-            "cursor_home",
             "copilot_home",
             "antigravity_home",
             "pi_home",
@@ -269,17 +283,28 @@ class InstallToolTests(unittest.TestCase):
                     unrelated.write_text('name = "user-owned"\n', encoding="utf-8")
 
                     install_targets.install_role_templates(paths, target, dry_run=False)
+                    # Only Codex keeps a selector receipt; the unpinned hosts have none by design.
                     receipt_path = directory.with_name("agents.better-plan.json")
-                    receipt_before = receipt_path.read_bytes()
-                    receipt = json.loads(receipt_before)
-                    installed_filenames = tuple(receipt["files"])
+                    unpinned = target in install_targets.UNPINNED_HOSTS
+                    receipt_before = None if unpinned else receipt_path.read_bytes()
+                    if unpinned:
+                        self.assertFalse(receipt_path.exists())
+                        installed_filenames = filenames
+                    else:
+                        receipt = json.loads(receipt_before)
+                        installed_filenames = tuple(receipt["files"])
                     first = {
                         filename: (directory / filename).read_bytes()
                         for filename in installed_filenames
                     }
                     self.assertTrue(first)
                     self.assertTrue(all(b"ASSIGNMENT_PLACEHOLDER" not in content for content in first.values()))
-                    self.assertTrue(all(b"Role identity:" in content for content in first.values()))
+                    if unpinned:
+                        self.assertTrue(
+                            all(b"model=host-inherited" in content for content in first.values())
+                        )
+                    else:
+                        self.assertTrue(all(b"Role identity:" in content for content in first.values()))
                     self.assertEqual(
                         {path.name for path in directory.iterdir()},
                         set(installed_filenames) | {unrelated.name},
@@ -310,18 +335,20 @@ class InstallToolTests(unittest.TestCase):
                         {name: (directory / name).read_bytes() for name in installed_filenames},
                         first,
                     )
-                    self.assertEqual(receipt_path.read_bytes(), receipt_before)
+                    if receipt_before is not None:
+                        self.assertEqual(receipt_path.read_bytes(), receipt_before)
 
     def test_dry_run_validates_each_native_source_without_writing_destinations(self) -> None:
         for target, filenames in NATIVE_ROLE_FILES.items():
             with self.subTest(target=target), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
                 source_root = root / "source"
+                source_directory = NATIVE_SOURCE_DIRECTORIES[target]
                 shutil.copytree(
-                    REPO_ROOT / "agents" / target,
-                    source_root / "agents" / target,
+                    REPO_ROOT / "agents" / source_directory,
+                    source_root / "agents" / source_directory,
                 )
-                (source_root / "agents" / target / filenames[1]).write_text(
+                (source_root / "agents" / source_directory / filenames[1]).write_text(
                     "malformed native agent payload\n",
                     encoding="utf-8",
                 )
@@ -616,21 +643,30 @@ class InstallToolTests(unittest.TestCase):
             paths = make_paths(Path(tmpdir))
             install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
 
-            with mock.patch.object(install_doctor.shutil, "which", return_value=None):
+            with mock.patch.object(install_doctor.shutil, "which", return_value=None), mock.patch.object(
+                install_doctor, "OPTIONAL_CLIENT_CLI_COMMANDS", {}
+            ):
                 checks = install_doctor.doctor(paths, list(install_models.AGENTS))
 
             self.assertFalse([check for check in checks if check.status == "FAIL"], checks)
-            self.assertEqual(
-                {check.target: check.status for check in checks},
-                {
-                    "codex native roles": "OK",
-                    "codex": "OK",
-                    "codex hooks": "OK",
-                    "kilo native Agents": "WARN",
-                    "kilo": "OK",
-                    "shared skill source": "OK",
-                },
-            )
+            # A host may report more than one check under the same target label, so compare pairs.
+            statuses = [(check.target, check.status) for check in checks]
+            for expected in (
+                ("codex native roles", "OK"),
+                ("codex", "OK"),
+                ("codex hooks", "OK"),
+                ("claude native roles", "OK"),
+                ("claude", "WARN"),
+                ("claude hooks", "OK"),
+                ("cursor native roles", "OK"),
+                ("cursor", "OK"),
+                ("cursor hooks", "OK"),
+                ("kilo native Agents", "WARN"),
+                ("kilo", "OK"),
+                ("shared skill source", "OK"),
+            ):
+                with self.subTest(expected=expected):
+                    self.assertIn(expected, statuses)
 
     def test_doctor_warns_about_tampered_local_roles_without_repairing_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -812,7 +848,7 @@ class InstallToolTests(unittest.TestCase):
         }
         for target, filenames in NATIVE_ROLE_FILES.items():
             expected_runtime_payload.update(
-                f"agents/{target}/{filename}" for filename in filenames
+                f"agents/{NATIVE_SOURCE_DIRECTORIES[target]}/{filename}" for filename in filenames
             )
         expected_runtime_payload.update(
             f"agents/kilo/{filename}" for filename in install_targets.KILO_AGENT_FILES

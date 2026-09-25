@@ -68,6 +68,8 @@ def copy_skill_tree(source: Path, target: Path, *, dry_run: bool) -> None:
 def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
     if agent == "codex":
         return paths.codex_skill
+    if agent == "cursor":
+        return paths.cursor_skill
     if agent == "kilo":
         return paths.kilo_skill
     raise _InstallError(f"{agent} does not have a native skill tree path")
@@ -138,6 +140,10 @@ def existing_install_paths(paths: _InstallPaths, agents: Iterable[str]) -> list[
         values.append(paths.shared_skill)
     if "codex" in selected:
         values.append(paths.codex_skill)
+    if "claude" in selected:
+        values.append(paths.claude_plugin)
+    if "cursor" in selected:
+        values.append(paths.cursor_skill)
     if "kilo" in selected:
         values.append(paths.kilo_skill)
         values.append(paths.kilo_agents / "better-plan.md")

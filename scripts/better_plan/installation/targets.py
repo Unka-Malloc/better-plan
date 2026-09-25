@@ -1,4 +1,4 @@
-"""Target-specific Better Plan installer adapters for Codex and Kilo."""
+"""Target-specific Better Plan installer adapters for every supported host."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import hashlib
 import posixpath
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,16 +19,30 @@ from ..hooks.config import (
 from ..infrastructure.native_roles import configured_codex_role_names
 from .models import (
     AGENTS,
+    DESCRIPTION,
+    SKILL_NAME,
+    VERSION,
     InstallError as _InstallError,
     InstallPaths as _InstallPaths,
 )
 from .assignments import RoleAssignment as _RoleAssignment, select_role_assignments as _select_role_assignments
-from .skills import remove_path as _remove_path
+from .skills import (
+    copy_skill_tree as _copy_skill_tree,
+    remove_path as _remove_path,
+    staged_tree as _staged_tree,
+)
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
     "codex": ("designer.toml", "worker.toml", "hybrid-worker.toml", "reviewer.toml"),
+    "claude": ("designer.md", "worker.md", "hybrid-worker.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker.md", "hybrid-worker.md", "reviewer.md"),
 }
+# Claude Code keeps its packaged role sources under `agents/claude-code`.
+_NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
+# Hosts with no packaged preset: their role files inherit model, variant, and reasoning effort
+# from the host and the user's own configuration, so Better Plan writes no selector into them.
+UNPINNED_HOSTS = ("claude", "cursor")
 KILO_AGENT_FILES = (
     "better-plan.md",
     "better-plan-designer.md",
@@ -47,11 +62,52 @@ def _codex_role_names() -> tuple[str, ...]:
 def _native_role_directory(paths: _InstallPaths, target: str) -> Path:
     if target == "codex":
         return paths.codex_home / "agents"
+    if target == "claude":
+        return paths.claude_home / "agents"
+    if target == "cursor":
+        return paths.cursor_home / "agents"
     raise _InstallError("native role templates are unavailable for this target")
 
 
 def _native_source_directory(paths: _InstallPaths, target: str) -> Path:
-    return paths.repo_root / "agents" / target
+    return paths.repo_root / "agents" / _NATIVE_SOURCE_TARGET.get(target, target)
+
+
+def _delivery_role(agent_name: str) -> str:
+    """Return the delivery role one installed agent name provides."""
+
+    return "worker" if agent_name == "hybrid-worker" else agent_name
+
+
+def _unpinned_assignment_line(agent_name: str) -> str:
+    """Return the static identity line for a host that packages no selector."""
+
+    return (
+        f"assignment: agent={agent_name} | role={_delivery_role(agent_name)} | "
+        "model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance"
+    )
+
+
+def unpinned_role_payload(paths: _InstallPaths, target: str) -> dict[str, bytes]:
+    """Return each unpinned role file with its identity line substituted."""
+
+    filenames = NATIVE_ROLE_FILES.get(target)
+    if filenames is None or target not in UNPINNED_HOSTS:
+        raise _InstallError("native role templates are unavailable for this target")
+    source = _native_source_directory(paths, target)
+    payload: dict[str, bytes] = {}
+    try:
+        for filename in filenames:
+            text = (source / filename).read_text(encoding="utf-8")
+            if not text.strip() or not text.startswith("---\n") or "ASSIGNMENT_PLACEHOLDER" not in text:
+                raise ValueError
+            line = _unpinned_assignment_line(posixpath.splitext(filename)[0])
+            rendered = text.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
+            rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
+            payload[filename] = rendered.encode("utf-8")
+    except (OSError, UnicodeError, ValueError):
+        raise _InstallError("%s role template source is missing or malformed" % target)
+    return payload
 
 
 def _native_receipt_path(destination: Path) -> Path:
@@ -436,6 +492,8 @@ def install_role_templates(
 ) -> list[str]:
     """Install a missing matrix once; never mutate existing native role state."""
 
+    if target in UNPINNED_HOSTS:
+        return install_unpinned_role_templates(paths, target, dry_run=dry_run)
     if native_role_configuration_exists(paths, target):
         return [f"native: preserved {target} role templates"]
 
@@ -454,6 +512,57 @@ def install_role_templates(
         _create_native_role(destination / filename, content)
     _write_native_receipt(receipt_path, target, payload)
     return [f"native: installed {target} role templates", _assignment_message(target, payload)]
+
+
+def install_unpinned_role_templates(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    dry_run: bool,
+) -> list[str]:
+    """Install the four unpinned role files once, without a packaged selector."""
+
+    if native_role_configuration_exists(paths, target):
+        return [f"native: preserved {target} role templates"]
+    destination = _native_role_directory(paths, target)
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+        raise _InstallError("native role template destination is not a managed directory")
+    payload = unpinned_role_payload(paths, target)
+    if dry_run:
+        return [f"native: would install {target} role templates (no packaged presets)"]
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename, content in payload.items():
+        # Exclusive creation cannot overwrite a role that appeared after discovery.
+        _create_native_role(destination / filename, content)
+    return [f"native: installed {target} role templates (no packaged presets)"]
+
+
+def unpinned_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
+    """Compare installed unpinned role files with the packaged templates, report only."""
+
+    destination = _native_role_directory(paths, target)
+    preserved = native_role_configuration_exists(paths, target)
+    prefix = "local roles preserved; " if preserved else ""
+    try:
+        expected = unpinned_role_payload(paths, target)
+    except _InstallError:
+        return False, f"the packaged {target} role sources are unreadable"
+    missing: list[str] = []
+    changed: list[str] = []
+    try:
+        for filename, content in sorted(expected.items()):
+            path = destination / filename
+            if path.is_symlink() or not path.is_file():
+                missing.append(filename)
+            elif path.read_bytes() != content:
+                changed.append(filename)
+    except OSError:
+        return False, f"{target} role files are unreadable"
+    if missing:
+        return False, f"{prefix}missing role file(s): {', '.join(missing)}"
+    if changed:
+        return False, f"{prefix}role file(s) changed outside Better Plan: {', '.join(changed)}"
+    return True, f"{target} role files verified (%d files, no packaged presets)" % len(expected)
 
 
 def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> str:
@@ -502,9 +611,12 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     The inventory comes from the local role files, because that is the state a user can act on.
     The managed receipt stays a separate integrity record: Better Plan never edits, removes,
     adopts, re-signs, or regenerates it, so a receipt that describes an earlier matrix is context
-    rather than a missing role.
+    rather than a missing role. A host without a packaged preset has no receipt and is compared
+    against its rendered role files instead.
     """
 
+    if target in UNPINNED_HOSTS:
+        return unpinned_role_status(paths, target)
     destination = _native_role_directory(paths, target)
     preserved = native_role_configuration_exists(paths, target)
     installed = _installed_role_names(paths)
@@ -567,6 +679,10 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
 def hook_config_path(paths: _InstallPaths, agent: str) -> Path:
     if agent == "codex":
         return paths.codex_hooks
+    if agent == "claude":
+        return paths.claude_settings
+    if agent == "cursor":
+        return paths.cursor_hooks
     raise _InstallError(f"{agent} does not support Better Plan lifecycle Hooks")
 
 
@@ -606,6 +722,38 @@ def run_text_command(command: list[str], *, timeout: int) -> subprocess.Complete
         raise _InstallError("runtime validation could not start; command output was discarded") from exc
 
 
+def install_claude_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
+    """Install the Claude Code plugin layout that contains the shared skill payload."""
+
+    if dry_run:
+        # Validate the source tree through the canonical allowlisted copier.
+        _copy_skill_tree(paths.repo_root, paths.claude_skill, dry_run=True)
+        return
+    with _staged_tree(paths.claude_plugin) as temp:
+        (temp / ".claude-plugin").mkdir(parents=True)
+        (temp / "skills").mkdir()
+        plugin = temp / ".claude-plugin" / "plugin.json"
+        plugin.write_text(
+            json.dumps(
+                {
+                    "name": SKILL_NAME,
+                    "version": VERSION,
+                    "description": DESCRIPTION,
+                    "author": {"name": "Better Plan"},
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        for name in ("README.md", "LICENSE"):
+            source = paths.repo_root / name
+            if source.is_file():
+                shutil.copy2(source, temp / name)
+        _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
+
+
 def install_target(
     paths: _InstallPaths,
     target: str,
@@ -617,26 +765,46 @@ def install_target(
         raise _InstallError(f"unknown agent target: {target}")
     if target == "kilo":
         return install_kilo_agent_matrix(paths, dry_run=dry_run)
-    role_messages = install_role_templates(paths, target, dry_run=dry_run)
+    messages: list[str] = []
+    if target == "claude":
+        # Claude Code loads the skill from its plugin layout, so install that tree first.
+        install_claude_plugin(paths, dry_run=dry_run)
+        messages.append(f"claude: {'would update' if dry_run else 'updated'} plugin")
+    messages.extend(install_role_templates(paths, target, dry_run=dry_run))
     _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
     action = "would update" if dry_run and changed else "updated" if changed else "already current"
-    return [*role_messages, f"codex hooks: {action} managed handlers"]
+    messages.append(f"{target} hooks: {action} managed handlers")
+    return messages
 
 
 def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
+    action = "would remove" if dry_run else "removed"
     if target == "kilo":
         if not dry_run:
             _remove_path(paths.kilo_skill)
-        action = "would remove" if dry_run else "removed"
         return [
             f"kilo: {action} native skill",
             "kilo: preserved immutable native Agent matrix",
+        ]
+    if target == "claude":
+        if not dry_run:
+            _remove_path(paths.claude_plugin)
+        return [
+            "claude: preserved immutable native role templates",
+            f"claude: {action} plugin",
+        ]
+    if target == "cursor":
+        if not dry_run:
+            _remove_path(paths.cursor_skill)
+        return [
+            "cursor: preserved immutable native role templates",
+            f"cursor: {action} native skill",
         ]
     if not dry_run:
         _remove_path(paths.codex_skill)
     return [
         "codex: preserved immutable native role templates",
-        f"codex: {'would remove' if dry_run else 'removed'} native skill",
+        f"codex: {action} native skill",
     ]

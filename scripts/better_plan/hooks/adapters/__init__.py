@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from .base import CompletionSignal, HookProtocolError, HostHookAdapter
+from .claude import ADAPTER as CLAUDE
 from .codex import ADAPTER as CODEX
+from .cursor import ADAPTER as CURSOR
 
 
-ADAPTERS = (CODEX,)
+ADAPTERS = (CODEX, CLAUDE, CURSOR)
 BY_NAME = {adapter.name: adapter for adapter in ADAPTERS}
 
 
