@@ -15,6 +15,7 @@ from scripts.better_plan.application.agent_completion import reduce_agent_comple
 from scripts.better_plan.application.workflow import _project_root, _run_commands_with_diagnostics, _task_worker_selector
 from scripts.better_plan.domain.design_compile import DESIGN_EXAMPLE, DESIGN_TEMPLATE
 from scripts.better_plan.domain.models import ToolError
+from scripts.better_plan.infrastructure.workspace import linked_worktree_root
 from tests.v3_fixtures import MARKER_COMMAND, draft_plan, task, write_workspace
 
 
@@ -65,6 +66,166 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(receipts[0]["exit_code"], 1)
         self.assertLessEqual(len(diagnostics[0]["output_tail"]), 2000)
         self.assertIn("assertion failed: expected 2, got 1", diagnostics[0]["output_tail"])
+
+    def test_linked_worktree_detection_uses_the_gitdir_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            main = Path(temporary) / "main"
+            (main / ".git").mkdir(parents=True)
+            self.assertIsNone(linked_worktree_root(main))
+
+            linked = Path(temporary) / "worktrees" / "feature"
+            (linked / "crates").mkdir(parents=True)
+            (linked / ".git").write_text(
+                "gitdir: %s\n" % (main / ".git" / "worktrees" / "feature"), encoding="utf-8"
+            )
+            self.assertEqual(linked_worktree_root(linked), linked.resolve())
+            self.assertEqual(linked_worktree_root(linked / "crates"), linked.resolve())
+
+    def test_a_workspace_inside_a_linked_worktree_is_refused_without_explicit_intent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            linked = Path(temporary) / "worktrees" / "feature"
+            linked.mkdir(parents=True)
+            (linked / ".git").write_text("gitdir: /elsewhere/.git/worktrees/feature\n", encoding="utf-8")
+            root = linked / "workspace"
+            root.mkdir(parents=True)
+            arguments = (
+                "init-plan", str(root), "--code", "PLAN-900", "--title", "Forked delivery",
+                "--directory", "delivery", "--goal", "One outcome",
+                "--scope-in", "Capability", "--scope-out", "Unrelated",
+                "--success", "It passes", "--risk-boundary", "Local only",
+            )
+
+            refused = self.cli(*arguments, check=False)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("linked Git worktree", refused.stderr)
+            self.assertFalse((root / "Manifest.json").is_file())
+
+            accepted = self.cli(*arguments, "--worktree-workspace")
+            self.assertIn("PLAN-900", accepted.stdout)
+            self.assertTrue((root / "Manifest.json").is_file())
+
+    def _resolved_dossier_plan(self) -> None:
+        value = self.read_plan()
+        value["ledger"]["user_decided"] = [
+            {
+                "source": "Q-001",
+                "option": "safe",
+                "resolves": ["DEC-001"],
+                "effects": ["Old callers keep working."],
+            }
+        ]
+        value["dossier"] = {
+            "status": "resolved",
+            "questions": [
+                {
+                    "code": "Q-001",
+                    "question": "Which delivery boundary applies?",
+                    "context": "Both boundaries are supported.",
+                    "resolves": ["DEC-001"],
+                    "options": [
+                        {"id": "safe", "label": "Keep both surfaces", "effects": ["Old callers keep working."]},
+                        {"id": "replace", "label": "Remove the old surface", "effects": ["Old callers are migrated."]},
+                    ],
+                    "recommended": "safe",
+                    "default": "safe",
+                    "selected": "safe",
+                }
+            ],
+        }
+        self.write_plan(value)
+
+    def test_supersede_decision_replaces_a_frozen_choice_under_new_authority(self) -> None:
+        self._resolved_dossier_plan()
+        self.design_and_authorize()
+        prior_revision = self.read_plan()["lifecycle"]["sealed"]["revision"]
+
+        invented = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "invented",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(invented.returncode, 0)
+        self.assertIn("already offered", invented.stderr)
+
+        superseded = self.payload(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "replace",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+        )
+        self.assertEqual((superseded["from"], superseded["to"]), ("safe", "replace"))
+        self.assertEqual(superseded["revision"], prior_revision + 1)
+
+        updated = self.read_plan()
+        self.assertEqual(updated["dossier"]["questions"][0]["selected"], "replace")
+        self.assertEqual(updated["ledger"]["user_decided"][0]["option"], "replace")
+        self.assertEqual(
+            updated["ledger"]["user_decided"][0]["effects"], ["Old callers are migrated."]
+        )
+        self.assertEqual(updated["lifecycle"]["authorization"]["source"], "explicit")
+        self.assertEqual(updated["lifecycle"]["authorization"]["semantic_digest"], updated["lifecycle"]["sealed"]["semantic_digest"])
+        receipt = updated["lifecycle"]["continuation_receipts"][-1]
+        self.assertEqual(receipt["kind"], "decision_supersession")
+        self.assertEqual(
+            (receipt["decision"], receipt["from"], receipt["to"]), ("DEC-001", "safe", "replace")
+        )
+        self.assertEqual(receipt["from_ledger"], "user_decided")
+
+    def test_a_promoted_default_is_recorded_as_a_user_decision_made_visible(self) -> None:
+        """A user may supersede an answer that only ever applied as a default.
+
+        The new choice really is the user's, so it belongs in `user_decided`; the receipt must show
+        that the old value was a default, otherwise the promotion would be invisible afterwards.
+        """
+
+        self._resolved_dossier_plan()
+        value = self.read_plan()
+        question = value["dossier"]["questions"][0]
+        value["ledger"]["user_decided"] = []
+        value["ledger"]["defaulted"] = [
+            {
+                "source": "Q-001",
+                "option": "safe",
+                "resolves": ["DEC-001"],
+                "effects": ["Old callers keep working."],
+            }
+        ]
+        self.write_plan(value)
+        self.design_and_authorize()
+
+        superseded = self.payload(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "replace",
+            "--reason", "The user chose the migration path.", "--reference", "user-turn-77",
+        )
+        self.assertEqual((superseded["from"], superseded["to"]), ("safe", "replace"))
+
+        updated = self.read_plan()
+        self.assertEqual(updated["ledger"]["defaulted"], [])
+        self.assertEqual(updated["ledger"]["user_decided"][0]["option"], "replace")
+        self.assertEqual(updated["dossier"]["questions"][0]["selected"], "replace")
+        receipt = updated["lifecycle"]["continuation_receipts"][-1]
+        self.assertEqual(receipt["from_ledger"], "defaulted")
+        # The effect sets stay derivable from the Dossier the receipt points at, so the receipt
+        # records only the fact the ledger move would erase.
+        options = {item["id"]: item for item in question["options"]}
+        self.assertEqual(options["safe"]["effects"], ["Old callers keep working."])
+        self.assertEqual(options["replace"]["effects"], ["Old callers are migrated."])
+
+    def test_supersede_decision_refuses_once_work_has_started(self) -> None:
+        self._resolved_dossier_plan()
+        self.design_and_authorize()
+        self.run_worker("TASK-001", "worker.1")
+
+        refused = self.cli(
+            "supersede-decision", str(self.root), "--plan", PLAN,
+            "--decision", "DEC-001", "--option", "replace",
+            "--reason", "The user changed the boundary.", "--reference", "user-turn-42",
+            check=False,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("already began", refused.stderr)
+        self.assertEqual(self.read_plan()["dossier"]["questions"][0]["selected"], "safe")
 
     def cli(
         self,
@@ -187,7 +348,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(authorized["revision"], 1)
 
         dispatched = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
-        self.assertEqual(dispatched["agent_type"], "worker-standard")
+        self.assertEqual(dispatched["agent_type"], "worker")
         self.assertFalse(dispatched["correction"])
         self.assertEqual(dispatched["role_reference"], "references/worker.md")
         self.assertTrue(dispatched["brief"]["task"]["nodes"])
@@ -226,25 +387,32 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual((self.root / "full-count.txt").read_text(encoding="utf-8"), "1")
         self.assertEqual(self.cli("validate", str(self.root)).returncode, 0)
 
-    def test_frontend_task_prefers_the_optional_configured_codex_worker(self) -> None:
+    def test_hybrid_task_uses_the_hybrid_worker_role(self) -> None:
         value = self.read_plan()
-        frontend_task = value["spec"]["tasks"][0]
-        frontend_task["worker"] = "frontend"
+        hybrid_task = value["spec"]["tasks"][0]
+        hybrid_task["worker"] = "hybrid"
+        hybrid_task["verification"] = "hybrid"
         self.write_plan(value)
         codex_home = self.root / "codex-home"
 
-        absent_role, _ = _task_worker_selector(frontend_task, "codex", str(codex_home))
-        self.assertEqual(absent_role, "worker-standard")
+        # Without a local role the packaged preset answers, so a hybrid Task never silently
+        # degrades to the code Worker.
+        absent_role, absent_selector = _task_worker_selector(hybrid_task, "codex", str(codex_home))
+        self.assertEqual(absent_role, "hybrid-worker")
+        self.assertNotEqual(absent_selector.get("main_thread_fallback"), True)
 
         agents = codex_home / "agents"
         agents.mkdir(parents=True)
-        (agents / "frontend-worker.toml").write_text(
-            'name = "frontend-worker"\n'
+        (agents / "hybrid-worker.toml").write_text(
+            'name = "hybrid-worker"\n'
             'model = "k3"\n'
             'model_provider = "kimi_code"\n'
-            'model_reasoning_effort = "max"\n',
+            'model_reasoning_effort = "low"\n',
             encoding="utf-8",
         )
+        role, selector = _task_worker_selector(hybrid_task, "codex", str(codex_home))
+        self.assertEqual(role, "hybrid-worker")
+        self.assertEqual(selector["model"], "k3")
         self.design_and_authorize()
 
         dispatched = self.payload(
@@ -259,11 +427,11 @@ class V3WorkflowTests(unittest.TestCase):
             str(codex_home),
         )
 
-        self.assertEqual(dispatched["agent_type"], "frontend-worker")
+        self.assertEqual(dispatched["agent_type"], "hybrid-worker")
         self.assertEqual(dispatched["model"], "k3")
         self.assertEqual(dispatched["model_provider"], "kimi_code")
-        self.assertEqual(dispatched["reasoning_effort"], "max")
-        self.assertEqual(dispatched["prompt_cache_group"], "frontend-worker")
+        self.assertEqual(dispatched["reasoning_effort"], "low")
+        self.assertEqual(dispatched["prompt_cache_group"], "hybrid-worker")
         self.assertIn("prompt-cache hits and Token efficiency", dispatched["assignment"])
 
     def test_full_regression_fingerprint_ignores_its_state_but_detects_repairs(self) -> None:
@@ -794,11 +962,14 @@ class V3WorkflowTests(unittest.TestCase):
 
     def test_rendered_evidence_requirement_reaches_the_sole_reviewer(self) -> None:
         value = draft_plan()
+        # Visual checking is the Frontend Worker's responsibility, so the two fields agree.
         value["spec"]["tasks"][0]["verification"] = "hybrid"
+        value["spec"]["tasks"][0]["worker"] = "frontend"
         self.plan = write_workspace(self.root, value)
         self.design_and_authorize()
         dispatched = self.payload("dispatch-task", "TASK-001", str(self.root), "--plan", PLAN)
         self.assertEqual(dispatched["brief"]["task"]["verification"], "hybrid")
+        self.assertEqual(dispatched["brief"]["task"]["worker"], "frontend")
         self.cli("bind-agent", "TASK-001", str(self.root), "--plan", PLAN, "--dispatch-id", dispatched["dispatch_id"], "--agent-id", "worker.visual")
         self.cli("agent-complete", str(self.root), "--plan", PLAN, "--agent-id", "worker.visual", "--final")
         self.cli("accept-task", "TASK-001", str(self.root), "--plan", PLAN)
@@ -1199,7 +1370,7 @@ class V3WorkflowTests(unittest.TestCase):
         self.assertEqual(status["designer_session"], "completed")
         tree = self.cli("tree", str(self.root), "--details").stdout
         self.assertIn("TASK-001", tree)
-        self.assertIn("tier=standard", tree)
+        self.assertIn("workload=medium", tree)
 
     def test_manifest_project_root_runs_regressions_in_the_delivered_repository(self) -> None:
         project = self.root / "delivered-repository"

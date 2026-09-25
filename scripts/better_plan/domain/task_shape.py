@@ -1,16 +1,18 @@
-"""Summarize structural workload facts from a compiled Better Plan Task."""
+"""Structural execution shape of one compiled Better Plan Task.
+
+These facts describe how much work a Task asks a single Worker session to carry:
+how many Nodes it spans, how deep its critical path runs, how wide its parallel
+frontier opens, and how many ownership, output, acceptance and verification
+surfaces it touches. They are counts, not estimates, and they select nothing:
+one Worker role handles every Task.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Any
-import argparse
-import json
-import sys
+from typing import Any, Mapping
 
 
-def analyze_task(task: Mapping[str, Any]) -> dict[str, Any]:
+def task_execution_shape(task: Mapping[str, Any]) -> dict[str, Any]:
     """Return small, judgment-free facts about one Task's execution shape."""
 
     nodes = task.get("nodes")
@@ -68,8 +70,7 @@ def analyze_task(task: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "task": task.get("code"),
         "title": task.get("title"),
-        "worker": task.get("worker", "general"),
-        "difficulty": task.get("difficulty"),
+        "worker": task.get("worker", "code"),
         "workload": task.get("workload"),
         "node_count": len(nodes),
         "critical_path_nodes": max(depth.values()),
@@ -79,48 +80,3 @@ def analyze_task(task: Mapping[str, Any]) -> dict[str, Any]:
         "acceptance_count": len(task.get("acceptance", []) or []),
         "verification_command_count": len(regression.get("commands", []) or []),
     }
-
-
-def _tasks(payload: Any) -> list[Mapping[str, Any]]:
-    if isinstance(payload, Mapping) and isinstance(payload.get("spec"), Mapping):
-        values = payload["spec"].get("tasks")
-    elif isinstance(payload, Mapping) and isinstance(payload.get("tasks"), list):
-        values = payload.get("tasks")
-    elif isinstance(payload, Mapping) and isinstance(payload.get("nodes"), list):
-        values = [payload]
-    else:
-        values = None
-    if not isinstance(values, list) or any(not isinstance(item, Mapping) for item in values):
-        raise ValueError("input must be a compiled Plan, task collection, or Task JSON object")
-    return values
-
-
-def _read(path: str) -> Any:
-    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
-    return json.loads(text)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Summarize compiled Task structure")
-    parser.add_argument("input", help="Plan or Task JSON path; use - for stdin")
-    parser.add_argument("--task", help="optional Task code or title")
-    args = parser.parse_args(argv)
-    try:
-        tasks = _tasks(_read(args.input))
-        if args.task:
-            tasks = [
-                task
-                for task in tasks
-                if args.task in {task.get("code"), task.get("title")}
-            ]
-            if len(tasks) != 1:
-                raise ValueError("--task must select exactly one Task")
-        print(json.dumps({"tasks": [analyze_task(task) for task in tasks]}, indent=2, sort_keys=True))
-        return 0
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        print("error: %s" % exc, file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

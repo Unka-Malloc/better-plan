@@ -47,8 +47,8 @@ flowchart TD
     F -- "No" --> G["Native main repairs Plan.json"]
     G --> F
     F -- "Yes" --> H["Authorize once"]
-    H --> I["Dispatch every independent Task"]
-    I --> J["Workers execute ready Node branches concurrently"]
+    H --> I["Dispatch eligible Tasks; usability prerequisite blocks performance"]
+    I --> J["Workers run ready Nodes in isolated paths; usability precedes performance"]
     J --> K["Python runs focused Task acceptance"]
     K --> L{"Every Task terminal?"}
     L -- "No" --> I
@@ -68,6 +68,48 @@ does not belong to the Reviewer session. Neither `open-reviewer-session` nor
 `close-reviewer-session` executes tests.
 
 ## 1. Inspect first and create the Plan shell
+
+### Functional usability is a prerequisite, not a performance result
+
+For application/service performance work, use this order:
+
+```text
+Functional implementation and focused correctness checks
+  -> actual backend + actual frontend (where delivered) + integrated user/protocol path
+  -> current candidate-bound passing usability evidence
+  -> benchmark implementation/validation, load experiments and performance optimization
+  -> declared final regression and independent review
+```
+
+The prerequisite must exercise actual supported entry points. Backend startup/health alone is not
+enough: perform a representative authorized operation. For a frontend product, open the real UI in
+a browser, verify its rendering, and complete an action against the same backend. Check the required
+protocol path and returned effect/result, then normal shutdown. External services may be controlled
+fixtures; the product itself must not be replaced by a Mock or a benchmark-only kernel.
+
+Record the candidate, relevant runtime/configuration, checks, expected/observed results and safe
+evidence links in the existing verification records. Use explicit passed, failed, not_run or blocked
+states. Builds, typechecks, package/image assembly, isolated tests or another candidate's receipt do
+not open the performance stage. Relevant changes require fresh affected functional evidence, not
+another whole-project regression. A frontend cannot be omitted merely because the proposed load
+client talks HTTP or MCP directly.
+
+Before dispatching, the native main checks this semantic prerequisite in addition to CLI structural
+eligibility. Keep required ordering inside a Task's Node DAG; when a separate performance Plan
+depends on another delivery, do not dispatch it until the actual readiness evidence exists. A
+separate tool repository, fixture label or passing tool self-test does not bypass the ordering.
+For an already-started Plan missing this requirement, pause dependent work and record the missing
+functional prerequisite with `record-task-input --needed`; do not resolve it on a promise or rewrite
+sealed history. Continue only authorized functional diagnosis/repair, not more performance work.
+This is a native execution rule using existing records, not a claim that the Python CLI automatically
+probes a running product or that a new gate service has been installed.
+
+Create the workspace in the main repository, never inside a linked Git worktree. A worktree is a
+second checkout of the same repository, so a workspace there documents one delivery as two sealed
+revisions that cannot be reconciled afterwards. `init-plan` detects the `gitdir:` pointer in a
+worktree's `.git` file and refuses that location; the supported alternatives are to create the
+workspace in the main repository and point `Manifest.json` `project_root` at the delivery directory.
+`--worktree-workspace` accepts the split only when it is deliberate.
 
 The native main first inspects the affected repository contracts, tests, schemas, interfaces,
 state owners, failure behavior, and delivery tooling. Discoverable facts go into
@@ -120,10 +162,13 @@ preferences; neither an omission nor a declared default grants authority for a r
 
 Open exactly one Designer session:
 
+In all three role-dispatch commands below, use `--native-host codex` on Codex or
+`--native-host kilo` on Kilo; forward the returned `agent_type` unchanged to the native spawn.
+
 ```sh
 python3 scripts/manifest_tool.py open-designer-session <root> \
   --plan <plan> \
-  --native-host codex
+  --native-host <native-host>
 ```
 
 The command precreates the neutral `Design.md` skeleton and returns:
@@ -235,9 +280,11 @@ List every remaining gap in one pass:
 python3 scripts/manifest_tool.py check-readiness <root> --plan <plan>
 ```
 
-Readiness proves that decisions are closed, Tasks are mutually independent, ownership does not
+Structural readiness proves that decisions are closed, Tasks are mutually independent, ownership does not
 overlap, Node DAGs are valid, acceptance covers every requirement and output, and focused and
 complete regression contracts are executable.
+It does not prove frontend/backend usability; performance work also requires the current functional
+evidence described above. Authorization cannot substitute for that evidence.
 
 After the user authorizes the exact semantic Plan, seal it once:
 
@@ -268,17 +315,19 @@ Tasks concurrently:
 ```sh
 python3 scripts/manifest_tool.py dispatch-task TASK-001 <root> \
   --plan <plan> \
-  --native-host codex
+  --native-host <native-host>
 ```
 
-Run the command once per eligible Task. Each result contains the exact Worker tier, `dispatch_id`,
+Run the command once per eligible Task. Each result contains the exact Worker role, `dispatch_id`,
 the selected `agent_type`, a byte-stable Worker `assignment`, and a compiled brief with the
 authorized goal/scope/success/risk boundary, owned requirement definitions, global architecture,
 resolved decisions, and complete Task contract including its Node DAG. Decisions remain complete
 because v3 has no Task applicability mapping. Original context is available at `plan_path`. A
-Task marked `worker: frontend` first checks Codex's optional local `frontend-worker`; when that valid
-configuration exists it must be dispatched, and only its absence falls back to the Task's
-standard/complex tier.
+Task marked `worker: hybrid` dispatches to the host's hybrid role — Codex's packaged
+`hybrid-worker`, or Kilo's `better-plan-hybrid-worker` — and on Codex the native main checks that
+local role first: a valid configuration must be dispatched, and only its absence falls back to the
+`worker` role. No Task is tiered, so a Task the native main judges underpowered is repartitioned by
+continuation, never re-dispatched at a stronger role.
 
 Forward `role_reference: references/worker.md` with that brief. It owns the fixed execution, evidence,
 and escalation rules; do not copy them into another operating prompt.
@@ -306,18 +355,22 @@ conclusive host refusal, unavailability, terminal failure, or confirmed terminat
 ceiling, `main-complete` completes the same role contract in the native main; it does not create a
 new role.
 
-## 8. Run focused acceptance concurrently
+## 8. Run focused acceptance serially in one build directory
 
-After a Worker returns, Python runs that Task's declared focused acceptance:
+Workers edit source and run only their own bounded focused checks, inside the build, test, and cache
+paths their Task declares in `Exclusive`. After a Worker returns, Python runs that Task's declared
+canonical focused acceptance:
 
 ```sh
 python3 scripts/manifest_tool.py accept-task TASK-001 <root> --plan <plan>
 ```
 
-Invoke `accept-task` concurrently for every independent Task awaiting acceptance. Each Task keeps
-the declared order of its own commands, while separate Tasks may verify in parallel. Long-running
-commands execute outside the global workspace lock; only the state snapshot and result commit are
-serialized.
+Run `accept-task` for one returning Task at a time, in the same build directory, and do not start the
+next one until it finishes. Build tooling takes an exclusive lock on its own output directory, so
+concurrent acceptance does not verify in parallel: it queues, and every Task waits on the lock while
+the machine does one Task's work. Serializing here costs nothing that concurrency would have saved
+and keeps one warm cache shared by every Task. Long-running commands still execute outside the global
+workspace lock; only the state snapshot and result commit are serialized.
 
 If acceptance passes, the Task becomes `completed`. If it fails, the Task enters
 `worker_correction`. The native main either repairs it directly and reruns `accept-task`, or calls
@@ -398,6 +451,35 @@ completed Task definitions cannot change. The continuation records its reason an
 regression contract, retains historical evidence, and requires fresh focused acceptance. A
 continuation cannot expand the goal, scope, user decisions, elevated risk, or irreversible authority.
 
+When the user, not the implementation, supersedes a decision they already made, do not block the
+Task and do not open a continuation: a continuation may never alter resolved decisions. Record the
+replacement and re-seal it under the user's new explicit reference instead:
+
+```sh
+python3 scripts/manifest_tool.py supersede-decision <root> \
+  --plan <plan> \
+  --decision <DEC-*> \
+  --option <option-id-already-offered> \
+  --reason "Safe supersession reason" \
+  --reference "approval reference"
+```
+
+Use it only for a real user change of mind, never to substitute the native main's own preference:
+the reference is that user's own turn or approval, and the CLI records the judgment without being
+able to prove the consent behind it. The replacement must be an option the Question already offered,
+so this changes a choice and never invents one, and it never touches the goal, scope, success
+conditions, or risk boundary. The new selection enters the ledger as `user_decided`, which is honest
+precisely because the user chose it; the receipt records `from_ledger` and
+`authorization_source_before`, so a promoted default or a re-labelled authorization stays visible to
+the Reviewer instead of disappearing. Every Task
+must still be pending and the Reviewer session must not have opened: a changed decision can
+invalidate started work, so a delivery already in flight must finish or be blocked first.
+Supersession re-seals the specification that already exists and never recompiles it, so use it only
+when the replacement leaves the frozen Tasks, requirements, and acceptance correct. A new choice that
+changes the delivery shape needs a separately authorized Plan. The command
+appends a `decision_supersession` receipt, increments the revision, and clears the green regression
+receipt, which cannot cover changed semantics.
+
 ## 10. Run the independent complete regression
 
 When every Task reaches a completed or hard-blocked terminal, no input request remains, and no
@@ -433,7 +515,7 @@ After the independent regression has completed, call:
 ```sh
 python3 scripts/manifest_tool.py open-reviewer-session <root> \
   --plan <plan> \
-  --native-host codex
+  --native-host <native-host>
 ```
 
 `open-reviewer-session` does not run tests. It only verifies that the regression receipt exists,
@@ -447,7 +529,7 @@ That reference owns source/test/design auditing, direct in-scope repairs, render
 findings return contract. The brief contains the full semantic Plan and Task evidence without
 dispatch metadata. Read the regression contract at `plan.spec.full_regression` and the sole receipt
 at `full_regression.result`; `checkpoints` does not repeat it. `rendered_evidence_tasks` names the
-visual/hybrid Tasks. Use `plan_path` and `checkpoints_path` for complete original records only as
+hybrid Tasks. Use `plan_path` and `checkpoints_path` for complete original records only as
 needed; do not resend those records beside their compiled contents.
 
 Bind and complete the Reviewer through the same exact correlation tools:
@@ -567,5 +649,6 @@ regression, or introduce a new approval.
   retry. Rejecting a transition does not itself require user approval or stop independent work.
   Never guess callback identity, fabricate evidence, translate unsupported generations, or broaden
   authority. `next-action` names workflow work; it never overrides a pending input or explicit approval.
-- Parallel work stays parallel: independent Tasks, ready Node branches, and focused acceptance for
-  independent Tasks are never serialized merely for convenience.
+- Parallel work stays parallel: independent Tasks and ready Node branches are never serialized
+  merely for convenience. Focused acceptance is the deliberate exception — see section 8 — because
+  build tooling serializes itself on its output directory anyway.

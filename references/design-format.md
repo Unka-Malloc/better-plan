@@ -50,8 +50,8 @@ Notes:
 
 ## Task fields
 
-Each Task accepts this closed field catalog. `Owns`/`Write paths` and `Difficulty`/`Tier` are
-aliases.
+Each Task accepts this closed field catalog. `Owns` and `Write paths` are aliases; `Difficulty`
+and `Tier` are rejected by name because no Task is tiered.
 
 ```md
 ## Task: bounded-delivery
@@ -65,9 +65,9 @@ Outputs:
 Owns:
 - relative/path
 Exclusive:
-- shared resource name
-Worker: general
-Difficulty: standard
+- build directory — isolated per Node under target/<node>/
+- test fixture store — isolated per Node under fixtures/<node>/
+Worker: code
 Workload: medium
 Verification: code
 Risks:
@@ -91,23 +91,54 @@ Paths:
 - relative/path
 ```
 
-`Scope out` and risks default to empty, `Worker` to `general`, `Difficulty` to `standard`, and
-`Verification` to `code`. Use `Worker: frontend` only when the Task owns frontend implementation;
-it is orthogonal to difficulty. On Codex, the native main must prefer a valid locally configured
-`frontend-worker` for such a Task and otherwise uses the declared standard/complex tier Worker.
-The Designer chooses `Difficulty` holistically, not by matching risk names or counting files. Use
-`standard` when the path is clear, invariants are local, and failures are easy to detect and recover.
-Use `complex` when stronger reasoning is materially useful because one dominant factor or several
-combined factors create broad causal coupling, important unknowns, non-obvious tradeoffs, latent or
-hard-to-reverse failure, or demanding verification. Risk tags and surface size are evidence, not
-automatic triggers: a bounded, reversible, strongly tested migration may be `standard`, while an
-untagged but coupled or hard-to-verify Task may be `complex`.
+`Scope out` and risks default to empty, `Worker` to `code`, and `Verification` to `code`.
+
+`Worker` names one of two responsibilities, never a strength:
+
+- `code` — the Task writes code and its result is proven by its commands.
+- `hybrid` — the Task writes code *and* its result is judged visually, so it owes rendered evidence.
+
+`Verification` repeats that answer as evidence: `code` or `hybrid`. The two must agree, and readiness
+rejects a Task that says one thing in each field, because only the hybrid Worker is the role that
+produces a rendered result — so a hybrid Task is dispatched to the packaged `hybrid-worker` role,
+while a code Task goes to the packaged `worker` role.
+
+One Worker role handles every Task, so do not write a `Difficulty` or `Tier` line: Tasks are not
+tiered, no stronger or weaker role exists, and the compiler reports the line as unmapped. Size the
+work instead, because readiness judges this Task against the single-session ceiling:
+
+| Dimension | Ceiling |
+| --- | --- |
+| Nodes in the Task | 8 |
+| Nodes on the critical path | 4 |
+| Widest ready frontier | 4 |
+| Write paths | 8 |
+| Acceptance criteria | 8 |
+| Focused verification commands | 6 |
+
+A sealed Plan keeps its frozen Task shapes and is never re-judged. An unsealed Task above any
+ceiling is rejected before authorization; split it into more mutually parallel-safe Tasks.
 
 `Workload` is a separate, required execution-volume estimate. Choose `light`, `medium`, or `heavy`
 from the breadth and number of touchpoints, amount of inspection and change, critical-path depth,
-integration work, and verification volume. It is relative workload, not a clock-time estimate and
-does not select the Worker tier. A broad repetitive change may be `heavy` but `standard`; a small
-subtle change may be `light` but `complex`.
+integration work, and verification volume. It is relative workload, not a clock-time estimate and it
+selects nothing. It tells the native main how much observation and how long an adaptive wait a
+running Task deserves.
+
+`Exclusive` names the machine resources the Task contends on, including the ones that are not files.
+Cover at least: build or artifact directory, version-control index and lock, test database or fixture
+store, listening ports, simulators or devices, and package or toolchain cache. Name each resource and
+the concrete path the Task uses for it.
+
+A Worker runs its own focused checks in the build, test and cache paths this field assigns it, and
+only there: declaring a path is what grants the check, and declaring none tells the Worker to edit
+without building and report what the native main must verify. When a Task's Nodes run
+concurrently, each one needs its **own** path, so readiness rejects an empty `Exclusive` list when the
+frontier is wider than one; narrow the frontier instead when a resource genuinely cannot be separated.
+Wording is not judged: only the Reviewer can tell whether the named paths really separate the Nodes.
+
+The canonical focused acceptance is a different stage: the native main runs it serially after the
+Workers return, so it needs no declaration of its own.
 
 Python always emits empty `prerequisites` and `inputs`. If one Task needs another Task's result or
 ordering, merge that work into one Task; every separate Task must be safe to dispatch concurrently.
@@ -130,7 +161,9 @@ Nodes omit dependencies and therefore run together. A branch gives multiple Node
 predecessor; a join lists every branch it waits for. Declare an edge only for a real ordering or data
 dependency. Python generates `NODE-*` codes, resolves human names, and rejects unknown references,
 self-dependencies, and cycles. Nodes remain inside one Worker session and do not receive separate
-state or acceptance.
+state or acceptance. Because they share their Task's ownership, Nodes that run together also share
+whatever the Task left unassigned: attribute their build, test and cache paths in `Exclusive`, or
+narrow the frontier instead of claiming concurrency the machine cannot give them.
 
 ## Full regression
 

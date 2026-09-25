@@ -26,7 +26,6 @@ from ..domain.models import (
     PLAN_DOCUMENT,
     OPAQUE_EVENT_ID_PATTERN,
     PLAN_NAME,
-    RENDERED_VERIFICATIONS,
     TERMINAL_TASK_STATUSES,
     ToolError,
     checkpoints_template,
@@ -40,8 +39,15 @@ from ..domain.models import (
     semantic_payload,
     sha256_value,
     task_state,
+    task_worker_kind,
 )
 from ..domain.validation import (
+    MAX_TASK_ACCEPTANCE,
+    MAX_TASK_CRITICAL_PATH,
+    MAX_TASK_NODES,
+    MAX_TASK_PARALLEL_FRONTIER,
+    MAX_TASK_VERIFICATION_COMMANDS,
+    MAX_TASK_WRITE_PATHS,
     authority_expansion_issues,
     plan_readiness_issues,
     reviewer_findings_issues,
@@ -52,6 +58,7 @@ from ..infrastructure.native_roles import resolve_codex_role
 from ..infrastructure.plan_render import render_document
 from ..infrastructure.workspace import (
     fingerprint_paths,
+    linked_worktree_root,
     load_manifest,
     load_plan,
     plan_paths,
@@ -66,7 +73,9 @@ from ..infrastructure.workspace import (
 
 MAX_DELEGATION_ATTEMPTS = 3
 OUTPUT_TAIL_CHARACTERS = 2000
-FRONTEND_WORKER_ROLE = "frontend-worker"
+WORKER_ROLE = "worker"
+# Both hosts package a hybrid Worker beside the code Worker, so a hybrid Task has one exact role.
+HYBRID_WORKER_ROLE = "hybrid-worker"
 WORKER_ASSIGNMENT_PREFIX = (
     "Native main: reuse this instruction prefix byte-for-byte for every eligible Task with the "
     "same returned agent_type, then append only that Task's compiled brief. The stable prefix "
@@ -281,6 +290,10 @@ def _immutable_snapshot(plan: Mapping[str, Any]) -> dict[str, Any]:
 def _selector_payload(
     role: str, native_host: str | None, codex_home: str | None, project_root: Path | None = None
 ) -> dict[str, Any]:
+    if native_host == "kilo":
+        # Kilo's installed Subagent names are namespaced; the host owns its
+        # model and variant selection, so never synthesize either here.
+        return {"agent_type": f"better-plan-{role}"}
     if native_host != "codex":
         return {"agent_type": role}
     home = Path(codex_home) if codex_home else Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
@@ -378,6 +391,13 @@ def _run_commands(project_root: Path, commands: list[str]) -> tuple[bool, list[d
 
 def init_plan(args: Any) -> int:
     root = workspace_root(Path(args.root))
+    if linked_worktree_root(root) is not None and not getattr(args, "worktree_workspace", False):
+        raise ToolError(
+            "this workspace root is inside a linked Git worktree; a workspace there forks one "
+            "delivery into two sealed revisions that cannot be reconciled. Create it in the main "
+            "repository and point Manifest.json project_root at this directory, or pass "
+            "--worktree-workspace to accept the split"
+        )
     with workspace_lock(root):
         manifest_path = root / MANIFEST_NAME
         manifest = load_manifest(root) if manifest_path.is_file() else manifest_template()
@@ -525,13 +545,33 @@ def open_designer_session(args: Any) -> int:
         "draft_path": draft_path,
         "assignment": (
             "Write the complete solution design to %s before returning. "
+            "One Task is one Worker session, so split the work whenever a Task would exceed the "
+            "single-session ceiling of %d Nodes, %d Nodes on its critical path, %d parallel Nodes, "
+            "%d write paths, %d acceptance criteria, or %d verification commands; an oversized Task "
+            "is rejected before authorization. "
             "Group dependent work inside one Task so every Task is mutually parallel-safe. "
             "Inside each Task, design a minimal Node DAG: branch every independent Node, declare "
             "only real dependencies, and name every predecessor at joins; the Worker will execute "
             "every ready Node concurrently. "
+            "Disjoint write paths alone do not make a frontier parallel: attribute the machine "
+            "resources concurrent units contend on — build or artifact directory, version-control "
+            "index and lock, test store, ports, devices, toolchain cache. On every Task whose Nodes "
+            "run together, declare each of those resources isolated, because concurrent Nodes "
+            "cannot hold one exclusively among themselves. Split any file that more than "
+            "one parallel unit would touch, or name its single writer. State the worktree or branch "
+            "layout and the concurrent unit count; one delivery is one workspace. "
             "Do not edit Plan.json.spec while this draft path is available. "
             "Only if the host cannot create the draft may you complete %s directly."
-            % (draft_path, plan_path)
+            % (
+                draft_path,
+                MAX_TASK_NODES,
+                MAX_TASK_CRITICAL_PATH,
+                MAX_TASK_PARALLEL_FRONTIER,
+                MAX_TASK_WRITE_PATHS,
+                MAX_TASK_ACCEPTANCE,
+                MAX_TASK_VERIFICATION_COMMANDS,
+                plan_path,
+            )
         ),
         "role_reference": "references/designer.md",
         "knowledge_references": ["references/design-format.md", "references/design-patterns.md"],
@@ -907,6 +947,131 @@ def close_continuation(args: Any) -> int:
     return 0
 
 
+def supersede_decision(args: Any) -> int:
+    """Replace one resolved decision under fresh explicit user authority.
+
+    Authorization freezes the user's resolved decisions, so a user who changes their mind has no
+    first-class path today and ends up blocking the Task instead. This records the replacement and
+    re-seals the Plan under a new explicit reference.
+
+    Only an option the Question already offered may be selected: this changes a choice, never
+    invents one, and it never touches goal, scope, success conditions or the risk boundary. Nothing
+    may have been dispatched yet, because a changed decision can invalidate started work.
+    """
+
+    root = workspace_root(Path(args.root))
+    reference = (args.reference or "").strip()
+    if not reference:
+        raise ToolError("a decision supersession requires the user's approval reference")
+    with workspace_lock(root):
+        _, plan, paths = _load_raw_plan(root, args.plan)
+        if plan.get("phase") != "authorized":
+            raise ToolError("decision supersession requires an authorized Plan")
+        lifecycle = plan.get("lifecycle", {})
+        if lifecycle.get("reviewer_session") is not None:
+            raise ToolError(
+                "a decision supersession cannot start after the sole Reviewer session opens"
+            )
+        checkpoints = read_json(paths["checkpoints"])
+        started = [
+            str(state.get("code"))
+            for state in checkpoints.get("tasks", [])
+            if state.get("status") != "pending"
+        ]
+        if started:
+            raise ToolError(
+                "a decision supersession requires no started work; these Tasks already began: %s"
+                % ", ".join(sorted(started))
+            )
+        decision = args.decision
+        question = None
+        for candidate in plan.get("dossier", {}).get("questions", []):
+            if isinstance(candidate, Mapping) and decision in [
+                str(item) for item in candidate.get("resolves", []) or []
+            ]:
+                question = candidate
+                break
+        if question is None:
+            raise ToolError("%s is not a resolved decision of this Dossier" % decision)
+        options = {
+            str(item.get("id")): item
+            for item in question.get("options", [])
+            if isinstance(item, Mapping)
+        }
+        if args.option not in options:
+            raise ToolError(
+                "the replacement must be an option this Question already offered: %s"
+                % ", ".join(sorted(options))
+            )
+        holder = None
+        for name in ("user_decided", "defaulted"):
+            for record in plan.get("ledger", {}).get(name, []):
+                if isinstance(record, Mapping) and decision in [
+                    str(item) for item in record.get("resolves", []) or []
+                ]:
+                    holder = (name, record)
+                    break
+            if holder is not None:
+                break
+        if holder is None:
+            raise ToolError("%s has no ledger decision record to supersede" % decision)
+        name, record = holder
+        previous = str(record.get("option"))
+        if previous == args.option:
+            raise ToolError("%s already selects %s" % (decision, args.option))
+        plan["ledger"][name].remove(record)
+        plan["ledger"]["user_decided"].append(
+            {
+                "source": record.get("source"),
+                "option": args.option,
+                "resolves": list(record.get("resolves", [])),
+                "effects": list(options[args.option].get("effects", [])),
+            }
+        )
+        question["selected"] = args.option
+        revision = int(lifecycle["sealed"]["revision"]) + 1
+        digest = semantic_digest(plan)
+        candidate = deepcopy(plan)
+        candidate["phase"] = "authorized"
+        candidate["lifecycle"]["sealed"] = {
+            "revision": revision,
+            "semantic_digest": digest,
+            "sealed_at": _now(),
+        }
+        candidate["lifecycle"]["authorization"].update(
+            {
+                "source": "explicit",
+                "reference_digest": hashlib.sha256(reference.encode("utf-8")).hexdigest(),
+                "semantic_digest": digest,
+                "authorized_at": _now(),
+            }
+        )
+        candidate["lifecycle"]["continuation_receipts"].append(
+            {
+                "kind": "decision_supersession",
+                "id": generate_id(),
+                "decision": decision,
+                "from": previous,
+                "to": args.option,
+                # A supersession always lands in `user_decided`, and that is correct only because
+                # the user supplies the reference. The superseded bucket is the one fact the move
+                # would otherwise erase, so a promoted default stays visible to the Reviewer.
+                "from_ledger": name,
+                "reason": public_summary(args.reason, "supersession reason"),
+                "recorded_at": _now(),
+            }
+        )
+        issues = plan_readiness_issues(paths["plan"], candidate)
+        if issues:
+            raise ToolError("supersession is not ready: %s" % "; ".join(issue.message for issue in issues))
+        plan = candidate
+        _save_plan(paths, plan)
+        checkpoints.update({"revision": revision, "semantic_digest": digest, "full_regression": None})
+        write_json(paths["checkpoints"], checkpoints)
+    print(json.dumps({"superseded": decision, "from": previous, "to": args.option, "revision": revision}))
+    return 0
+
+
 def _execution_context(
     root: Path, selector: str, *, phases: frozenset[str] = frozenset({"authorized"})
 ) -> tuple[dict[str, Any], dict[str, Path], dict[str, Any]]:
@@ -1113,14 +1278,13 @@ def _task_worker_selector(
     codex_home: str | None,
     project_root: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Prefer the optional configured Codex Frontend Worker for frontend Tasks."""
+    """Send a hybrid Task to the hybrid Worker, and every other Task to the code Worker."""
 
-    tier_role = "worker-%s" % task.get("difficulty")
-    if task.get("worker") == "frontend" and native_host == "codex":
-        frontend = _selector_payload(FRONTEND_WORKER_ROLE, native_host, codex_home, project_root)
-        if frontend.get("main_thread_fallback") is not True:
-            return FRONTEND_WORKER_ROLE, frontend
-    return tier_role, _selector_payload(tier_role, native_host, codex_home, project_root)
+    if task_worker_kind(task) == "hybrid":
+        selector = _selector_payload(HYBRID_WORKER_ROLE, native_host, codex_home, project_root)
+        if selector.get("main_thread_fallback") is not True:
+            return HYBRID_WORKER_ROLE, selector
+    return WORKER_ROLE, _selector_payload(WORKER_ROLE, native_host, codex_home, project_root)
 
 
 def dispatch_task(args: Any) -> int:
@@ -1741,7 +1905,7 @@ def open_reviewer_session(args: Any) -> int:
         rendered = [
             task.get("code")
             for task in plan.get("spec", {}).get("tasks", [])
-            if task.get("verification") in RENDERED_VERIFICATIONS
+            if task_worker_kind(task) == "hybrid"
         ]
         selector = _selector_payload("reviewer", args.native_host, args.codex_home, project)
         dispatch_id = generate_id()

@@ -24,7 +24,7 @@ class WorkflowBriefTests(unittest.TestCase):
         })
         plan["spec"]["tasks"].append(task(
             "TASK-002", write_paths=["view.py"], requirements=["REQ-002"],
-            verification="hybrid", acceptance_code="AC-002",
+            verification="hybrid", worker="frontend", acceptance_code="AC-002",
         ))
         original = deepcopy(plan)
 
@@ -43,6 +43,7 @@ class WorkflowBriefTests(unittest.TestCase):
     def test_reviewer_keeps_semantics_and_all_evidence_without_duplicate_regression_or_dispatch(self) -> None:
         plan = complete_plan()
         plan["spec"]["tasks"][0]["verification"] = "hybrid"
+        plan["spec"]["tasks"][0]["worker"] = "frontend"
         plan["spec"]["tasks"].append(task("TASK-002", write_paths=["export.py"], acceptance_code="AC-002"))
         checkpoints = checkpoints_template(plan)
         regression = {

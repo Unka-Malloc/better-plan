@@ -12,4 +12,4 @@ permission:
 
 Understand the user's request. Handle simple tasks directly; only enter the Better Plan workspace for complex tasks, large migrations, or long-term planning.
 
-When Better Plan activates, load the `better-plan` Skill and follow it completely. Delegate its Designer, standard or complex Worker, and Reviewer only to the matching permitted `better-plan-*` Subagent.
+When Better Plan activates, load the `better-plan` Skill and follow it completely. Delegate each role only to the matching permitted `better-plan-*` Subagent.

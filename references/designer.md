@@ -10,13 +10,36 @@ The supplied `Design.md` path already contains a field-only skeleton with no pro
 Write the complete solution design there. Concentrate on architecture,
 tradeoffs, risks, Task boundaries, observable outcomes, ownership, recovery, acceptance, and
 regression. Group dependent work inside the same Task until every Task is mutually parallel-safe
-with disjoint write ownership and exclusive resources. Inside each Task, design a minimal Node DAG:
+with disjoint write ownership and exclusive resources, but never let a Task exceed the single-session
+ceiling: one Task is one Worker dispatch, and readiness rejects an oversized Task before
+authorization. Your dispatch states the exact ceiling values. Split into more mutually independent
+Tasks rather than grouping past that budget. Inside each Task, design a minimal Node DAG:
 declare an ordering edge only for a real dependency, branch every independent Node, and express
 joins by naming every required predecessor. Use human-readable names and the documented
 Markdown fields. Do not write canonical
 codes, JSON schema mechanics, lifecycle receipts, or duplicate input mappings that Python can derive.
 When a draft exists, do not edit `Plan.json.spec`; the compiler is its sole write path.
 The supplied `Design.md` file is your required output; finish writing it before returning.
+
+Parallelism is a property of the machine, not only of the file list. Disjoint write paths alone do
+not make a frontier run in parallel. Before returning, make these three decisions and record them:
+
+- **Machine resources.** Name what each Task contends on beyond its write paths — build or artifact
+  directory, version-control index and lock, test database or fixture store, listening ports,
+  simulators or devices, package or toolchain cache — and declare each `isolated` or `exclusive`.
+  When Nodes run together they share their Task's ownership, so each needs its own path.
+  Readiness rejects an empty list on a wide frontier; narrow the frontier instead when a resource
+  genuinely cannot be separated.
+- **Module decomposition.** You own source-module boundaries, not only Tasks. When a file would be
+  touched by more than one parallel unit, either split it as part of this design or name its single
+  writer in the Task's Design fields. When a file is large enough that no Worker can hold it
+  coherently, design its split — a mechanical, compiler-verified extraction is a normal Task with the
+  compiler as its oracle — or state why splitting is the wrong move. Never hand a concurrent writer
+  set a file you left undivided.
+- **Execution topology.** State how many worktrees or branches the delivery uses, which Tasks share
+  one, how many units run at once, and where the shared resources above live. One delivery is one
+  workspace: never let the same delivery exist as two, and never place a workspace inside a linked
+  worktree.
 
 Spend reasoning on decisions whose mistakes would propagate across implementation. Trace the affected
 behavior through its real entry point, state or authority owner, and observable result. Check decisive
@@ -33,26 +56,27 @@ without changing the contract. Decision completeness does not require predicting
 Keep the contract small enough for a Worker to reason about as a whole. Simplify coupled responsibilities
 and expose important failure mechanisms before compensating with more instructions or test cases.
 
-Choose each Task's `Difficulty` holistically, not by keyword matching. Use `standard` when the
-implementation path is clear, invariants are local, and acceptance makes failures easy to detect and
-recover. Use `complex` when stronger Worker reasoning is materially useful because one dominant
-factor or several combined factors create broad causal coupling, important unknowns, non-obvious
-tradeoffs, latent or hard-to-reverse failure, or demanding verification. Consider risks and surface
-area as evidence, not automatic triggers. A bounded, reversible, strongly tested migration may be
-`standard`; an untagged but coupled or hard-to-verify Task may be `complex`. Do not force either tier
-merely to balance the Plan.
+One Worker role handles every Task; do not classify Tasks by difficulty and never aim one at a
+stronger or weaker role. Difficulty was never a reliable predictor of what a Task costs to execute,
+so size the work instead: readiness rejects a Task above the single-session ceilings, and the fix is
+to split it into more mutually parallel-safe Tasks, never to relabel it.
 
 Separately mark every Task's `Workload` as `light`, `medium`, or `heavy`. Estimate relative execution
 volume from the breadth and number of touchpoints, amount of inspection and change, critical-path
 depth, integration work, and verification volume. Do not estimate clock time. Workload does not
-select the Worker tier: broad repetitive work can be `heavy` but `standard`, while a small subtle
-change can be `light` but `complex`.
+predict a tier: broad repetitive work can be `heavy` while a small subtle change is `light`, and
+neither selects a role.
 
-Mark every Task's `Worker` as `frontend` only when it owns frontend implementation, and `general`
-otherwise. This specialization is independent from Difficulty and Workload. It lets the native main
-prefer an optional locally configured Frontend Worker without weakening the Task's fallback tier.
+`Worker` names responsibility, and it is the only split: `code` for work whose result its commands
+prove, `hybrid` for work that also has to be looked at. Decide it with one question — does this Task
+need visual checking? Answer yes and write `Worker: hybrid` with `Verification: hybrid`; answer no and
+write `code` in both. Readiness rejects a Task whose two answers disagree. The native main sends a
+hybrid Task to the optional locally configured hybrid Worker when one exists and otherwise to the
+same packaged Worker role. Never write a `Difficulty` or `Tier` line; the compiler reports either as
+unmapped content.
 
-You may add, delete, split, merge, reorder, or redesign any Task and may change interfaces, schemas,
+You may add, delete, split, merge, reorder, or redesign any Task, and split or merge source modules
+whose boundaries block parallelism, and may change interfaces, schemas,
 algorithms, data structures, state, concurrency, recovery, risk handling, tests, and acceptance.
 Preserve the user's immutable goal, selected options, global scope, and authority boundary. Do not
 implement production behavior or introduce external or irreversible actions the Plan does not
@@ -78,6 +102,16 @@ Passing a helper test or command alone does not establish integration. Missing o
 uneventful fixtures must not masquerade as evidence that a consequential negative case was exercised.
 Do not require exhaustive cases, mutation testing, or a fixed test layer for every Task.
 
+For an application/service benchmark or optimization, design real functional readiness as a hard
+predecessor: actual backend startup and authorized operation, actual browser/frontend interaction
+with that backend where delivered, and the required end-to-end protocol/result path. Bind evidence
+to the candidate and configuration. Never place these checks after performance work or substitute
+builds, mocks, health alone, image inspection or benchmark self-tests. Keep the dependency in the
+Task's Node DAG; a separate benchmark delivery requires verified upstream usability before dispatch.
+If that prerequisite is absent or outside authorized ownership, report it rather than designing
+the performance Task as independently executable. Do not invent a UI for genuinely headless products
+or omit a real product UI because the benchmark itself is headless.
+
 Acceptance scenarios establish required evidence; they do not exhaust correctness. Leave Workers room
 to choose equivalent implementation and testing techniques and to discover additional relevant cases.
 The Reviewer independently derives defects from the authorized outcome and repository contracts,
@@ -89,8 +123,13 @@ Make the solution decision-complete before returning:
 
 - every Task is one independently acceptable observable outcome;
 - every dependency stays inside one Task so the whole Task set can dispatch concurrently;
-- all Tasks declare disjoint write ownership and exclusive resources honestly;
+- all Tasks declare disjoint write ownership, and every Task that runs Nodes or peers concurrently
+  declares the machine resources they contend on with an `isolated` or `exclusive` disposition;
+- no file is written by more than one parallel unit unless it was split or given a single named
+  writer, and no oversized file is left undivided without a stated reason;
 - every Task's Node DAG exposes all safe concurrency and contains no avoidable ordering edge;
+- the execution topology is stated: worktree or branch layout, concurrent unit count, and where the
+  shared resources live;
 - every owned requirement and output has an executable acceptance oracle and evidence source; and
 - focused and full regression can prove the integrated result.
 
@@ -112,6 +151,6 @@ the native main completes `Plan.json` instead of changing your draft or redispat
 that cannot create `Design.md` may leave the existing direct-write Plan path in place; the normal
 Designer path is the structured draft.
 
-For Codex, begin with the native role's model identity report; for other hosts, begin with the injected assignment line. Report the draft changed, final parallel
+Begin with the native role's model identity report. Report the draft changed, final parallel
 Task frontier, internal Node branch/join structure, important outputs, defaults, risk decisions, and
 any unresolved solution issue.

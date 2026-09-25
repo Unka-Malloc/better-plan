@@ -6,30 +6,37 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from scripts.better_plan.installation import targets as install_targets
 from scripts.better_plan.installation.assignments import (
     CODEX_DEFAULT_MATRIX,
-    CODEX_FINDER_MATRIX,
-    CURSOR_DEFAULT_MATRIX,
-    OPENCODE_GO_DEFAULT_MATRIX,
     select_role_assignments,
 )
-from scripts.better_plan.installation.models import CURRENT_SKILL_FILES, InstallPaths
+from scripts.better_plan.installation.models import (
+    AGENTS,
+    CURRENT_SKILL_FILES,
+    InstallPaths,
+)
 from scripts.better_plan.installation.targets import NATIVE_ROLE_FILES, install_role_templates
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DELIVERY_ROLE_NAMES = {"designer", "worker-standard", "worker-complex", "reviewer"}
-CODEX_AGENT_NAMES = DELIVERY_ROLE_NAMES | {"finder", "fallback_finder"}
+DELIVERY_ROLE_NAMES = {"designer", "worker", "hybrid-worker", "reviewer"}
+CODEX_AGENT_NAMES = frozenset(DELIVERY_ROLE_NAMES)
 REMOVED_ROLE_NAMES = {
+    # The tiered Worker roles were replaced by the single `worker` role.
+    "worker-standard",
+    "worker-complex",
     "worker-routine",
     "worker-critical",
     "visual-verifier",
     "visual-reviewer",
     "verifier",
+    # The Codex read-only finder utilities were deleted with the two-host contract.
+    "finder",
+    "fallback_finder",
 }
+REMOVED_AGENT_DIRECTORIES = ("claude-code", "cursor", "opencode")
 CATALOG_PATTERNS = (
     "Factory Method",
     "Abstract Factory",
@@ -54,9 +61,6 @@ CATALOG_PATTERNS = (
     "Template Method",
     "Visitor",
 )
-OPENCODE_GO_SELECTORS = frozenset(
-    values[1] for values in OPENCODE_GO_DEFAULT_MATRIX.values()
-)
 
 
 def paths(root: Path) -> InstallPaths:
@@ -64,16 +68,8 @@ def paths(root: Path) -> InstallPaths:
         repo_root=ROOT,
         codex_home=root / "codex",
         shared_home=root / "shared",
-        claude_home=root / "claude",
-        opencode_config=root / "opencode",
-        cursor_home=root / "cursor",
-        copilot_home=root / "copilot",
-        antigravity_home=root / "antigravity",
-        pi_home=root / "pi",
-        craft_home=root / "craft",
         kilo_home=root / "kilo-home",
         kilo_config=root / "kilo-config",
-        kimi_home=root / "kimi",
     )
 
 
@@ -84,6 +80,12 @@ class AgentTemplateTests(unittest.TestCase):
             {path.name for path in directory.iterdir()},
             set(install_targets.KILO_AGENT_FILES),
         )
+        self.assertEqual(
+            set(install_targets.KILO_SUBAGENTS),
+            {f"better-plan-{role}.md" for role in DELIVERY_ROLE_NAMES},
+        )
+        for filename in install_targets.KILO_AGENT_FILES:
+            self.assertIn(f"agents/kilo/{filename}", CURRENT_SKILL_FILES)
         primary = (directory / "better-plan.md").read_text(encoding="utf-8")
         body = primary.split("\n---\n", 1)[1]
         self.assertIn("mode: primary", primary)
@@ -94,32 +96,42 @@ class AgentTemplateTests(unittest.TestCase):
         for filename in install_targets.KILO_SUBAGENTS:
             agent_name = Path(filename).stem
             text = (directory / filename).read_text(encoding="utf-8")
-            canonical = (
-                ROOT / "agents" / "opencode" / filename[len("better-plan-") :]
-            ).read_text(encoding="utf-8")
             self.assertIn("mode: subagent", text)
+            # Every Subagent is a leaf: the native main owns Task and Node dispatch.
             self.assertIn("  task: deny", text)
             self.assertIn("  question: deny", text)
             self.assertIn(f"agent={agent_name}", text)
+            # Kilo owns model, variant, and reasoning selection; packaged files pin none.
             self.assertIn("model=parent-inherited", text)
             self.assertIn("reasoning_effort=host-default", text)
             self.assertNotRegex(text, r"(?m)^model:\s*")
             self.assertNotRegex(text, r"(?m)^variant:\s*")
             self.assertNotRegex(text, r"(?m)^reasoningEffort:\s*")
-            self.assertEqual(
-                text.split("\n---\n", 1)[1].split("\n", 3)[3],
-                canonical.split("\n---\n", 1)[1].split("\n", 3)[3],
-            )
+            self.assertNotRegex(text, r"(?m)^reasoning_effort:\s*")
+
+    def test_only_codex_and_kilo_package_native_role_templates(self) -> None:
+        self.assertEqual(tuple(AGENTS), ("codex", "kilo"))
+        self.assertEqual(set(NATIVE_ROLE_FILES), {"codex"})
+        self.assertEqual(
+            {path.name for path in (ROOT / "agents").iterdir() if path.is_dir()},
+            {"codex", "kilo"},
+        )
+        for removed in REMOVED_AGENT_DIRECTORIES:
+            with self.subTest(directory=removed):
+                self.assertFalse((ROOT / "agents" / removed).exists())
+                self.assertFalse(
+                    any(entry.startswith(f"agents/{removed}/") for entry in CURRENT_SKILL_FILES)
+                )
 
     def test_each_native_host_bundles_the_complete_role_shape(self) -> None:
-        source_target = {"claude": "claude-code"}
         for target, filenames in NATIVE_ROLE_FILES.items():
             with self.subTest(target=target):
                 expected = CODEX_AGENT_NAMES if target == "codex" else DELIVERY_ROLE_NAMES
-                self.assertEqual({Path(name).stem for name in filenames}, expected)
-                directory = ROOT / "agents" / source_target.get(target, target)
+                self.assertEqual({Path(name).stem for name in filenames}, set(expected))
+                directory = ROOT / "agents" / target
                 self.assertEqual({path.name for path in directory.iterdir()}, set(filenames))
                 for filename in filenames:
+                    self.assertIn(f"agents/{target}/{filename}", CURRENT_SKILL_FILES)
                     text = (directory / filename).read_text(encoding="utf-8")
                     self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
                     self.assertNotRegex(text, r"(?m)^model\s*[:=]")
@@ -145,10 +157,11 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("there is no second designer", designer)
         self.assertIn("one independently acceptable task", worker)
         self.assertIn("do not ask the user", worker)
-        self.assertIn("economical tier", worker)
-        self.assertIn("strong tier", worker)
-        self.assertIn("worker: general|frontend", worker)
-        self.assertIn("optional local", worker)
+        self.assertIn("you are the single worker role", worker)
+        self.assertIn("tasks are not tiered", worker)
+        self.assertIn("run the smallest useful focused check", worker)
+        self.assertIn("declares `exclusive` for your nodes", worker)
+        self.assertIn("worker: code|hybrid", worker)
         self.assertIn("directly repair every in-scope defect", reviewer)
         self.assertIn("there is no repair task and no second reviewer", reviewer)
         self.assertIn("rendered evidence", reviewer)
@@ -166,16 +179,16 @@ class AgentTemplateTests(unittest.TestCase):
 
         self.assertIn("explicitly set an adaptive timeout instead of using the system default", skill)
         self.assertIn("estimate completion percentage and remaining work", skill)
-        self.assertIn("difficulty`, `workload`, observed progress, elapsed time", skill)
+        self.assertIn("workload`, observed progress, elapsed time", skill)
         self.assertIn("prior comparable experience", skill)
         self.assertIn("heavy or early-stage work longer windows", skill)
         self.assertIn("re-estimate after every progress signal or expired wait", skill)
 
-    def test_main_prompt_requires_frontend_specialization_and_cache_stable_worker_prefixes(self) -> None:
+    def test_main_prompt_requires_hybrid_specialization_and_cache_stable_worker_prefixes(self) -> None:
         skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
 
-        self.assertIn("worker: general|frontend", skill)
-        self.assertIn("checks the local `frontend-worker`", skill)
+        self.assertIn("worker: code|hybrid", skill)
+        self.assertIn("checks the local `hybrid-worker`", skill)
         self.assertIn("a valid configured role must be dispatched", skill)
         self.assertIn("reuse the returned worker assignment byte-for-byte", skill)
         self.assertIn("prompt-cache hit rate and token efficiency", skill)
@@ -293,13 +306,19 @@ class AgentTemplateTests(unittest.TestCase):
         self.assertIn("inherits the invoking primary agent's model", guidance)
 
     def test_delivery_templates_resolve_one_shared_role_contract(self) -> None:
-        for host in ("codex", "claude-code", "opencode", "cursor", "kilo"):
-            for role in DELIVERY_ROLE_NAMES:
+        # Both Worker sessions share the single `worker` role contract; `hybrid-worker`
+        # names the installed agent, not a second role reference.
+        role_references = {
+            "designer": "references/designer.md",
+            "worker": "references/worker.md",
+            "hybrid-worker": "references/worker.md",
+            "reviewer": "references/reviewer.md",
+        }
+        for host in ("codex", "kilo"):
+            for role, reference in role_references.items():
                 filename = ("better-plan-" if host == "kilo" else "") + role
                 filename += ".toml" if host == "codex" else ".md"
                 template = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
-                contract = "worker" if role.startswith("worker-") else role
-                reference = f"references/{contract}.md"
                 with self.subTest(host=host, role=role):
                     self.assertIn(f"Read `{reference}`", template)
                     self.assertIn("installed `better-plan` skill", template)
@@ -331,15 +350,12 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertIn("role=", prompt)
                 self.assertIn("host-provided runtime metadata", prompt)
                 self.assertNotIn("benchmark=", prompt)
-                configured_models = [value[1] for value in CODEX_DEFAULT_MATRIX.values()]
-                configured_models.extend(value[0] for value in CODEX_FINDER_MATRIX.values())
-                for model in configured_models:
+                for model in (value[1] for value in CODEX_DEFAULT_MATRIX.values()):
                     self.assertNotIn(model, prompt)
             expected_selectors = {
                 agent_name: (model, effort)
                 for agent_name, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items()
             }
-            expected_selectors.update(CODEX_FINDER_MATRIX)
             for agent_name, (model, effort) in expected_selectors.items():
                 with self.subTest(rendered_agent=agent_name):
                     rendered = (directory / f"{agent_name}.toml").read_text(encoding="utf-8")
@@ -348,47 +364,53 @@ class AgentTemplateTests(unittest.TestCase):
             assignment_message = next(
                 message for message in messages if "immutable after first installation" in message
             )
-            self.assertIn("Coding Agent", assignment_message)
-            self.assertNotIn("benchmark not measured", assignment_message)
-            self.assertIn("Codex read-only utility", assignment_message)
-            self.assertIn("Intelligence Index proxy", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
+            self.assertNotIn("benchmark not measured", assignment_message)
             self.assertNotIn("Arena WebDev", assignment_message)
+            # The Worker pins a measured Coding Agent row, so its receipt reports that
+            # score and task cost rather than an Intelligence Index basis.
+            self.assertIn(
+                "worker -> worker, gpt-6-luna/max, Coding Agent score 41, cost $0.18/task",
+                assignment_message,
+            )
+            # The hybrid Worker keeps its Astra low-effort pin under the same Worker role.
+            self.assertIn("hybrid-worker -> worker, gpt-6-astra/low", assignment_message)
             receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
             self.assertEqual(receipt["schema_version"], 3)
             self.assertEqual(set(receipt["assignments"]), set(NATIVE_ROLE_FILES["codex"]))
 
     def test_codex_default_matrix_matches_the_explicit_user_preference(self) -> None:
         self.assertEqual(
+            set(CODEX_DEFAULT_MATRIX),
+            set(CODEX_AGENT_NAMES),
+        )
+        self.assertEqual(
             {
-                agent_name: (values[1], values[2])
+                agent_name: (values[1], values[2], values[3])
                 for agent_name, values in CODEX_DEFAULT_MATRIX.items()
             },
             {
-                "designer": ("gpt-6-astra", "max"),
-                "worker-standard": ("gpt-6-luna", "max"),
-                "worker-complex": ("gpt-6-sol", "high"),
-                "reviewer": ("gpt-6-astra", "xhigh"),
-            },
-        )
-        self.assertEqual(
-            dict(CODEX_FINDER_MATRIX),
-            {
-                "finder": ("gpt-5.3-codex-spark", "xhigh"),
-                "fallback_finder": ("gpt-5.4-mini", "xhigh"),
+                "designer": ("gpt-6-astra", "max", "gpt-6-astra"),
+                "worker": ("gpt-6-luna", "max", "codex-gpt-6-luna-max"),
+                "hybrid-worker": ("gpt-6-astra", "low", "gpt-6-astra-low"),
+                "reviewer": ("gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
             },
         )
         with tempfile.TemporaryDirectory() as tmpdir:
-            assignments = select_role_assignments(
-                paths(Path(tmpdir)),
-                "codex",
-                excluded_names=NATIVE_ROLE_FILES["codex"],
-            )
+            assignments = select_role_assignments(paths(Path(tmpdir)), "codex")
 
         self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-        expected_scores = {
-            "designer": 53, "worker-standard": 41, "worker-complex": 43, "reviewer": 52,
-        }
+        # Both Worker agents carry the single delivery role; only the installed agent names differ.
+        self.assertEqual(
+            {agent_name: assignment.role for agent_name, assignment in assignments.items()},
+            {
+                "designer": "designer",
+                "worker": "worker",
+                "hybrid-worker": "worker",
+                "reviewer": "reviewer",
+            },
+        )
+        expected_scores = {"designer": 53, "worker": 41, "hybrid-worker": 46, "reviewer": 52}
         for agent_name, (role, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
             with self.subTest(agent_name=agent_name):
                 assignment = assignments[agent_name]
@@ -403,35 +425,18 @@ class AgentTemplateTests(unittest.TestCase):
                     (role, model, effort, benchmark_id, "codex-default-matrix"),
                 )
                 self.assertEqual(assignment.index_score, expected_scores[agent_name])
-                if agent_name == "worker-standard":
+                if agent_name == "worker":
                     self.assertEqual(assignment.benchmark_id, "codex-gpt-6-luna-max")
                     self.assertAlmostEqual(assignment.cost_per_task_usd, 0.17591172304455457)
                 else:
                     self.assertIsNone(assignment.cost_per_task_usd)
-        self.assertEqual(assignments["worker-complex"].benchmark_id, "gpt-6-sol-high")
-        for agent_name, (model, effort) in CODEX_FINDER_MATRIX.items():
-            with self.subTest(agent_name=agent_name):
-                assignment = assignments[agent_name]
-                self.assertEqual(assignment.role, "finder")
-                self.assertEqual((assignment.model, assignment.reasoning_effort), (model, effort))
-                self.assertEqual(assignment.source, "codex-default-matrix")
 
-    def test_codex_finder_templates_are_strictly_read_only_and_fallback_is_secondary(self) -> None:
-        finder = (ROOT / "agents" / "codex" / "finder.toml").read_text(encoding="utf-8").lower()
-        fallback = (ROOT / "agents" / "codex" / "fallback_finder.toml").read_text(encoding="utf-8").lower()
-        for payload in (finder, fallback):
-            self.assertIn('sandbox_mode = "read-only"', payload)
-            self.assertIn("never write", payload)
-            self.assertIn("concurrently", payload)
-        self.assertIn("exhausted quota", fallback)
-        self.assertIn("only when", fallback)
-
-    def test_codex_workers_fail_closed_when_the_task_payload_is_absent(self) -> None:
-        for role in ("worker-standard", "worker-complex"):
-            template = (ROOT / "agents" / "codex" / f"{role}.toml").read_text(
+    def test_codex_worker_fails_closed_when_the_task_payload_is_absent(self) -> None:
+        for agent_name in ("worker", "hybrid-worker"):
+            template = (ROOT / "agents" / "codex" / f"{agent_name}.toml").read_text(
                 encoding="utf-8"
             )
-            with self.subTest(role=role):
+            with self.subTest(agent=agent_name):
                 self.assertIn("Payload has no visible actionable Task", template)
                 self.assertIn("do not inspect the workspace or call tools", template)
                 self.assertIn("payload-delivery-failed", template)
@@ -452,7 +457,7 @@ class AgentTemplateTests(unittest.TestCase):
                 self.assertEqual(assignments[role].source, "codex-default-matrix")
             install_role_templates(install_paths, "codex", dry_run=False)
             self.assertEqual(local_role.read_text(encoding="utf-8"), content)
-            rendered_worker = (directory / "worker-standard.toml").read_text(encoding="utf-8")
+            rendered_worker = (directory / "worker.toml").read_text(encoding="utf-8")
             self.assertIn('model = "gpt-6-luna"', rendered_worker)
             self.assertIn('model_reasoning_effort = "max"', rendered_worker)
 
@@ -477,7 +482,7 @@ class AgentTemplateTests(unittest.TestCase):
             receipt_path = install_paths.codex_home / "agents.better-plan.json"
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             receipt["schema_version"] = 2
-            for filename in ("worker-standard.toml", "worker-complex.toml"):
+            for filename in ("worker.toml", "reviewer.toml"):
                 receipt["files"].pop(filename)
                 receipt["assignments"].pop(filename)
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
@@ -501,123 +506,6 @@ class AgentTemplateTests(unittest.TestCase):
             install_role_templates(install_paths, "codex", dry_run=False)
             after = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
             self.assertEqual(before, after)
-
-    def test_cursor_defaults_pin_grok_4_6_roles(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            assignments = select_role_assignments(install_paths, "cursor")
-            self.assertEqual(set(assignments), DELIVERY_ROLE_NAMES)
-            expected = {
-                "designer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh", "designer"),
-                "worker-standard": (
-                    "cursor-grok-4.6-high-fast",
-                    "high",
-                    "grok-4-6",
-                    "worker",
-                ),
-                "worker-complex": (
-                    "cursor-grok-4.6-xhigh-fast",
-                    "xhigh",
-                    "grok-4-6-xhigh",
-                    "worker",
-                ),
-                "reviewer": ("cursor-grok-4.6-xhigh-fast", "xhigh", "grok-4-6-xhigh", "reviewer"),
-            }
-            for role, values in expected.items():
-                assignment = assignments[role]
-                self.assertEqual(
-                    (
-                        assignment.model,
-                        assignment.reasoning_effort,
-                        assignment.benchmark_id,
-                        assignment.role,
-                    ),
-                    values,
-                )
-                self.assertEqual(assignment.source, "cursor-default-matrix")
-            self.assertEqual(
-                {
-                    agent_name: (values[1], values[2], values[3])
-                    for agent_name, values in CURSOR_DEFAULT_MATRIX.items()
-                },
-                {
-                    agent_name: (assignment.model, assignment.reasoning_effort, assignment.benchmark_id)
-                    for agent_name, assignment in assignments.items()
-                },
-            )
-            install_role_templates(install_paths, "cursor", dry_run=False)
-            directory = install_paths.cursor_home / "agents"
-            self.assertEqual(
-                {path.name for path in directory.iterdir()},
-                {"designer.md", "reviewer.md", "worker-complex.md", "worker-standard.md"},
-            )
-            standard = (directory / "worker-standard.md").read_text(encoding="utf-8")
-            complex_worker = (directory / "worker-complex.md").read_text(encoding="utf-8")
-            self.assertIn("model: cursor-grok-4.6-high-fast", standard)
-            self.assertIn("reasoning_effort: high", standard)
-            self.assertIn("model: cursor-grok-4.6-xhigh-fast", complex_worker)
-            self.assertIn("reasoning_effort: xhigh", complex_worker)
-
-    def test_unmeasured_host_difficulty_is_omitted_instead_of_guessed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            assignments = select_role_assignments(paths(Path(tmpdir)), "opencode")
-            self.assertNotIn("worker-complex", assignments)
-
-    def test_single_measured_opencode_model_can_fill_all_intelligence_roles(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            assignments = select_role_assignments(paths(Path(tmpdir)), "opencode")
-            self.assertTrue({"designer", "reviewer"}.issubset(assignments))
-            self.assertTrue(
-                all(assignments[role].benchmark_id == "glm-5-3" for role in ("designer", "reviewer"))
-            )
-
-    def test_callable_opencode_go_defaults_create_the_complete_role_matrix(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            directory = install_paths.opencode_config / "agents"
-            directory.mkdir(parents=True)
-            (directory / "user-agent.md").write_text(
-                "---\nmodel: opencode-go/unmeasured-local-model\nmode: subagent\n---\n",
-                encoding="utf-8",
-            )
-
-            assignments = select_role_assignments(
-                install_paths,
-                "opencode",
-                available_model_selectors=OPENCODE_GO_SELECTORS,
-            )
-
-            self.assertEqual(set(assignments), DELIVERY_ROLE_NAMES)
-            self.assertEqual(assignments["designer"].model, "opencode-go/kimi-k3")
-            self.assertEqual(assignments["worker-standard"].model, "opencode-go/deepseek-v4-flash")
-            self.assertEqual(assignments["worker-complex"].model, "opencode-go/gpt-5.6-luna")
-            self.assertEqual(assignments["reviewer"].model, "opencode-go/kimi-k3")
-            self.assertTrue(
-                all(value.source == "opencode-go-default-matrix" for value in assignments.values())
-            )
-
-    def test_opencode_go_templates_use_native_options_and_model_capabilities(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            with mock.patch.object(
-                install_targets,
-                "opencode_model_selectors",
-                return_value=OPENCODE_GO_SELECTORS,
-            ):
-                install_role_templates(install_paths, "opencode", dry_run=False)
-
-            directory = install_paths.opencode_config / "agents"
-            designer = (directory / "designer.md").read_text(encoding="utf-8")
-            standard = (directory / "worker-standard.md").read_text(encoding="utf-8")
-            complex_worker = (directory / "worker-complex.md").read_text(encoding="utf-8")
-            reviewer = (directory / "reviewer.md").read_text(encoding="utf-8")
-            for text in (designer, standard, complex_worker, reviewer):
-                self.assertIn("reasoningEffort:", text)
-                self.assertNotRegex(text, r"(?m)^reasoning_effort:")
-            self.assertNotIn("temperature:", designer)
-            self.assertIn("temperature: 0.1", standard)
-            self.assertNotIn("temperature:", complex_worker)
-            self.assertNotIn("temperature:", reviewer)
 
 
 if __name__ == "__main__":

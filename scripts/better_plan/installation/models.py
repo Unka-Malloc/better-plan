@@ -7,32 +7,9 @@ from pathlib import Path
 
 
 SKILL_NAME = "better-plan"
-VERSION = "3.0.2"
-AGENTS = (
-    "codex",
-    "claude",
-    "opencode",
-    "cursor",
-    "copilot",
-    "antigravity",
-    "pi",
-    "craft",
-    "kilo",
-    "kimi",
-)
-SHARED_SCAN_AGENTS = frozenset({"codex", "cursor", "copilot", "pi", "kilo", "kimi"})
-ADAPTER_SKILL_AGENTS = frozenset({"opencode"})
-CURSOR_APP_BUNDLE_CLI = "/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
-OPTIONAL_CLIENT_CLI_COMMANDS = {
-    "cursor": (
-        ("cursor-agent", "--version"),
-        ("cursor", "--version"),
-        (CURSOR_APP_BUNDLE_CLI, "--version"),
-    ),
-    "copilot": (("copilot", "--version"),),
-    "kimi": (("kimi", "--version"),),
-}
-DESCRIPTION = "Decision-complete Better Plan v3 orchestration with one design session, autonomous in-scope delivery, and one writable review session."
+VERSION = "3.1.0"
+AGENTS = ("codex", "kilo")
+SHARED_SCAN_AGENTS = frozenset({"codex", "kilo"})
 # This is the minimum executable payload, not a compatibility inventory. Removed
 # top-level implementations must never reappear here.
 CURRENT_SKILL_FILES = (
@@ -50,7 +27,6 @@ CURRENT_SKILL_FILES = (
     "references/design-patterns.md",
     "references/worker.md",
     "references/reviewer.md",
-    "references/coordination.md",
     "skills/efficiency-inspector/SKILL.md",
     "skills/efficiency-inspector/agents/openai.yaml",
     "skills/efficiency-inspector/references/adapter-boundary.md",
@@ -65,9 +41,6 @@ CURRENT_SKILL_FILES = (
     "scripts/manifest_tool.py",
     "scripts/hook_tool.py",
     "scripts/install.py",
-    "scripts/task_shape.py",
-    "scripts/wait_hint.py",
-    "scripts/coordination_tool.py",
     "scripts/better_plan/__init__.py",
     "scripts/better_plan/_vendor/__init__.py",
     "scripts/better_plan/_vendor/README.md",
@@ -82,8 +55,8 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/domain/design_compile.py",
     "scripts/better_plan/domain/tree.py",
     "scripts/better_plan/domain/report.py",
-    "scripts/better_plan/domain/coordination.py",
     "scripts/better_plan/domain/validation.py",
+    "scripts/better_plan/domain/task_shape.py",
     "scripts/better_plan/domain/model_catalog.json",
     "scripts/better_plan/domain/coding_agent_catalog.json",
     "scripts/better_plan/domain/model_routing.py",
@@ -94,14 +67,9 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/application/__init__.py",
     "scripts/better_plan/application/agent_completion.py",
     "scripts/better_plan/application/workflow.py",
-    "scripts/better_plan/application/coordinator.py",
     "scripts/better_plan/adapters/__init__.py",
     "scripts/better_plan/adapters/manifest_cli.py",
     "scripts/better_plan/adapters/install_cli.py",
-    "scripts/better_plan/adapters/coordination_cli.py",
-    "scripts/better_plan/adapters/coordination_sources.py",
-    "scripts/better_plan/adapters/coordination_portfolio.py",
-    "scripts/better_plan/adapters/coordination_host.py",
     "scripts/better_plan/hooks/__init__.py",
     "scripts/better_plan/hooks/scope.py",
     "scripts/better_plan/hooks/context.py",
@@ -111,10 +79,6 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/hooks/adapters/__init__.py",
     "scripts/better_plan/hooks/adapters/base.py",
     "scripts/better_plan/hooks/adapters/codex.py",
-    "scripts/better_plan/hooks/adapters/claude.py",
-    "scripts/better_plan/hooks/adapters/cursor.py",
-    "scripts/better_plan/hooks/adapters/antigravity.py",
-    "scripts/better_plan/hooks/adapters/kimi.py",
     "scripts/better_plan/installation/__init__.py",
     "scripts/better_plan/installation/assignments.py",
     "scripts/better_plan/installation/models.py",
@@ -123,27 +87,13 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/installation/doctor.py",
     "scripts/better_plan/installation/service.py",
     "agents/codex/designer.toml",
-    "agents/codex/worker-standard.toml",
-    "agents/codex/worker-complex.toml",
+    "agents/codex/worker.toml",
+    "agents/codex/hybrid-worker.toml",
     "agents/codex/reviewer.toml",
-    "agents/codex/finder.toml",
-    "agents/codex/fallback_finder.toml",
-    "agents/claude-code/designer.md",
-    "agents/claude-code/worker-standard.md",
-    "agents/claude-code/worker-complex.md",
-    "agents/claude-code/reviewer.md",
-    "agents/opencode/designer.md",
-    "agents/opencode/worker-standard.md",
-    "agents/opencode/worker-complex.md",
-    "agents/opencode/reviewer.md",
-    "agents/cursor/designer.md",
-    "agents/cursor/worker-standard.md",
-    "agents/cursor/worker-complex.md",
-    "agents/cursor/reviewer.md",
     "agents/kilo/better-plan.md",
     "agents/kilo/better-plan-designer.md",
-    "agents/kilo/better-plan-worker-standard.md",
-    "agents/kilo/better-plan-worker-complex.md",
+    "agents/kilo/better-plan-worker.md",
+    "agents/kilo/better-plan-hybrid-worker.md",
     "agents/kilo/better-plan-reviewer.md",
     "web/plan-report.html",
 )
@@ -158,16 +108,8 @@ class InstallPaths:
     repo_root: Path
     codex_home: Path
     shared_home: Path
-    claude_home: Path
-    opencode_config: Path
-    cursor_home: Path
-    copilot_home: Path
-    antigravity_home: Path
-    pi_home: Path
-    craft_home: Path
     kilo_home: Path
     kilo_config: Path
-    kimi_home: Path
 
     @property
     def codex_skill(self) -> Path:
@@ -182,61 +124,6 @@ class InstallPaths:
         return self.shared_home / "skills" / SKILL_NAME
 
     @property
-    def claude_plugin(self) -> Path:
-        return self.claude_home / "skills" / SKILL_NAME
-
-    @property
-    def claude_skill(self) -> Path:
-        return self.claude_plugin / "skills" / SKILL_NAME
-
-    @property
-    def claude_settings(self) -> Path:
-        return self.claude_home / "settings.json"
-
-    @property
-    def opencode_agent(self) -> Path:
-        return self.opencode_config / "agents" / f"{SKILL_NAME}.md"
-
-    @property
-    def cursor_skill(self) -> Path:
-        return self.cursor_home / "skills" / SKILL_NAME
-
-    @property
-    def cursor_hooks(self) -> Path:
-        return self.cursor_home / "hooks.json"
-
-    @property
-    def copilot_skill(self) -> Path:
-        return self.copilot_home / "skills" / SKILL_NAME
-
-    @property
-    def antigravity_plugin(self) -> Path:
-        return self.antigravity_home / "plugins" / SKILL_NAME
-
-    @property
-    def antigravity_skill(self) -> Path:
-        return self.antigravity_plugin / "skills" / SKILL_NAME
-
-    @property
-    def pi_skill(self) -> Path:
-        return self.pi_home / "skills" / SKILL_NAME
-
-    @property
-    def craft_workspaces(self) -> tuple[Path, ...]:
-        root = self.craft_home / "workspaces"
-        if not root.is_dir():
-            return ()
-        return tuple(
-            path
-            for path in sorted(root.iterdir(), key=lambda item: item.name)
-            if path.is_dir() and (path / "config.json").is_file()
-        )
-
-    @property
-    def craft_skills(self) -> tuple[Path, ...]:
-        return tuple(workspace / "skills" / SKILL_NAME for workspace in self.craft_workspaces)
-
-    @property
     def kilo_skill(self) -> Path:
         return self.kilo_home / "skills" / SKILL_NAME
 
@@ -244,25 +131,9 @@ class InstallPaths:
     def kilo_agents(self) -> Path:
         return self.kilo_config / "agents"
 
-    @property
-    def kimi_skill(self) -> Path:
-        return self.kimi_home / "skills" / SKILL_NAME
-
-    @property
-    def kimi_config(self) -> Path:
-        return self.kimi_home / "config.toml"
-
 
 @dataclass(frozen=True)
 class Check:
     status: str
     target: str
     message: str
-
-
-@dataclass(frozen=True)
-class WslOpenCodeRuntime:
-    distro: str
-    location: str
-    home: str
-    version: str

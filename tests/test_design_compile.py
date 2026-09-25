@@ -23,10 +23,9 @@ Outputs:
 Owns:
 - published
 Exclusive:
-Worker: frontend
-Difficulty: standard
+Worker: hybrid
 Workload: heavy
-Verification: code
+Verification: hybrid
 Risks:
 - public_interface
 Nodes:
@@ -71,9 +70,11 @@ EXPECTED_SPEC = {
             "artifact": "relative/path",
             "guarantee": "The delivery can rely on the verified behavior.",
         }],
-        "ownership": {"write_paths": ["relative/path"], "shared_exclusive": []},
-        "worker": "general",
-        "difficulty": "standard",
+        "ownership": {
+            "write_paths": ["relative/path"],
+            "shared_exclusive": ["build directory — isolated per Node under target/<node>/"],
+        },
+        "worker": "code",
         "workload": "medium",
         "verification": "code",
         "requirements": ["REQ-001"],
@@ -134,13 +135,31 @@ class DesignCompileTests(unittest.TestCase):
         self.assertEqual(result["unmapped"], [])
         self.assertEqual(result["spec"], EXPECTED_SPEC)
 
-    def test_alias_defaults_designer_tier_and_parallel_fields_are_preserved(self) -> None:
+    def test_a_tier_line_is_unmapped_and_never_compiles_into_the_task(self) -> None:
+        """One Worker role handles every Task, so a tier field has no meaning to map."""
+
+        for label in ("Difficulty", "Tier"):
+            with self.subTest(field=label):
+                source = SECOND_TASK.replace(
+                    "Worker: hybrid", "Worker: hybrid\n%s: complex" % label
+                )
+                draft = DESIGN_TEMPLATE.replace("## Full regression", source + "\n## Full regression")
+                result = compile_design(draft, complete_plan()["spec"])
+
+                self.assertEqual(
+                    [issue["kind"] for issue in result["issues"]], ["unmapped"]
+                )
+                self.assertEqual(
+                    result["issues"][0]["line"],
+                    draft.splitlines().index("%s: complex" % label) + 1,
+                )
+                for task in result["spec"]["tasks"]:
+                    self.assertNotIn("difficulty", task)
+
+    def test_task_aliases_defaults_and_parallel_fields_are_preserved(self) -> None:
         aliased_task = SECOND_TASK.replace(
             "Owns:\n- published",
             "Write paths: published",
-        ).replace(
-            "Difficulty: standard",
-            "Tier: standard",
         ).replace(
             "Requirements:\n- observable-behavior",
             "Requirements: observable-behavior",
@@ -150,31 +169,29 @@ class DesignCompileTests(unittest.TestCase):
 
         self.assertEqual(result["issues"], [])
         first, second = result["spec"]["tasks"]
-        self.assertEqual(second["worker"], "frontend")
-        self.assertEqual(second["difficulty"], "standard")
+        self.assertEqual(second["worker"], "hybrid")
         self.assertEqual(second["workload"], "heavy")
+        self.assertEqual(second["verification"], "hybrid")
+        self.assertEqual(second["ownership"]["write_paths"], ["published"])
+        self.assertEqual(second["requirements"], ["REQ-001"])
         self.assertEqual(first["prerequisites"], [])
         self.assertEqual(first["inputs"], [])
         self.assertEqual(second["prerequisites"], [])
         self.assertEqual(second["inputs"], [])
+        self.assertNotIn("difficulty", first)
+        self.assertNotIn("difficulty", second)
 
         defaults = DESIGN_TEMPLATE.replace("Scope out:\n- Unrelated capabilities.\n", "").replace(
-            "Difficulty: standard\n",
+            "Verification: code\nRisks:\n",
             "",
-        ).replace("Verification: code\nRisks:\n", "")
+        )
         default_task = compile_design(defaults, complete_plan()["spec"])["spec"]["tasks"][0]
         self.assertEqual(default_task["scope"]["out"], [])
         self.assertEqual(default_task["risks"], [])
-        self.assertEqual(default_task["difficulty"], "standard")
-        self.assertEqual(default_task["worker"], "general")
+        self.assertEqual(default_task["worker"], "code")
         self.assertEqual(default_task["workload"], "medium")
         self.assertEqual(default_task["verification"], "code")
-
-        complex_task = compile_design(
-            draft.replace("Tier: standard", "Tier: complex"),
-            complete_plan()["spec"],
-        )["spec"]["tasks"][1]
-        self.assertEqual(complex_task["difficulty"], "complex")
+        self.assertNotIn("difficulty", default_task)
 
     def test_representative_structure_residue_is_reported(self) -> None:
         duplicate_task = DESIGN_TEMPLATE.replace(
@@ -260,7 +277,7 @@ class DesignCompileTests(unittest.TestCase):
             "Workload: medium",
             "Workload: enormous",
         ).replace(
-            "Worker: general",
+            "Worker: code",
             "Worker: backend",
         ).replace(
             "Risks:\n",

@@ -24,6 +24,7 @@ SHARDS = {
     "hosts": (
         "tests.test_agent_templates",
         "tests.test_hook_tool",
+        "tests.test_kilo_task_adapter",
         "tests.test_native_role_resolution",
     ),
     "installation": ("tests.test_install_tool",),
@@ -32,13 +33,6 @@ SHARDS = {
         "tests.test_efficiency_inspector",
         "tests.test_parallel_test_runner",
         "tests.test_report",
-        "tests.test_workload_tools",
-        "tests.test_coordination",
-        "tests.test_coordinator",
-        "tests.test_coordination_sources",
-        "tests.test_coordination_host",
-        "tests.test_coordination_cli",
-        "tests.test_coordination_integration",
     ),
 }
 

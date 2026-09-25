@@ -9,7 +9,7 @@ from . import targets as _targets
 from .models import AGENTS, InstallPaths as _InstallPaths
 
 
-_MANAGED_HOOK_AGENTS = {"codex", "claude", "cursor", "kimi"}
+_MANAGED_HOOK_AGENTS = frozenset({"codex"})
 
 
 def install_agents(
@@ -22,7 +22,6 @@ def install_agents(
     _skills.validate_source_tree(paths.repo_root)
     messages: list[str] = []
     scan_targets = _skills.shared_scan_targets(paths, agents)
-    implementation = _skills.implementation_root(paths, scan_targets)
     updated_roots: set[Path] = set()
 
     def update_skill_root(target: Path, label: str) -> None:
@@ -34,9 +33,6 @@ def install_agents(
 
     for kind, target in scan_targets.values():
         update_skill_root(target, kind)
-    if _skills.adapter_needs_skill_root(agents):
-        label = "shared" if implementation == paths.shared_skill else "implementation"
-        update_skill_root(implementation, label)
 
     for agent in AGENTS:
         if agent not in agents:
@@ -62,16 +58,6 @@ def uninstall_hooks(paths: _InstallPaths, agents: list[str], *, dry_run: bool) -
     """Remove only Better Plan-managed lifecycle handlers."""
     messages: list[str] = []
     for agent in agents:
-        if agent == "antigravity":
-            path = paths.antigravity_plugin / "hooks.json"
-            changed = path.exists()
-            if changed and not dry_run:
-                _skills.remove_path(path)
-            action = "would remove managed handlers" if dry_run else "removed managed handlers"
-            if not changed:
-                action = "no managed handlers found"
-            messages.append(f"{agent}: {action}")
-            continue
         if agent in _MANAGED_HOOK_AGENTS:
             _, changed = _targets.remove_agent_hooks(paths, agent, dry_run=dry_run)
             action = "would remove managed handlers" if dry_run else "removed managed handlers"
