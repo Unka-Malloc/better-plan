@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from .antigravity import ADAPTER as ANTIGRAVITY
 from .base import CompletionSignal, HookProtocolError, HostHookAdapter
-from .claude import ADAPTER as CLAUDE
 from .codex import ADAPTER as CODEX
-from .cursor import ADAPTER as CURSOR
-from .kimi import ADAPTER as KIMI
 
 
-ADAPTERS = (CODEX, CLAUDE, CURSOR, ANTIGRAVITY, KIMI)
+ADAPTERS = (CODEX,)
 BY_NAME = {adapter.name: adapter for adapter in ADAPTERS}
 
 

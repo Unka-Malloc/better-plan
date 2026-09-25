@@ -1,33 +1,26 @@
-"""Network-free role selection over versioned Artificial Analysis snapshots.
+"""Network-free loading of versioned Artificial Analysis snapshots.
 
-The model table ranks Designer and Reviewer by Intelligence Index.  The Coding
-Agent table independently routes the two Worker tiers by task difficulty and
-cost: `standard` carries ordinary bounded work at the lowest qualifying price,
-and `complex` carries work the Designer judged to need stronger reasoning. Runtime
-dispatch never calls this module: assignments are selected once while native
-Better Plan agents are created and are then persisted by the installer.
+The packaged tables are reference data: the model table records the Intelligence
+Index and the Coding Agent table records measured harness combinations. The
+installer reads one row per packaged Codex role pin to record that pin's
+``index_score`` and ``cost_per_task_usd`` provenance. Nothing here selects a
+role, a model, or an effort, and runtime dispatch never calls this module.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from dataclasses import dataclass
 from functools import lru_cache
 import json
 import math
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
 from .models import ToolError
 
 
 _MODEL_CATALOG_PATH = Path(__file__).with_name("model_catalog.json")
 _CODING_AGENT_CATALOG_PATH = Path(__file__).with_name("coding_agent_catalog.json")
-_DIFFICULTIES = ("standard", "complex")
-_INTELLIGENCE_ROLES = frozenset({"designer", "reviewer"})
-_MODEL_SELECTION_POLICY = "intelligence_rank_for_non_worker_roles"
-_WORKER_SELECTION_POLICY = "lowest_cost_above_task_difficulty_floor"
 _MONEY_FIELDS = (
     "cost_per_task_usd",
     "input_price_per_million_usd",
@@ -55,7 +48,6 @@ _MODEL_TOP_LEVEL_FIELDS = frozenset(
         "source_url",
         "methodology_url",
         "status_filter",
-        "selection_policy",
         "model_count",
         "models",
     }
@@ -78,9 +70,6 @@ _CODING_AGENT_TOP_LEVEL_FIELDS = frozenset(
         "source_url",
         "methodology_url",
         "methodology_version",
-        "usage",
-        "selection_policy",
-        "difficulty_floors",
         "variant_count",
         "variants",
     }
@@ -115,7 +104,6 @@ class ModelCatalog:
     source_url: str
     methodology_url: str
     status_filter: str
-    selection_policy: str
     model_count: int
     models: tuple[ModelRecord, ...]
 
@@ -134,7 +122,7 @@ class CodingAgentRecord:
 
 @dataclass(frozen=True)
 class CodingAgentCatalog:
-    """Validated immutable Coding Agent snapshot and Worker difficulty policy."""
+    """Validated immutable Coding Agent snapshot."""
 
     schema_version: int
     catalog_version: str
@@ -142,19 +130,12 @@ class CodingAgentCatalog:
     source_url: str
     methodology_url: str
     methodology_version: str
-    usage: str
-    selection_policy: str
-    difficulty_floors: Mapping[str, int]
     variant_count: int
     variants: tuple[CodingAgentRecord, ...]
 
 
 def _catalog_error() -> ToolError:
     return ToolError("role benchmark catalog is invalid")
-
-
-def _selection_error() -> ToolError:
-    return ToolError("no locally available role configuration qualifies")
 
 
 def _string_field(value: Any) -> bool:
@@ -192,13 +173,10 @@ def _parse_model_catalog(payload: Any) -> ModelCatalog:
         "source_url",
         "methodology_url",
         "status_filter",
-        "selection_policy",
     ):
         if not _string_field(payload.get(field)):
             raise _catalog_error()
     if payload.get("status_filter") not in {"current", "all"}:
-        raise _catalog_error()
-    if payload.get("selection_policy") != _MODEL_SELECTION_POLICY:
         raise _catalog_error()
 
     count = payload.get("model_count")
@@ -248,27 +226,15 @@ def _parse_model_catalog(payload: Any) -> ModelCatalog:
         source_url=str(payload["source_url"]),
         methodology_url=str(payload["methodology_url"]),
         status_filter=str(payload["status_filter"]),
-        selection_policy=str(payload["selection_policy"]),
         model_count=int(count),
         models=tuple(records),
     )
 
 
-def _parse_difficulty_floors(value: Any) -> Mapping[str, int]:
-    if not isinstance(value, dict) or set(value) != set(_DIFFICULTIES):
-        raise _catalog_error()
-    floors = [value[name] for name in _DIFFICULTIES]
-    if any(type(floor) is not int or floor < 0 for floor in floors):
-        raise _catalog_error()
-    if floors != sorted(floors) or len(set(floors)) != len(floors):
-        raise _catalog_error()
-    return MappingProxyType({name: int(value[name]) for name in _DIFFICULTIES})
-
-
 def _parse_coding_agent_catalog(payload: Any) -> CodingAgentCatalog:
     if not isinstance(payload, dict) or set(payload) != _CODING_AGENT_TOP_LEVEL_FIELDS:
         raise _catalog_error()
-    if payload.get("schema_version") != 2:
+    if payload.get("schema_version") != 4:
         raise _catalog_error()
     for field in (
         "catalog_version",
@@ -276,16 +242,9 @@ def _parse_coding_agent_catalog(payload: Any) -> CodingAgentCatalog:
         "source_url",
         "methodology_url",
         "methodology_version",
-        "usage",
-        "selection_policy",
     ):
         if not _string_field(payload.get(field)):
             raise _catalog_error()
-    if payload.get("usage") != "worker_routing_reference":
-        raise _catalog_error()
-    if payload.get("selection_policy") != _WORKER_SELECTION_POLICY:
-        raise _catalog_error()
-    floors = _parse_difficulty_floors(payload.get("difficulty_floors"))
     count = payload.get("variant_count")
     rows = payload.get("variants")
     if type(count) is not int or count <= 0 or not isinstance(rows, list) or len(rows) != count:
@@ -319,15 +278,12 @@ def _parse_coding_agent_catalog(payload: Any) -> CodingAgentCatalog:
             )
         )
     return CodingAgentCatalog(
-        schema_version=2,
+        schema_version=4,
         catalog_version=str(payload["catalog_version"]),
         as_of=str(payload["as_of"]),
         source_url=str(payload["source_url"]),
         methodology_url=str(payload["methodology_url"]),
         methodology_version=str(payload["methodology_version"]),
-        usage=str(payload["usage"]),
-        selection_policy=str(payload["selection_policy"]),
-        difficulty_floors=floors,
         variant_count=int(count),
         variants=tuple(records),
     )
@@ -360,112 +316,4 @@ def load_coding_agent_catalog(path: Path | None = None) -> CodingAgentCatalog:
         _load_default_coding_agent_catalog()
         if path is None
         else _parse_coding_agent_catalog(_read_json(Path(path)))
-    )
-
-
-def _available_ids(values: Collection[str] | None) -> frozenset[str] | None:
-    if values is None:
-        return None
-    if isinstance(values, (str, bytes)):
-        raise _selection_error()
-    try:
-        normalized = frozenset(values)
-    except TypeError as exc:
-        raise _selection_error() from exc
-    if not normalized or any(not _string_field(value) for value in normalized):
-        raise _selection_error()
-    return normalized
-
-
-def select_worker_agent_from_catalog(
-    catalog: CodingAgentCatalog,
-    difficulty: str,
-    *,
-    harness: str | None = None,
-    available_variant_ids: Collection[str] | None = None,
-) -> CodingAgentRecord:
-    """Choose the cheapest measured Worker combination above the difficulty floor."""
-
-    if not isinstance(catalog, CodingAgentCatalog) or difficulty not in _DIFFICULTIES:
-        raise _selection_error()
-    if harness is not None and not _string_field(harness):
-        raise _selection_error()
-    allowed = _available_ids(available_variant_ids)
-    floor = catalog.difficulty_floors[difficulty]
-    candidates = [
-        variant
-        for variant in catalog.variants
-        if variant.index_score >= floor
-        and (harness is None or variant.harness == harness)
-        and (allowed is None or variant.variant_id in allowed)
-    ]
-    if not candidates:
-        raise _selection_error()
-    return min(
-        candidates,
-        key=lambda variant: (
-            variant.cost_per_task_usd,
-            -variant.index_score,
-            variant.variant_id,
-        ),
-    )
-
-
-def select_worker_agent(
-    difficulty: str,
-    *,
-    harness: str | None = None,
-    available_variant_ids: Collection[str] | None = None,
-) -> CodingAgentRecord:
-    """Select one Worker combination from the packaged Coding Agent table."""
-
-    return select_worker_agent_from_catalog(
-        load_coding_agent_catalog(),
-        difficulty,
-        harness=harness,
-        available_variant_ids=available_variant_ids,
-    )
-
-
-def select_intelligence_model_from_catalog(
-    catalog: ModelCatalog,
-    role: str,
-    *,
-    available_model_ids: Collection[str] | None = None,
-) -> ModelRecord:
-    """Rank locally available non-Worker models without considering price.
-
-    Designer and Reviewer use the highest Intelligence Index.
-    """
-
-    if not isinstance(catalog, ModelCatalog) or role not in _INTELLIGENCE_ROLES:
-        raise _selection_error()
-    allowed = _available_ids(available_model_ids)
-    candidates = [
-        model
-        for model in catalog.models
-        if model.intelligence_index is not None
-        and (allowed is None or model.model_id in allowed)
-    ]
-    if not candidates:
-        raise _selection_error()
-    target_score = max(int(model.intelligence_index) for model in candidates)
-    # Cost is deliberately absent from the key.
-    return min(
-        (model for model in candidates if model.intelligence_index == target_score),
-        key=lambda model: model.model_id,
-    )
-
-
-def select_intelligence_model(
-    role: str,
-    *,
-    available_model_ids: Collection[str] | None = None,
-) -> ModelRecord:
-    """Select one non-Worker role model from the packaged model table."""
-
-    return select_intelligence_model_from_catalog(
-        load_model_catalog(),
-        role,
-        available_model_ids=available_model_ids,
     )

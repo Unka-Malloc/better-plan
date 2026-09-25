@@ -71,15 +71,33 @@ actually requires reasoning about Better Plan's cross-cutting design.
 9. **Compile plans into independently acceptable outcomes.** A Task represents one observable
    result, not a file list, role, or development phase. Freeze its scope, guaranteed outputs,
    ownership, risk, design decisions, acceptance oracle, evidence, and focused regression so a
-   fresh-context Worker can execute it without the original conversation.
+   fresh-context Worker can execute it without the original conversation. A Task is also one Worker
+   session, so it carries a bounded execution shape: readiness rejects a Task whose Node DAG,
+   ownership surface, or verification surface exceeds the single-session ceiling, and the fix is to
+   split it into more mutually parallel-safe Tasks rather than to relabel or promote it.
 
 10. **Execute every available parallel frontier.** The native main passes requirements, not a
     predesigned Task graph. The Designer makes all Tasks mutually independent, then gives each Task
     a minimal Node DAG: declare an edge only for a real ordering or data dependency, branch every
     independent Node, and join only where its prerequisites converge. Python compiles and validates
-    that structure; Workers run every ready Node concurrently, and the native main runs focused
-    acceptance concurrently for every awaiting independent Task. Long-running work never holds the
-    global state lock. No Node receives a separate role, approval, or persistent execution ledger.
+    that structure; Workers run every ready Node concurrently, and the native main then runs focused
+    acceptance serially, one returning Task at a time, because build tooling already serializes itself
+    on its output directory and one warm cache serves the whole delivery. Long-running work never
+    holds the global state lock. No Node receives a separate role, approval, or persistent execution ledger.
+
+    Disjoint write paths are necessary but not sufficient for real parallelism: it is a property of
+    the machine. A plan must also attribute the resources parallel units contend on — build and
+    artifact directories, version-control indexes and locks, test stores, ports, devices, toolchain
+    caches — at both Task and intra-Task frontier level. Because Nodes share their Task's ownership,
+    every resource under a wide frontier must be `isolated`: concurrent Nodes cannot hold one
+    exclusively among themselves, and the cross-Task collision check has no second Task to compare
+    with, so an `exclusive` claim there is parallelism on paper only. Readiness rejects it. These
+    declarations are what a Worker actually uses: it runs its own focused checks only inside the
+    isolated build, test, and cache paths its Task assigns it, while the native main keeps the single
+    canonical acceptance stage. Module
+    boundaries belong to the Designer for the same reason: a file touched by more than one parallel
+    unit must be split, or given a single named writer, as part of the design rather than left to
+    collide at runtime.
 
 11. **Bind authorization to exact semantics.** Seal authorization to a revision and semantic digest.
    Freeze started Task guarantees, ownership, design, acceptance, and historical evidence. After a

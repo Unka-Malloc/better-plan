@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # Python 3.8–3.10.
     from .._vendor import tomli as tomllib
 
 from ..domain.models import ToolError
-from ..installation.assignments import CODEX_DEFAULT_MATRIX, CODEX_FINDER_MATRIX
+from ..installation.assignments import CODEX_DEFAULT_MATRIX
 
 
 _SAFE_AGENT_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
@@ -91,14 +91,10 @@ def _recommended_codex_selector(agent_name: str, package_root: Path) -> NativeRo
     if "ASSIGNMENT_PLACEHOLDER" not in template_content:
         return None
     delivery = CODEX_DEFAULT_MATRIX.get(agent_name)
-    if delivery is not None:
-        _, model, effort, _ = delivery
-        return NativeRoleSelector(model, effort, None, "project-recommendation")
-    finder = CODEX_FINDER_MATRIX.get(agent_name)
-    if finder is not None:
-        model, effort = finder
-        return NativeRoleSelector(model, effort, None, "project-recommendation")
-    return None
+    if delivery is None:
+        return None
+    _, model, effort, _ = delivery
+    return NativeRoleSelector(model, effort, None, "project-recommendation")
 
 
 def resolve_codex_role(

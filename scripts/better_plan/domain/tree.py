@@ -26,8 +26,7 @@ def render_plan_tree(
             status = "%s/%s" % (status, dispatch.get("phase"))
         line = "  %s %s %s [%s]" % (marker, task.get("code"), task.get("title"), status)
         if details:
-            line += " tier=%s workload=%s verification=%s frontier=parallel" % (
-                task.get("difficulty"),
+            line += " workload=%s verification=%s frontier=parallel" % (
                 task.get("workload"),
                 task.get("verification"),
             )

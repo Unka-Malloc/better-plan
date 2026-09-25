@@ -30,13 +30,6 @@ Manifest.json
 `Manifest.json` indexes Delivery Plans and marks the workspace root for Hook detection. It owns no
 semantic delivery status.
 
-`better-plan.coordination/v1` is the optional [multi-plan coordination contract](coordination.md).
-It owns lane selection, external input requirements, execution routing, and concurrency policy,
-not source Task progress. Its portfolio explicitly selects native sources; a private journal binds
-user-authorized units to native dispatches and host jobs. Execution uses a host-neutral command
-interface. Only source-native acceptance completes a Task. This outer contract does not turn the
-v3 Node DAG into independent lifecycle objects or replace whole-Plan review and closure.
-
 `Report.html` is a self-contained interactive projection of `Plan.json` and `Checkpoints.json`. The
 CLI refreshes it after every state-changing command and `report` renders any workspace or single
 Plan on demand. Like `Plan.md` it is never parsed back, owns no semantics, and a projection failure
@@ -176,6 +169,11 @@ implementation work inside that same Task. Python generates the canonical Task s
 `prerequisites` and `inputs` to empty arrays, preserving the v3 Task frontier without cross-Task
 ordering.
 
+Because a Task is one Worker dispatch, its execution shape is bounded. Readiness rejects an
+unauthorized Task that exceeds the single-session ceiling for Nodes, critical-path Nodes, parallel
+Nodes, write paths, acceptance criteria, or verification commands. The ceiling is a design-time
+budget: a sealed Plan keeps its frozen Task shapes and is never re-judged against it.
+
 Each Task contains a non-empty static `nodes` DAG. A Node is exactly
 `{code, title, outcome, prerequisites}`; its prerequisites may name only Nodes in that Task.
 Python generates global `NODE-*` codes and rejects unknown references, self-dependencies, and
@@ -198,17 +196,24 @@ entry naming an unowned `REQ-*` or `OUT-*` is rejected as a typo. Focused regres
 Task completion path.
 
 Risk tags come from one fixed vocabulary. They describe the Task and protect continuation boundaries;
-they do not select the Worker tier mechanically. The Designer chooses `standard` or `complex`
-holistically from the Task's coupling, unknowns, tradeoffs, failure consequences and reversibility,
-and verification difficulty.
+they select no role.
 
-Every Task records `worker: general|frontend`. This specialization is independent from its
-`difficulty` tier. A Codex frontend Task deterministically selects the valid local optional
-`frontend-worker` when present; absence preserves the standard/complex tier selection.
+Every Task records `worker: code|hybrid`: responsibility, not strength. `code` runs on the packaged
+`worker` role because the Task's own commands prove its result; `hybrid` marks a Task whose result is
+also judged visually and therefore owes rendered evidence, so it runs on `hybrid-worker`.
+`verification` repeats that answer, and readiness rejects a Task whose two fields disagree. On Codex
+a hybrid Task selects the valid local `hybrid-worker` when present; absence falls back to that same
+`worker` role. A Plan sealed before the rename may still carry `general` and `frontend`, which read
+as `code` and `hybrid`.
 
 Every Task also records `workload: light|medium|heavy`. This is the Designer's relative estimate of
 execution volume across touchpoints, change breadth, critical-path depth, integration, and
-verification. It is not an elapsed-time estimate and does not select the Worker tier.
+verification. It is not an elapsed-time estimate and it selects no role.
+
+The compiler emits no `difficulty` field, and a Design that declares one gets an unmapped-content
+issue. A Plan sealed before that removal may still carry the field: schema validation accepts it so
+existing revisions keep validating and executing unchanged, and nothing reads it. Role selection is
+the `worker` role for a `code` Task and `hybrid-worker` for a `hybrid` Task.
 
 ## Privacy boundary
 
@@ -251,6 +256,21 @@ evidence and requires fresh focused acceptance. It passes readiness, increments 
 updates Checkpoint bindings. Goal, scope, user decisions, and newly introduced elevated risk still
 require a separately authorized Plan; a recorded input resolution cannot authorize that expansion.
 
+A continuation never alters the user's resolved decisions, so a user who changes their mind has a
+separate path: `supersede-decision` records the replacement and re-seals the Plan under a new
+explicit reference. It is deliberately narrow. The replacement must be an option that the Question
+already offered, so it changes a choice and never invents one; goal, scope, success conditions, and
+the risk boundary are untouched. The native main may use it only for an actual user change of mind,
+because the CLI records that judgment without being able to prove the consent behind the reference. No Task may have been dispatched, because a changed decision can
+invalidate started work, and the Reviewer session must not have opened. The receipt is appended to
+`continuation_receipts` with `kind: decision_supersession`, the revision increments, and the green
+regression receipt is cleared because it cannot cover changed semantics.
+
+Supersession re-seals the specification that already exists; it never recompiles it. The frozen
+Tasks, requirements, and acceptance stay exactly as authorized, so it is valid only when the
+replacement option leaves them correct. When a user's new choice changes the delivery shape, the
+native main reports that instead and a separately authorized Plan carries the new design.
+
 `record-task-input --needed` stores an optional safe summary in `Checkpoints.json.tasks[].input_request`.
 It neither sends a question nor changes Task status, dispatch, evidence, or Plan semantics. The
 native main prepares and asks the concrete missing question through the host. Independent Tasks
@@ -284,13 +304,14 @@ Task statuses are `pending`, `in_progress`, `completed`, `blocked_by_authority`,
 | `check-readiness` | list every remaining readiness issue in one pass |
 | `authorize-plan` | the single gate: readiness, optional harness verification, seal, and Checkpoints |
 | `begin-continuation` / `close-continuation` | revise unstarted work or correct an unfinished Task's focused execution while preserving semantic authority |
+| `supersede-decision` | replace one resolved decision with an option its Question already offered, under fresh explicit user authority, before any Task starts |
 | `next-action` | name one action for every phase and every delivery state |
 | `dispatch-task` | dispatch one eligible Task, or re-dispatch one correction Worker |
 | `bind-agent` | bind one opaque host agent id to one dispatch |
 | `agent-complete` | consume one exact final callback |
 | `delegation-failed` | record a conclusive delegation failure and raise the fallback |
 | `main-complete` | record native-main completion of an exhausted delegation |
-| `accept-task` | run one Task's focused regression outside the global lock; invoke concurrently across the awaiting Task frontier |
+| `accept-task` | run one Task's focused regression outside the global lock; invoke serially, one returning Task at a time, in one warm build directory |
 | `record-task-input` | record or resolve a missing user prerequisite without changing Task history or granting authority |
 | `block-task` | record an authority or environment blocker for exactly one independent Task |
 | `run-full-regression` | independently run the complete regression outside the lock, persist only its receipt, and return ephemeral safe diagnostics plus the next action |

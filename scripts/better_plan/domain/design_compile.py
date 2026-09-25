@@ -35,7 +35,6 @@ Outputs:
 Owns:
 Exclusive:
 Worker:
-Difficulty:
 Workload:
 Verification:
 Risks:
@@ -73,8 +72,8 @@ Outputs:
 Owns:
 - relative/path
 Exclusive:
-Worker: general
-Difficulty: standard
+- build directory — isolated per Node under target/<node>/
+Worker: code
 Workload: medium
 Verification: code
 Risks:
@@ -221,8 +220,6 @@ _TASK_ALIASES = {
     "write paths": "owns",
     "exclusive": "exclusive",
     "worker": "worker",
-    "difficulty": "difficulty",
-    "tier": "difficulty",
     "workload": "workload",
     "verification": "verification",
     "risks": "risks",
@@ -901,24 +898,14 @@ def _compile_design(
                 elif risk not in risks:
                     risks.append(risk)
         worker_entries = blocks.get("worker", [])
-        requested_worker = ([value for _, value in worker_entries] or ["general"])[0].lower()
-        worker = requested_worker if requested_worker in {"general", "frontend"} else "general"
-        if requested_worker not in {"general", "frontend"}:
+        requested_worker = ([value for _, value in worker_entries] or ["code"])[0].lower()
+        worker = requested_worker if requested_worker in {"code", "hybrid"} else "code"
+        if requested_worker not in {"code", "hybrid"}:
             issues.append(_issue(
                 "structure",
-                "Worker must be general or frontend",
+                "Worker must be code or hybrid",
                 worker_entries[0][0] if worker_entries else section["line"],
                 task_prefix + ".worker",
-            ))
-        difficulty_entries = blocks.get("difficulty", [])
-        requested_difficulty = ([value for _, value in difficulty_entries] or ["standard"])[0].lower()
-        difficulty = requested_difficulty if requested_difficulty in {"standard", "complex"} else "standard"
-        if requested_difficulty not in {"standard", "complex"}:
-            issues.append(_issue(
-                "structure",
-                "Difficulty must be standard or complex",
-                difficulty_entries[0][0] if difficulty_entries else section["line"],
-                task_prefix + ".difficulty",
             ))
         workload_entries = blocks.get("workload", [])
         requested_workload = ([value for _, value in workload_entries] or [""])[0].lower()
@@ -932,10 +919,10 @@ def _compile_design(
             ))
         verification_entries = blocks.get("verification", [])
         verification = ([value for _, value in verification_entries] or ["code"])[0].lower()
-        if verification not in {"code", "visual", "hybrid"}:
+        if verification not in {"code", "hybrid"}:
             issues.append(_issue(
                 "structure",
-                "Verification must be code, visual, or hybrid",
+                "Verification must be code or hybrid",
                 verification_entries[0][0] if verification_entries else section["line"],
                 task_prefix + ".verification",
             ))
@@ -990,7 +977,6 @@ def _compile_design(
                 "shared_exclusive": _block_values(blocks, "exclusive"),
             },
             "worker": worker,
-            "difficulty": difficulty,
             "workload": workload,
             "verification": verification,
             "requirements": task_requirement_codes,

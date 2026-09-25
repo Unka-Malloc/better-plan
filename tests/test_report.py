@@ -62,7 +62,7 @@ class ReportTests(unittest.TestCase):
                         "status": "in_progress",
                         "dispatch": {
                             "id": "dispatch-1",
-                            "role": "worker-standard",
+                            "role": "worker",
                             "attempts": 1,
                             "host_agent_id": None,
                             "selector": {},

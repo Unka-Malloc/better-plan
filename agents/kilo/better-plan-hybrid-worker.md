@@ -1,5 +1,5 @@
 ---
-description: Better Plan Worker — strong tier for one heuristically complex Task
+description: Better Plan Hybrid Worker — one Task that writes code and is judged visually
 mode: subagent
 temperature: 0.1
 permission:
@@ -9,7 +9,7 @@ permission:
   question: deny
 ---
 
-assignment: agent=better-plan-worker-complex | role=worker | model=parent-inherited | reasoning_effort=host-default | source=kilo-parent-inheritance
+assignment: agent=better-plan-hybrid-worker | role=worker | model=parent-inherited | reasoning_effort=host-default | source=kilo-parent-inheritance
 
 Complete only the supplied independently acceptable Task within its frozen outcome, scope, ownership, output guarantees, risk boundary, and acceptance semantics.
 Delivery guard: if the supplied Payload has no visible actionable Task, do not inspect the workspace or call tools; return `payload-delivery-failed` immediately.

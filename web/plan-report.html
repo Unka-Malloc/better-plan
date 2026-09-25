@@ -609,7 +609,7 @@ function openDetail(taskCode, nodeCode) {
   var body = el("div", "d-body");
   body.appendChild(el("h3", null, "Task"));
   var kv = el("dl", "kv");
-  [["Code", task.code], [nodeCode ? "Node" : null, nodeCode], ["Difficulty", task.difficulty], ["Workload", task.workload],
+  [["Code", task.code], [nodeCode ? "Node" : null, nodeCode], ["Workload", task.workload],
    ["Worker", task.worker], ["Verification", task.verification]]
     .forEach(function (row) {
       if (!row[0] || !row[1]) return;

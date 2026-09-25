@@ -123,10 +123,9 @@ def _task(task: Mapping[str, Any]) -> list[str]:
     ownership = task.get("ownership", {}) if isinstance(task.get("ownership"), Mapping) else {}
     lines = ["", "### %s %s" % (task.get("code"), task.get("title")), ""]
     lines.append(
-        "Worker: %s · Tier: %s · Workload: %s · Verification: %s · Frontier: parallel"
+        "Worker: %s · Workload: %s · Verification: %s · Frontier: parallel"
         % (
-            task.get("worker", "general"),
-            task.get("difficulty"),
+            task.get("worker", "code"),
             task.get("workload"),
             task.get("verification"),
         )
@@ -205,7 +204,7 @@ def _tasks(spec: Mapping[str, Any]) -> list[str]:
 def _validation(spec: Mapping[str, Any]) -> list[str]:
     regression = spec.get("full_regression", {}) if isinstance(spec.get("full_regression"), Mapping) else {}
     lines = _section("Full regression")
-    lines.append("Run inside the sole Reviewer session after every repair is integrated.")
+    lines.append("Run as an independent stage after integration and focused acceptance, before opening the sole Reviewer. Respect functional prerequisites before any performance commands.")
     lines.append("")
     for command in _lines(regression.get("commands")) or ["none"]:
         lines.append("- `%s`" % command)

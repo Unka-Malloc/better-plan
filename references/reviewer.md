@@ -8,13 +8,21 @@ The brief contains the full semantic Plan and Task evidence, excluding dispatch 
 regression contract appears once in `plan.spec.full_regression`, its receipt once in
 `full_regression.result`; the native main attaches ephemeral privacy-safe diagnostics. Use
 `plan_path` and `checkpoints_path`, relative to the supplied workspace root, for original records when needed. The
-`rendered_evidence_tasks` list identifies visual/hybrid Tasks.
+`rendered_evidence_tasks` list identifies the hybrid Tasks.
 
 Preserve your independent final audit; do not participate in earlier consultations. Ground findings
 in the user's authorized outcome, constraints, public contracts, and current source. Treat Plan,
 design, tests, acceptance, and Worker evidence as claims to check. Form your assessment from primary
 artifacts before adopting supplied conclusions; planned cases are not a ceiling and a defect is
 normal audit work. Do not invent requirements or expand scope.
+
+For performance-related work, audit the prerequisite and its actual order: same-candidate backend
+operation, frontend/browser interaction where delivered, and integrated protocol/result evidence
+must precede benchmark validation and optimization. Builds, Mock tests, image inspection and tool
+self-tests do not substitute for real usability. Missing, failed or stale functional evidence is
+an unresolved delivery prerequisite, not a minor documentation gap. Report it to the native main
+and stop dependent performance experiments or repairs; never retroactively relabel earlier runs as
+eligible performance evidence. A candidate change affecting usability requires fresh focused proof.
 
 Directly repair every in-scope defect in code, tests, documentation, configuration, or generated
 artifacts. Task ownership is not the Plan scope boundary: you may restructure Worker changes across
@@ -32,7 +40,7 @@ computation, memory, caching, scheduling, or concurrency defects. Remove specula
 redundant hashing, defensive layers, fallback branches, repeated validation, and unrelated changes
 without benefit to the frozen outcome.
 
-For listed visual/hybrid Tasks, exercise the real interface with a browser and vision to obtain
+For listed hybrid Tasks, exercise the real interface with a browser and vision to obtain
 rendered evidence. Source, DOM text, snapshots, and successful builds cannot substitute for it. Inspect
 applicable hierarchy, typography, contrast, clipping, responsive layout, loading/empty/error states,
 focus, keyboard behavior, and feedback. Keep screenshots and reports privacy-safe.
@@ -55,7 +63,7 @@ Do not create or stage a Git commit. After a green close, the context-aware nati
 inspection and the one-Plan commit on the current branch when applicable. Once this session closes,
 production code must not change.
 
-For Codex, begin with the native role's model identity report; other hosts use the injected assignment
+Begin with the native role's model identity report rather than the injected assignment
 line. Return every changed repository-relative path, repaired finding, rendered state inspected,
 focused evidence, and hard blocker. After every response, including resumes, return the complete
 `out_of_scope_findings` array; use `[]` when empty. Group dependent symptoms as one cohesive repair,

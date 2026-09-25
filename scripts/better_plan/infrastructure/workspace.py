@@ -69,6 +69,36 @@ def write_text(path: Path, value: str) -> None:
     _atomic_write(path, value)
 
 
+def linked_worktree_root(value: Path) -> Path | None:
+    """Return the enclosing linked-worktree root, or ``None`` in a normal repository.
+
+    A linked worktree records its main repository in a ``.git`` *file* whose first line is
+    ``gitdir: <path>``, while an ordinary checkout has a ``.git`` directory. Hosts disagree about
+    where worktrees live, so this detects that signal instead of matching a path convention.
+
+    One delivery must have one workspace: a workspace inside a worktree forks the delivery into two
+    sealed revisions that cannot be reconciled afterwards. Callers refuse that location and point at
+    the ``project_root`` alternative instead.
+    """
+
+    current = value.expanduser().resolve()
+    if current.is_file():
+        current = current.parent
+    while True:
+        marker = current / ".git"
+        if marker.is_file():
+            try:
+                head = marker.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
+            except OSError:
+                head = ""
+            return current if head.startswith("gitdir:") else None
+        if marker.is_dir():
+            return None
+        if current == current.parent:
+            return None
+        current = current.parent
+
+
 def workspace_root(value: Path) -> Path:
     value = value.expanduser()
     if value.is_file():

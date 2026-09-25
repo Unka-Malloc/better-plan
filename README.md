@@ -4,16 +4,19 @@ Better Plan is a complete-delivery planning and execution protocol for native co
 designed for large refactors, migrations, high-risk changes, and multi-Task work that must remain
 decision-complete across long-running sessions.
 
-Four guarantees define the workflow:
+Five guarantees define the workflow:
 
 1. Material undiscoverable choices are resolved together; with none, the Decision Dossier is skipped.
 2. One Designer completes a structured solution draft once; Python compiles the canonical Plan.
-3. Authorization is the single gate. Ordinary in-scope work continues autonomously; only missing
-   user input or authority returns to the native main for a concrete request, preserving explicit
-   approval requirements and progress on independent work.
+3. Authorization is the single authority gate, not proof of functional readiness. Ordinary in-scope
+   work continues autonomously; only missing user input or authority returns to the native main for
+   a concrete request, preserving explicit approval requirements and progress on independent work.
 4. An independent Python stage runs the complete regression; only afterward does one writable
    Reviewer audit its diagnostics and repair the delivery. Confirmed defects outside that Plan
    become separate unapproved draft repair Plans for explicit user handoff after close.
+5. Real product usability precedes benchmark validation and performance work: verify the actual
+   candidate's backend, frontend where delivered, and integrated user/protocol path first. Builds,
+   mocks, images and benchmark self-tests cannot substitute for this execution prerequisite.
 
 ## Canonical workspace
 
@@ -26,6 +29,11 @@ delivery/
   Design.pristine.md # immutable draft archive after Designer close
   Checkpoints.json   # authorization creates this file
 ```
+
+Create this workspace in the main repository. `init-plan` refuses a root inside a linked Git
+worktree, because that checkout would document one delivery as two sealed revisions that cannot be
+reconciled; create it in the main repository and point `Manifest.json` `project_root` at the delivery
+directory instead. `--worktree-workspace` accepts the split only when it is deliberate.
 
 Every state file carries a `better-plan.*/v3` schema marker. Earlier generations are unsupported.
 Stable codes (`PLAN-*`, `REQ-*`, `TASK-*`, `NODE-*`, `OUT-*`, `AC-*`, `Q-*`, `DEC-*`) are the
@@ -40,31 +48,38 @@ draft → designing → ready → authorized → completed
 ```
 
 Closing the design session only verifies correlation and immutability, so it can always be closed;
-`check-readiness` then lists every remaining gap in one pass and `authorize-plan` is the single hard
-gate. A continuation may revise unstarted work without another Designer or user question when the
-change stays inside the approved goal, scope, decisions, and risk boundary. After a Worker returns,
+`check-readiness` then lists structural gaps in one pass and `authorize-plan` is the single authority
+gate. Neither proves runtime usability. The native main must verify current functional evidence
+before dispatching dependent benchmark or optimization work. A continuation may revise unstarted
+work without another Designer or user question when the change stays inside the approved goal,
+scope, decisions, and risk boundary. After a Worker returns,
 an unfinished Task's focused command or path error may be corrected with the same oracle, a recorded
 reason, and fresh acceptance; all other started Task fields and all completed definitions stay frozen.
 Pending user input is recorded separately from Task status, so it can be resolved without losing
 history or prematurely closing the delivery as blocked. Recording input grants no new authority.
-Focused acceptance runs concurrently across independent Tasks and holds the workspace lock only for
-its short state snapshot and result commit. A successful Reviewer close emits a version-control
+Focused acceptance runs serially, one returning Task at a time, in one warm build directory, and
+holds the workspace lock only for its short state snapshot and result commit. Workers run their own
+bounded focused checks only inside the build, test, and cache paths their Task declares in
+`Exclusive`. A successful Reviewer close emits a version-control
 handoff instead of running Git itself: the native main creates one commit for that completed Plan on
 the current branch when the project is a Git repository, after inspecting the worktree and
 preserving unrelated changes; non-Git projects skip the step.
 
 ## Roles
 
-| Role | Tier | Duty |
-| --- | --- | --- |
-| `designer` | high | writes one complete structured solution draft |
-| `worker-standard` | economical | one ordinary bounded Task |
-| `worker-complex` | strong | one Task the Designer judges to need stronger reasoning |
-| `reviewer` | high | post-regression source, test, evidence, and diagnostic audit |
+| Role | Duty |
+| --- | --- |
+| `designer` | writes one complete structured solution draft |
+| `worker` | one `worker: code` Task whose result its own commands prove |
+| `hybrid-worker` | one `worker: hybrid` Task that writes code and is judged visually |
+| `reviewer` | post-regression source, test, evidence, and diagnostic audit |
 
-Codex can also provide an optional unmanaged `frontend-worker`. Tasks explicitly marked
-`worker: frontend` must use it when its local configuration is valid; without it they retain their
-standard/complex Worker tier. Better Plan does not install or rewrite this specialist role.
+Every Task declares `worker: code|hybrid` and repeats that answer in `Verification`, so readiness
+rejects a Task that says one thing in each field. `Worker` names responsibility, not strength:
+`code` for work its commands prove, `hybrid` for work that also has to be looked at and therefore
+owes rendered evidence. Tasks are not tiered, and a Task that would outgrow one session is split
+rather than promoted. A Plan sealed before the rename may still carry the legacy values `general`
+and `frontend`, which read as `code` and `hybrid`.
 
 ## Quick schema inspection
 
@@ -89,6 +104,9 @@ python3 scripts/manifest_tool.py close-designer-session ...
 python3 scripts/manifest_tool.py compile-design ... --apply
 python3 scripts/manifest_tool.py check-readiness ...
 python3 scripts/manifest_tool.py authorize-plan ...
+python3 scripts/manifest_tool.py begin-continuation ...
+python3 scripts/manifest_tool.py close-continuation ...
+python3 scripts/manifest_tool.py supersede-decision ...
 python3 scripts/manifest_tool.py next-action ...
 python3 scripts/manifest_tool.py dispatch-task ...
 python3 scripts/manifest_tool.py accept-task ...
@@ -102,27 +120,6 @@ python3 scripts/manifest_tool.py close-reviewer-session ...
 
 See [SKILL.md](SKILL.md), the [general design principles](references/design-principles.md), and the
 [state protocol](references/state.md) for the complete contract and its rationale.
-
-## Mainlines and collaboration plans
-
-The optional multi-plan coordinator keeps each repository's native plan authoritative.
-Collaboration plans can wait for accepted upstream inputs while independent work continues.
-It dispatches an authorized, conflict-free frontier through a configured execution adapter,
-recovers dispatch correlations after restart, and accepts work through each source's native verifier.
-
-```sh
-python3 scripts/coordination_tool.py status --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json
-python3 scripts/coordination_tool.py grant --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json \
-  --lane integration --reference "User authorized this integration delivery"
-python3 scripts/coordination_tool.py watch --root WORKSPACE --config Coordination.json --state PRIVATE/Coordinator.json
-```
-
-A host-neutral JSON command interface connects an existing asynchronous execution service.
-Configure its command and role profiles before granting execution; omit `host` for inspection only.
-`tick` advances once; `watch` observes repeatedly. `pause`, `resume`, `revoke`, `reconcile`, and
-`wake` control coordination without terminating running workers. Native source acceptance unlocks
-successors; v3 Nodes remain part of their owning Task. See [configuration and the execution adapter
-contract](references/coordination.md).
 
 ## Reference skills
 
@@ -169,15 +166,18 @@ contract from the installed skill's `references/designer.md`, `references/worker
 the v3 stored Plan field names and original authorization bindings; updating a skill does not
 migrate or reauthorize project Plans.
 
-Codex, Claude Code, OpenCode, Cursor, Copilot, Antigravity, Kilo Code, Kimi, and supported plugin
-targets use their native role and Hook formats. Installed selectors remain authoritative; package
-selectors are fallbacks only.
+Codex and Kilo Code use their native role and Hook formats. Installed selectors remain
+authoritative; package selectors are fallbacks only.
+
+Codex installs its four native roles once, with fixed preset selectors that no later update
+rewrites: `designer` `gpt-6-astra / max`, `worker` `gpt-6-luna / max`, `hybrid-worker`
+`gpt-6-astra / low`, and `reviewer` `gpt-6-astra / xhigh`.
 
 The Kilo target installs one short `better-plan` primary Agent and four exact namespaced Subagents.
-It uses Kilo's native or shared Agent Skills scan path, restricts the primary Agent to those four
-delegates, and leaves model and reasoning selection to the invoking primary Agent for provider
-portability. Kilo Agent files and their receipt are created only when no same-name local state
-exists and remain immutable afterward.
+It uses Kilo's native or shared Agent Skills scan path and pins no model, variant, or reasoning
+effort, so each Subagent inherits the invoking primary Agent's model and the host's default
+reasoning behaviour. Kilo Agent files and their receipt are created only when no same-name local
+state exists and remain immutable afterward.
 
 ## Development
 

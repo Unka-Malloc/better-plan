@@ -11,7 +11,8 @@ Use each issue's supplied Design line or line range and canonical Plan field dir
 the compiler's parsing work merely to locate the defect.
 
 Do not change or delete `Design.md`, and do not redispatch the Designer. Keep the repair inside the
-authorized intent and the existing v3 Plan schema.
+authorized intent and the existing v3 Plan schema. When a brief names the removed `difficulty` field,
+delete it instead of re-mapping it: one Worker role handles every Task and nothing reads a tier.
 
 After completing the Plan run:
 

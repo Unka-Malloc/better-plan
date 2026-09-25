@@ -22,7 +22,7 @@
 独立采样项，但框架不设置执行期限，`default_timeout_ms` 为 `null`。只记录实际观察到的项目
 或用户命令期限；无期限时 `configured_timeouts_ms` 为空数组，不能推断一个默认期限。
 
-`worker-standard` 和 `worker-complex` 共用一个策略，tier 作为 covariate。Hook 事件和宿主也作为
+全部 Worker 共用一个策略（只有一个 `worker` 角色，没有 tier），角色作为 covariate。Hook 事件和宿主也作为
 covariate。框架新增、删除或改变期限设置时，同步更新 `timeout-catalog.json`。历史样本保留当时
 实际使用的期限，不按当前默认值重写。
 
@@ -65,7 +65,7 @@ covariate。框架新增、删除或改变期限设置时，同步更新 `timeou
 - `outcome`：`completed`、`timed_out`、`active`、`failed`、`cancelled` 或 `blocked`；
 - `correlation`：`direct`、`reconstructed` 或 `contextual`；
 - `measurement`：`monotonic`、`trace_pair`、`cutoff` 或 `reconstructed`；
-- `covariates`：任务规模、角色 tier、阶段、重试、宿主等小型分层信息，不写原始内容。
+- `covariates`：任务规模、角色、阶段、重试、宿主等小型分层信息，不写原始内容。
 
 把同一根对话的所有策略样本放在同一 shard，以保留关联结构和根级 bootstrap 簇。
 

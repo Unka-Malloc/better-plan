@@ -27,20 +27,22 @@ from .models import (
     PLAN_SCHEMA,
     SENSITIVE_TOKEN_PATTERN,
     SHA256_PATTERN,
+    LEGACY_WORKERS,
     TASK_STATUSES,
     VALID_AUTHORIZATION_SOURCES,
-    VALID_DIFFICULTIES,
     VALID_WORKERS,
     VALID_RISKS,
     VALID_WORKLOADS,
     VALID_VERIFICATIONS,
     Issue,
+    task_worker_kind,
     is_code,
     is_relative_workspace_path,
     normalize_workspace_path,
     safe_summary_issue,
     semantic_digest,
 )
+from .task_shape import task_execution_shape
 
 
 TASK_REQUIRED_FIELDS = {
@@ -50,15 +52,22 @@ TASK_REQUIRED_FIELDS = {
     "scope",
     "prerequisites",
     "ownership",
-    "difficulty",
     "workload",
     "verification",
     "requirements",
     "risks",
 }
 TASK_DESIGN_FIELDS = {"inputs", "outputs", "nodes", "design", "acceptance", "focused_regression"}
-TASK_OPTIONAL_FIELDS = {"worker"}
+# `difficulty` is inert: one Worker role handles every Task, so nothing reads or requires it.
+# It stays an accepted field only so Plans sealed before the removal keep validating.
+TASK_OPTIONAL_FIELDS = {"worker", "difficulty"}
 TASK_ALLOWED_FIELDS = TASK_REQUIRED_FIELDS | TASK_DESIGN_FIELDS | TASK_OPTIONAL_FIELDS
+MAX_TASK_NODES = 8
+MAX_TASK_CRITICAL_PATH = 4
+MAX_TASK_PARALLEL_FRONTIER = 4
+MAX_TASK_WRITE_PATHS = 8
+MAX_TASK_ACCEPTANCE = 8
+MAX_TASK_VERIFICATION_COMMANDS = 6
 LIFECYCLE_REQUIRED_FIELDS = {
     "sealed",
     "designer_session",
@@ -518,14 +527,13 @@ def _validate_task(path: Path, task: Any, index: int, require_design: bool) -> l
     nodes = task.get("nodes")
     if nodes is not None:
         issues.extend(_validate_nodes(path, nodes, index, require_design))
-    if task.get("difficulty") not in VALID_DIFFICULTIES:
-        issues.append(_issue(path, "%s.difficulty" % label, "must be standard or complex"))
-    if task.get("worker", "general") not in VALID_WORKERS:
-        issues.append(_issue(path, "%s.worker" % label, "must be general or frontend"))
+    worker = task.get("worker", "code")
+    if worker not in VALID_WORKERS and worker not in LEGACY_WORKERS:
+        issues.append(_issue(path, "%s.worker" % label, "must be code or hybrid"))
     if task.get("workload") not in VALID_WORKLOADS:
         issues.append(_issue(path, "%s.workload" % label, "must be light, medium, or heavy"))
     if task.get("verification") not in VALID_VERIFICATIONS:
-        issues.append(_issue(path, "%s.verification" % label, "must be code, visual, or hybrid"))
+        issues.append(_issue(path, "%s.verification" % label, "must be code or hybrid"))
     ownership = task.get("ownership")
     if not _mapping(ownership):
         issues.append(_issue(path, "%s.ownership" % label, "must be an object"))
@@ -1048,6 +1056,66 @@ def _validate_lifecycle(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     return issues
 
 
+def _task_shape_issues(path: Path, task: Mapping[str, Any]) -> list[Issue]:
+    """Reject a Task whose declared execution shape cannot run as designed.
+
+    A Task is one Worker dispatch, so its Node DAG, ownership surface and verification
+    surface are all carried by a single session. A Task that spans too many Nodes,
+    opens too wide a parallel frontier, or claims too many write and verification
+    surfaces cannot be executed inside one session; it must be split into narrower
+    mutually parallel-safe Tasks instead.
+
+    A wide intra-Task frontier is also a physical contention claim: Nodes share their
+    Task's ownership, so concurrent Nodes contend on whatever machine resources the Task
+    did not assign away. Declaring those resources is a completeness requirement, not a
+    prediction of how much work the Task contains.
+    """
+
+    try:
+        shape = task_execution_shape(task)
+    except ValueError:
+        return []
+    code = str(task.get("code") or "spec.tasks")
+    issues: list[Issue] = []
+    for field, ceiling in (
+        ("node_count", MAX_TASK_NODES),
+        ("critical_path_nodes", MAX_TASK_CRITICAL_PATH),
+        ("max_parallel_frontier", MAX_TASK_PARALLEL_FRONTIER),
+        ("write_path_count", MAX_TASK_WRITE_PATHS),
+        ("acceptance_count", MAX_TASK_ACCEPTANCE),
+        ("verification_command_count", MAX_TASK_VERIFICATION_COMMANDS),
+    ):
+        value = shape.get(field)
+        if isinstance(value, int) and value > ceiling:
+            issues.append(
+                _issue(
+                    path,
+                    "%s.%s" % (code, field),
+                    "%d exceeds the single-session ceiling of %d; split this Task into "
+                    "narrower mutually parallel-safe Tasks" % (value, ceiling),
+                )
+            )
+    frontier = shape.get("max_parallel_frontier")
+    if isinstance(frontier, int) and frontier > 1:
+        ownership = task.get("ownership")
+        declared = ownership.get("shared_exclusive") if _mapping(ownership) else None
+        if not declared:
+            # Wording is not judged: naming the resources is the check, and only the Reviewer can
+            # tell whether the named text actually gives every concurrent Node its own path.
+            issues.append(
+                _issue(
+                    path,
+                    "%s.ownership.shared_exclusive" % code,
+                    "%d Nodes run concurrently under one Task ownership, so the machine "
+                    "resources they contend on (build or artifact directory, version-control "
+                    "index and lock, test database or fixture store, listening ports, "
+                    "toolchain cache) must be named with the separate path each Node uses"
+                    % frontier,
+                )
+            )
+    return issues
+
+
 def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     """The single semantic gate: prove the Plan can start and finish execution."""
 
@@ -1103,6 +1171,9 @@ def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
     else:
         issues.extend(_unknown_fields(path, "spec.architecture", architecture, {"summary", "notes"}))
     implemented: set[str] = set()
+    # The size ceilings are design-time rules. A sealed Plan is already authorized and executing,
+    # so its frozen Task shapes must never be re-judged here.
+    design_gate = plan.get("lifecycle", {}).get("sealed") is None
     for task in tasks:
         if not _mapping(task):
             continue
@@ -1113,6 +1184,25 @@ def plan_readiness_issues(path: Path, plan: Mapping[str, Any]) -> list[Issue]:
         missing = TASK_DESIGN_FIELDS - set(task)
         if missing:
             issues.append(_issue(path, "%s" % task.get("code"), "readiness requires %s" % ", ".join(sorted(missing))))
+        if not design_gate:
+            continue
+        issues.extend(_task_shape_issues(path, task))
+        # Responsibility and evidence answer the same question, so they must agree: only the
+        # hybrid Worker owes a rendered result. Judged on unsealed Plans only, because sealed
+        # deliveries predate the rule.
+        kind = task_worker_kind(task)
+        needs_visual = task.get("verification") == "hybrid"
+        if needs_visual != (kind == "hybrid"):
+            issues.append(
+                _issue(
+                    path,
+                    "%s.worker" % task.get("code"),
+                    "a Task that needs visual checking is the hybrid Worker and declares "
+                    "`Verification: hybrid`; this one declares Worker: %s with Verification: %s, "
+                    "so make both say hybrid or both say code"
+                    % (task.get("worker", "code"), task.get("verification")),
+                )
+            )
     uncovered = requirement_codes - implemented
     if uncovered:
         issues.append(_issue(path, "spec.requirements", "requirements lack implementing Tasks: %s" % ", ".join(sorted(uncovered))))

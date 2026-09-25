@@ -1,73 +1,57 @@
-"""Target-specific Better Plan installer adapters."""
+"""Target-specific Better Plan installer adapters for Codex and Kilo."""
 
 from __future__ import annotations
 
 import json
 import hashlib
-import os
 import posixpath
 import re
-import shlex
-import shutil
 import subprocess
 from pathlib import Path
 
+from ..domain.models import ToolError
 from ..hooks.config import (
     HookConfigError as _HookConfigError,
-    hook_command as _hook_command,
     install_hook_config as _install_hook_config,
     uninstall_hook_config as _uninstall_hook_config,
 )
 from ..infrastructure.native_roles import configured_codex_role_names
 from .models import (
     AGENTS,
-    DESCRIPTION,
-    SKILL_NAME,
-    VERSION,
     InstallError as _InstallError,
     InstallPaths as _InstallPaths,
-    WslOpenCodeRuntime as _WslOpenCodeRuntime,
 )
 from .assignments import RoleAssignment as _RoleAssignment, select_role_assignments as _select_role_assignments
-from .skills import copy_skill_tree as _copy_skill_tree, remove_path as _remove_path, staged_tree as _staged_tree
+from .skills import remove_path as _remove_path
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker-standard.toml", "worker-complex.toml", "reviewer.toml", "finder.toml", "fallback_finder.toml"),
-    "claude": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
-    "opencode": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
-    "cursor": ("designer.md", "worker-standard.md", "worker-complex.md", "reviewer.md"),
+    "codex": ("designer.toml", "worker.toml", "hybrid-worker.toml", "reviewer.toml"),
 }
 KILO_AGENT_FILES = (
     "better-plan.md",
     "better-plan-designer.md",
-    "better-plan-worker-standard.md",
-    "better-plan-worker-complex.md",
+    "better-plan-worker.md",
+    "better-plan-hybrid-worker.md",
     "better-plan-reviewer.md",
 )
 KILO_SUBAGENTS = KILO_AGENT_FILES[1:]
-_NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
-_OPENCODE_NO_TEMPERATURE = frozenset(
-    {"opencode-go/gpt-5.6-luna", "opencode-go/kimi-k3"}
-)
-_SAFE_OPENCODE_SELECTOR = re.compile(r"opencode-go/[A-Za-z0-9._+-]{1,128}")
+# Kilo owns model and variant selection. A packaged Kilo file must never pin one.
+_KILO_SELECTOR_PIN = re.compile(r"(?m)^(?:model|variant|reasoning_effort|reasoningEffort)\s*:")
+
+
+def _codex_role_names() -> tuple[str, ...]:
+    return tuple(posixpath.splitext(filename)[0] for filename in NATIVE_ROLE_FILES["codex"])
 
 
 def _native_role_directory(paths: _InstallPaths, target: str) -> Path:
     if target == "codex":
         return paths.codex_home / "agents"
-    if target == "claude":
-        return paths.claude_home / "agents"
-    if target == "opencode":
-        return paths.opencode_config / "agents"
-    if target == "cursor":
-        return paths.cursor_home / "agents"
     raise _InstallError("native role templates are unavailable for this target")
 
 
 def _native_source_directory(paths: _InstallPaths, target: str) -> Path:
-    source_target = _NATIVE_SOURCE_TARGET.get(target, target)
-    return paths.repo_root / "agents" / source_target
+    return paths.repo_root / "agents" / target
 
 
 def _native_receipt_path(destination: Path) -> Path:
@@ -105,6 +89,10 @@ def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
             text = (source / filename).read_text(encoding="utf-8")
             if not text.startswith("---\n") or "\n---\n" not in text[4:]:
                 raise ValueError
+            # The host owns model, variant, and reasoning selection; every packaged
+            # Kilo file inherits all three and the installer writes no selector.
+            if _KILO_SELECTOR_PIN.search(text):
+                raise ValueError
             if filename == "better-plan.md":
                 required = (
                     "mode: primary",
@@ -113,6 +101,8 @@ def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
                     "Handle simple tasks directly",
                 )
             else:
+                # Every Subagent is a leaf: the native main owns Task dispatch and joins,
+                # so a Worker never receives the Task tool and nesting cannot recurse.
                 required = (
                     "mode: subagent",
                     "task: deny",
@@ -120,8 +110,6 @@ def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
                     "model=parent-inherited",
                     "reasoning_effort=host-default",
                 )
-                if re.search(r"(?m)^model:\s*", text):
-                    raise ValueError
             if any(value not in text for value in required):
                 raise ValueError
             payload[filename] = text.encode("utf-8")
@@ -201,22 +189,33 @@ def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[st
 
 
 def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
-    """Verify only the immutable Kilo matrix created by Better Plan."""
+    """Compare the installed Kilo Agents with the packaged matrix.
+
+    Kilo pins no model, so its Agent files are installed verbatim and can be compared byte for
+    byte. No receipt is required: Better Plan never rewrites a local Agent file, so a receipt that
+    exists records history rather than authority.
+    """
 
     try:
-        files = _load_kilo_receipt(_kilo_receipt_path(paths))
+        sources = _validate_kilo_sources(paths)
     except _InstallError:
-        return False, "Kilo Agent receipt is missing, obsolete, or invalid"
-    if files is None:
-        return False, "Kilo Agent receipt is missing"
+        return False, "the packaged Kilo Agent sources are unreadable"
+    missing: list[str] = []
+    changed: list[str] = []
     try:
-        for filename, digest in files.items():
+        for filename, content in sorted(sources.items()):
             path = paths.kilo_agents / filename
-            if path.is_symlink() or not path.is_file() or _content_digest(path.read_bytes()) != digest:
-                return False, "Kilo Agent files do not match the managed receipt"
+            if path.is_symlink() or not path.is_file():
+                missing.append(filename)
+            elif path.read_text(encoding="utf-8") != content.decode("utf-8"):
+                changed.append(filename)
     except OSError:
         return False, "Kilo Agent files are unreadable"
-    return True, "current namespaced Kilo Agent matrix verified"
+    if missing:
+        return False, "missing Agent file(s): %s" % ", ".join(missing)
+    if changed:
+        return False, "Agent file(s) differ from the packaged matrix: %s" % ", ".join(changed)
+    return True, "current namespaced Kilo Agent matrix verified (%d files)" % len(sources)
 
 
 def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
@@ -227,7 +226,7 @@ def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
     if receipt.exists() or receipt.is_symlink():
         return True
     if target == "codex" and configured_codex_role_names(paths.codex_home).intersection(
-        Path(filename).stem for filename in NATIVE_ROLE_FILES[target]
+        _codex_role_names()
     ):
         return True
     return any(
@@ -335,105 +334,44 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
     payload: dict[str, str] = {}
     try:
         for filename in filenames:
-            path = source / filename
-            text = path.read_text(encoding="utf-8")
+            text = (source / filename).read_text(encoding="utf-8")
             if not text.strip() or "ASSIGNMENT_PLACEHOLDER" not in text:
                 raise ValueError
-            if target == "codex":
-                if not text.startswith("name = ") or "developer_instructions =" not in text:
-                    raise ValueError
-            else:
-                if not text.startswith("---\n"):
-                    raise ValueError
+            if not text.startswith("name = ") or "developer_instructions =" not in text:
+                raise ValueError
             payload[posixpath.splitext(filename)[0]] = text
     except (OSError, UnicodeError, ValueError, TypeError):
         raise _InstallError("native role template source is missing or malformed")
     return payload
 
 
-def _render_native_source(target: str, source: str, assignment: _RoleAssignment) -> bytes:
-    effort = assignment.reasoning_effort or "host-default"
-    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
-        basis = "Coding Agent"
-        measurement = f"score={assignment.index_score}"
-    elif assignment.role == "worker":
-        basis = "Intelligence Index proxy"
-        measurement = f"score={assignment.index_score}"
-    elif assignment.role == "finder":
-        basis = "Codex read-only utility"
-        measurement = "mode=read-only"
-    else:
-        basis = "Intelligence Index"
-        measurement = f"score={assignment.index_score}"
-    cost = (
-        ""
-        if assignment.cost_per_task_usd is None
-        else f" | measured_cost_per_task_usd={assignment.cost_per_task_usd:.2f}"
-    )
+def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
+    """Render one packaged Codex role with its identity block and pinned selector.
+
+    The installed prompt never repeats the installation-time benchmark receipt:
+    Codex reports runtime identity, so the selector lives only in the TOML fields.
+    """
+
     line = (
-        f"assignment: agent={assignment.agent_name} | role={assignment.role} | "
-        f"model={assignment.model} | reasoning_effort={effort} | basis={basis} | "
-        f"{measurement}{cost} | benchmark={assignment.benchmark_id} | source={assignment.source}"
+        f"Role identity: agent={assignment.agent_name} | role={assignment.role}\n"
+        "Report model and reasoning_effort from host-provided runtime metadata when available, "
+        "with source=host-runtime. Otherwise echo the dispatch's assignment_line unchanged; "
+        "its source identifies configured selection, not confirmed runtime identity. "
+        "If neither is available, report model=unknown | reasoning_effort=unknown | source=unavailable. "
+        "Never guess your model, repeat an installation-time selector, or report benchmark scores "
+        "as runtime identity."
     )
-    if target == "codex":
-        line = (
-            f"Role identity: agent={assignment.agent_name} | role={assignment.role}\n"
-            "Report model and reasoning_effort from host-provided runtime metadata when available, "
-            "with source=host-runtime. Otherwise echo the dispatch's assignment_line unchanged; "
-            "its source identifies configured selection, not confirmed runtime identity. "
-            "If neither is available, report model=unknown | reasoning_effort=unknown | source=unavailable. "
-            "Never guess your model, repeat an installation-time selector, or report benchmark scores "
-            "as runtime identity."
-        )
     rendered = source.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
     rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
-    if target == "codex":
-        marker = "sandbox_mode = "
-        position = rendered.find(marker)
-        if position < 0:
-            raise _InstallError("native role template source is missing or malformed")
-        selector = f'model = "{assignment.model}"\n'
-        if assignment.reasoning_effort is not None:
-            selector += f'model_reasoning_effort = "{assignment.reasoning_effort}"\n'
-        rendered = rendered[:position] + selector + rendered[position:]
-    elif target == "opencode":
-        if assignment.model in _OPENCODE_NO_TEMPERATURE:
-            rendered = re.sub(r"(?m)^temperature:\s*[^\n]+\n", "", rendered, count=1)
-        closing = rendered.find("\n---\n", 4)
-        if closing < 0:
-            raise _InstallError("native role template source is missing or malformed")
-        selector = f"\nmodel: {assignment.model}"
-        if assignment.reasoning_effort is not None:
-            selector += f"\nreasoningEffort: {assignment.reasoning_effort}"
-        rendered = rendered[:closing] + selector + rendered[closing:]
-    else:
-        closing = rendered.find("\n---\n", 4)
-        if closing < 0:
-            raise _InstallError("native role template source is missing or malformed")
-        selector = f"\nmodel: {assignment.model}"
-        if assignment.reasoning_effort is not None:
-            selector += f"\nreasoning_effort: {assignment.reasoning_effort}"
-        rendered = rendered[:closing] + selector + rendered[closing:]
+    marker = "sandbox_mode = "
+    position = rendered.find(marker)
+    if position < 0:
+        raise _InstallError("native role template source is missing or malformed")
+    selector = f'model = "{assignment.model}"\n'
+    if assignment.reasoning_effort is not None:
+        selector += f'model_reasoning_effort = "{assignment.reasoning_effort}"\n'
+    rendered = rendered[:position] + selector + rendered[position:]
     return rendered.encode("utf-8")
-
-
-def opencode_model_selectors() -> frozenset[str]:
-    """Return bounded public OpenCode Go model selectors from the local runtime."""
-
-    opencode = shutil.which("opencode")
-    if opencode is None:
-        return frozenset()
-    try:
-        result = run_text_command([opencode, "models", "opencode-go"], timeout=30)
-    except _InstallError:
-        return frozenset()
-    if result.returncode != 0:
-        return frozenset()
-    return frozenset(
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.startswith("opencode-go/") and _SAFE_OPENCODE_SELECTOR.fullmatch(line.strip())
-    )
 
 
 def _native_payload(
@@ -442,23 +380,15 @@ def _native_payload(
 ) -> list[tuple[str, bytes, _RoleAssignment]]:
     sources = _validate_native_sources(paths, target)
     try:
-        assignments = _select_role_assignments(
-            paths,
-            target,
-            excluded_names=NATIVE_ROLE_FILES[target],
-            available_model_selectors=(
-                opencode_model_selectors() if target == "opencode" else None
-            ),
-        )
+        assignments = _select_role_assignments(paths, target)
     except ToolError as exc:
         raise _InstallError("native role assignments could not be selected") from exc
     payload: list[tuple[str, bytes, _RoleAssignment]] = []
-    extension = ".toml" if target == "codex" else ".md"
     for agent_name, assignment in sorted(assignments.items()):
         if not isinstance(assignment, _RoleAssignment) or agent_name not in sources:
             raise _InstallError("native role template receipt is invalid")
-        filename = f"{agent_name}{extension}"
-        payload.append((filename, _render_native_source(target, sources[agent_name], assignment), assignment))
+        filename = f"{agent_name}.toml"
+        payload.append((filename, _render_native_source(sources[agent_name], assignment), assignment))
     return payload
 
 
@@ -479,7 +409,7 @@ def install_role_templates(
         raise _InstallError("native role template destination is not a managed directory")
     payload = _native_payload(paths, target)
     if not payload:
-        return [f"native: skipped {target}; no locally callable benchmarked role configuration was found"]
+        raise _InstallError("native role template payload is empty")
     if dry_run:
         return [f"native: would install {target} role assignments", _assignment_message(target, payload)]
     destination.mkdir(parents=True, exist_ok=True)
@@ -497,18 +427,12 @@ def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssign
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
     effort = assignment.reasoning_effort or "host-default"
-    if assignment.benchmark_id == "not-measured":
-        basis = "Explicit default"
-        metric = "benchmark not measured"
-    elif assignment.role == "worker" and assignment.cost_per_task_usd is not None:
+    if assignment.role == "worker" and assignment.cost_per_task_usd is not None:
         basis = "Coding Agent"
         metric = f"score {assignment.index_score}, cost ${assignment.cost_per_task_usd:.2f}/task"
     elif assignment.role == "worker":
         basis = "Intelligence Index proxy"
         metric = f"score {assignment.index_score}, price ignored"
-    elif assignment.role == "finder":
-        basis = "Codex read-only utility"
-        metric = "fixed selector"
     else:
         basis = "Intelligence Index"
         metric = f"score {assignment.index_score}, price ignored"
@@ -518,155 +442,93 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
     )
 
 
+def _role_inventory_summary(installed: set[str]) -> str:
+    """Return one bounded sentence fragment naming unequal role names."""
+
+    expected = _codex_role_names()
+    missing = [name for name in expected if name not in installed]
+    extra = sorted(installed - set(expected))
+    parts: list[str] = []
+    if missing:
+        parts.append(f"missing {', '.join(missing)}")
+    if extra:
+        parts.append(f"extra {', '.join(extra)}")
+    return "; ".join(parts) if parts else "roles differ"
+
+
+def _installed_role_names(paths: _InstallPaths) -> set[str]:
+    """Return every Codex role name the local host configuration declares."""
+
+    return set(configured_codex_role_names(paths.codex_home))
+
+
 def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
-    """Verify the complete receipt-owned native role matrix without exposing selectors."""
+    """Report the local role files against the packaged matrix, without exposing selectors.
+
+    The inventory comes from the local role files, because that is the state a user can act on.
+    The managed receipt stays a separate integrity record: Better Plan never edits, removes,
+    adopts, re-signs, or regenerates it, so a receipt that describes an earlier matrix is context
+    rather than a missing role.
+    """
 
     destination = _native_role_directory(paths, target)
+    preserved = native_role_configuration_exists(paths, target)
+    installed = _installed_role_names(paths)
+
+    def failure(message: str, notes: list[str]) -> tuple[bool, str]:
+        suffix = f" ({'; '.join(notes)})" if notes else ""
+        prefix = "local roles preserved; " if preserved else ""
+        return False, f"{prefix}{message}{suffix}"
+
+    if not installed:
+        return failure("no local Codex role files are installed", [])
+
+    notes: list[str] = []
     try:
         receipt = _load_native_receipt(_native_receipt_path(destination), target)
     except _InstallError:
-        return False, "native role receipt is missing, obsolete, or invalid"
+        receipt = None
+        notes.append("managed receipt is unreadable; report only")
     if receipt is None:
-        try:
-            selectable = _select_role_assignments(
-                paths,
-                target,
-                excluded_names=NATIVE_ROLE_FILES[target],
-                available_model_selectors=(
-                    opencode_model_selectors() if target == "opencode" else None
-                ),
+        notes.append("no managed receipt to verify against; report only")
+    else:
+        files = receipt.get("files")
+        if not isinstance(files, dict):
+            notes.append("managed receipt is invalid; report only")
+        else:
+            try:
+                for filename, digest in files.items():
+                    path = destination / filename
+                    if path.is_symlink() or not path.is_file():
+                        continue
+                    if _content_digest(path.read_bytes()) != digest:
+                        return failure("role file %s changed outside Better Plan" % filename, [])
+            except OSError:
+                return failure("native role files are unreadable", [])
+            detached = sorted(
+                {posixpath.splitext(name)[0] for name in files} - installed
             )
-        except ToolError:
-            return False, "native role selection could not be verified"
-        if not selectable:
-            return True, "no qualifying native role configuration; adapter-only installation verified"
-        return False, "native role receipt is missing"
-    files = receipt.get("files")
-    if not isinstance(files, dict) or not files or not set(files).issubset(NATIVE_ROLE_FILES[target]):
-        return False, "native role inventory is invalid"
-    try:
-        for filename, digest in files.items():
-            path = destination / filename
-            if path.is_symlink() or not path.is_file() or _content_digest(path.read_bytes()) != digest:
-                return False, "native role files do not match the managed receipt"
-    except OSError:
-        return False, "native role files are unreadable"
-    return True, "current native role generation and pinned selectors verified"
+            if detached:
+                notes.append(
+                    "managed receipt records role(s) no longer installed: %s; report only"
+                    % ", ".join(detached)
+                )
+
+    missing = [name for name in _codex_role_names() if name not in installed]
+    if missing:
+        return failure("missing packaged role(s): %s" % ", ".join(missing), notes)
+    extras = sorted(installed - set(_codex_role_names()))
+    if extras:
+        notes.append("preserved role(s) outside the packaged matrix: %s" % ", ".join(extras))
+    summary = "local roles verified: %s" % ", ".join(sorted(installed))
+    return True, f"{summary} ({'; '.join(notes)})" if notes else summary
 
 
-def read_json_object(path: Path) -> dict[str, object]:
-    try:
-        if not path.exists() or not path.read_text(encoding="utf-8").strip():
-            return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise _InstallError(f"{path.name}: could not read configuration") from exc
-    except json.JSONDecodeError as exc:
-        raise _InstallError(
-            f"{path.name}: invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
-        ) from exc
-    if not isinstance(data, dict):
-        raise _InstallError(f"{path.name}: top-level JSON value must be an object")
-    return data
-
-
-def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and path.read_text(encoding="utf-8") == content:
-        return
-    path.write_text(content, encoding="utf-8")
-
-
-def write_json(path: Path, data: object) -> None:
-    write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-
-
-def install_claude_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
-    # Validate even for dry runs through the canonical allowlisted copier.
-    if dry_run:
-        _copy_skill_tree(paths.repo_root, paths.claude_skill, dry_run=True)
-        return
-
-    with _staged_tree(paths.claude_plugin) as temp:
-        (temp / ".claude-plugin").mkdir(parents=True)
-        (temp / "skills").mkdir()
-        write_json(
-            temp / ".claude-plugin" / "plugin.json",
-            {
-                "name": SKILL_NAME,
-                "version": VERSION,
-                "description": DESCRIPTION,
-                "author": {"name": "Better Plan"},
-            },
-        )
-        for name in ("README.md", "LICENSE"):
-            source = paths.repo_root / name
-            if source.is_file():
-                shutil.copy2(source, temp / name)
-        _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
-
-
-def opencode_agent_text() -> str:
-    return """---
-description: Follow the Better Plan design-first workflow with deterministic acceptance and regression.
-mode: primary
-temperature: 0.1
-permission:
-  edit: allow
-  bash: allow
----
-
-Before acting, locate the installed `better-plan` skill, read its `SKILL.md` completely,
-and follow it as the active workflow. Use `scripts/manifest_tool.py` inside the skill for
-state transitions and validation. Do not preserve removed implementations or compatibility
-shims. Preserve unrelated user changes and verify real behavior before completion.
-"""
-
-
-def antigravity_manifest() -> dict[str, str]:
-    return {"name": SKILL_NAME}
-
-
-def antigravity_hooks() -> dict[str, object]:
-    return {
-        SKILL_NAME: {
-            "PreInvocation": [
-                {
-                    "type": "command",
-                    "command": _hook_command("antigravity", "session-start"),
-                    "timeout": 30,
-                }
-            ]
-        }
-    }
-
-
-def install_antigravity_plugin(paths: _InstallPaths, *, dry_run: bool) -> None:
-    if dry_run:
-        _copy_skill_tree(paths.repo_root, paths.antigravity_skill, dry_run=True)
-        return
-
-    with _staged_tree(paths.antigravity_plugin) as temp:
-        write_json(temp / "plugin.json", antigravity_manifest())
-        write_json(temp / "hooks.json", antigravity_hooks())
-        _copy_skill_tree(paths.repo_root, temp / "skills" / SKILL_NAME, dry_run=False)
-
-
-def install_craft_skills(paths: _InstallPaths, *, dry_run: bool) -> int:
-    for target in paths.craft_skills:
-        _copy_skill_tree(paths.repo_root, target, dry_run=dry_run)
-    return len(paths.craft_skills)
 
 
 def hook_config_path(paths: _InstallPaths, agent: str) -> Path:
     if agent == "codex":
         return paths.codex_hooks
-    if agent == "claude":
-        return paths.claude_settings
-    if agent == "cursor":
-        return paths.cursor_hooks
-    if agent == "kimi":
-        return paths.kimi_config
     raise _InstallError(f"{agent} does not support Better Plan lifecycle Hooks")
 
 
@@ -706,123 +568,6 @@ def run_text_command(command: list[str], *, timeout: int) -> subprocess.Complete
         raise _InstallError("runtime validation could not start; command output was discarded") from exc
 
 
-def decode_probe_output(data: bytes) -> str:
-    if not data:
-        return ""
-    if data.startswith(b"\xff\xfe") or data.count(b"\x00") > max(1, len(data) // 8):
-        return data.decode("utf-16le", errors="replace").replace("\ufeff", "")
-    return data.decode("utf-8", errors="replace")
-
-
-def parse_running_wsl_distros(output: str) -> list[str]:
-    distros: list[str] = []
-    for value in (line.strip() for line in output.replace("\x00", "").splitlines()):
-        if not value:
-            continue
-        if value.startswith("*"):
-            value = value[1:].strip()
-        parts = value.split()
-        if not parts or parts[0].upper() == "NAME":
-            continue
-        if len(parts) >= 3 and parts[-2].lower() == "running":
-            distros.append(" ".join(parts[:-2]))
-    return distros
-
-
-WSL_OPENCODE_PROBE_SCRIPT = (
-    "path=$(command -v opencode 2>/dev/null) || exit 1; "
-    "printf '%s\\n' \"$path\"; printf '%s\\n' \"$HOME\"; "
-    "opencode --version 2>/dev/null | head -n 1 || true"
-)
-
-
-def wsl_executable() -> str | None:
-    if os.name != "nt":
-        return None
-    return shutil.which("wsl.exe") or shutil.which("wsl")
-
-
-def run_wsl_script(
-    wsl: str,
-    distro: str,
-    script: str,
-    *,
-    timeout: int,
-) -> subprocess.CompletedProcess[str]:
-    return run_text_command([wsl, "-d", distro, "-e", "bash", "-lic", script], timeout=timeout)
-
-
-def split_wsl_probe_stdout(stdout: str) -> tuple[str, str, str] | None:
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    if len(lines) < 2:
-        return None
-    return lines[0], lines[1], lines[2] if len(lines) > 2 else "version unknown"
-
-
-def discover_wsl_opencode() -> list[_WslOpenCodeRuntime]:
-    wsl = wsl_executable()
-    if wsl is None:
-        return []
-    try:
-        result = subprocess.run(
-            [wsl, "-l", "-v"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if result.returncode != 0:
-        return []
-
-    probes: list[_WslOpenCodeRuntime] = []
-    for distro in parse_running_wsl_distros(decode_probe_output(result.stdout)):
-        try:
-            probe = run_wsl_script(wsl, distro, WSL_OPENCODE_PROBE_SCRIPT, timeout=20)
-        except _InstallError:
-            continue
-        found = split_wsl_probe_stdout(probe.stdout if probe.returncode == 0 else "")
-        if found:
-            location, home, version = found
-            probes.append(_WslOpenCodeRuntime(distro, location, home, version))
-    return probes
-
-
-def wsl_source_path(wsl: str, runtime: _WslOpenCodeRuntime, source: Path) -> str:
-    result = run_text_command(
-        [wsl, "-d", runtime.distro, "-e", "wslpath", "-a", str(source)],
-        timeout=20,
-    )
-    path = result.stdout.strip() if result.returncode == 0 else ""
-    if not path:
-        raise _InstallError("unable to resolve Better Plan source inside the WSL runtime")
-    return path
-
-
-def install_wsl_opencode(
-    paths: _InstallPaths,
-    *,
-    dry_run: bool,
-) -> list[str]:
-    wsl = wsl_executable()
-    if wsl is None:
-        return []
-    messages: list[str] = []
-    for runtime in discover_wsl_opencode():
-        if dry_run:
-            messages.append("opencode: would update detected WSL runtime")
-            continue
-        source = wsl_source_path(wsl, runtime, paths.repo_root)
-        installer = posixpath.join(source, "scripts", "install.py")
-        script = f"python3 {shlex.quote(installer)} update --agents codex,opencode"
-        result = run_wsl_script(wsl, runtime.distro, script, timeout=120)
-        if result.returncode != 0:
-            raise _InstallError("failed to update Better Plan in the WSL runtime")
-        messages.append("opencode: updated detected WSL runtime")
-    return messages
-
-
 def install_target(
     paths: _InstallPaths,
     target: str,
@@ -834,51 +579,10 @@ def install_target(
         raise _InstallError(f"unknown agent target: {target}")
     if target == "kilo":
         return install_kilo_agent_matrix(paths, dry_run=dry_run)
-    role_messages: list[str] = []
-    if target in NATIVE_ROLE_FILES:
-        role_messages.extend(install_role_templates(paths, target, dry_run=dry_run))
-    if target == "codex":
-        _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
-        action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [*role_messages, f"codex hooks: {action} managed handlers"]
-    if target == "claude":
-        install_claude_plugin(paths, dry_run=dry_run)
-        _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
-        action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [
-            *role_messages,
-            f"claude: {'would update' if dry_run else 'updated'} plugin",
-            f"claude hooks: {action} managed handlers",
-        ]
-    if target == "opencode":
-        if not dry_run:
-            write_text(paths.opencode_agent, opencode_agent_text())
-        return [
-            *role_messages,
-            f"opencode: {'would update' if dry_run else 'updated'} agent",
-            *install_wsl_opencode(
-                paths,
-                dry_run=dry_run,
-            ),
-        ]
-    if target == "cursor":
-        _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
-        action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [*role_messages, f"cursor hooks: {action} managed handlers"]
-    if target == "kimi":
-        _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
-        action = "would update" if dry_run and changed else "updated" if changed else "already current"
-        return [f"kimi hooks: {action} managed handlers"]
-    if target == "antigravity":
-        install_antigravity_plugin(paths, dry_run=dry_run)
-        return [f"antigravity: {'would update' if dry_run else 'updated'} plugin"]
-    if target == "craft":
-        count = install_craft_skills(paths, dry_run=dry_run)
-        if count == 0:
-            return ["craft: no configured workspaces found"]
-        action = "would update" if dry_run else "updated"
-        return [f"craft: {action} skill in {count} workspace(s)"]
-    return []
+    role_messages = install_role_templates(paths, target, dry_run=dry_run)
+    _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
+    action = "would update" if dry_run and changed else "updated" if changed else "already current"
+    return [*role_messages, f"codex hooks: {action} managed handlers"]
 
 
 def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
@@ -892,29 +596,9 @@ def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[s
             f"kilo: {action} native skill",
             "kilo: preserved immutable native Agent matrix",
         ]
-    native_messages = (
-        [f"{target}: preserved immutable native role templates"]
-        if target in NATIVE_ROLE_FILES
-        else []
-    )
-    if target == "craft":
-        count = len(paths.craft_skills)
-        if not dry_run:
-            for path in paths.craft_skills:
-                _remove_path(path)
-        action = "would remove" if dry_run else "removed"
-        return [*native_messages, f"craft: {action} skill from {count} workspace(s)"]
-
-    path = {
-        "codex": paths.codex_skill,
-        "claude": paths.claude_plugin,
-        "opencode": paths.opencode_agent,
-        "cursor": paths.cursor_skill,
-        "copilot": paths.copilot_skill,
-        "antigravity": paths.antigravity_plugin,
-        "pi": paths.pi_skill,
-        "kimi": paths.kimi_skill,
-    }[target]
     if not dry_run:
-        _remove_path(path)
-    return [*native_messages, f"{target}: {'would remove' if dry_run else 'removed'}"]
+        _remove_path(paths.codex_skill)
+    return [
+        "codex: preserved immutable native role templates",
+        f"codex: {'would remove' if dry_run else 'removed'}",
+    ]

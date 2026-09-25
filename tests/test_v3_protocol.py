@@ -7,8 +7,15 @@ import tempfile
 import unittest
 
 from scripts.better_plan.adapters.manifest_cli import build_parser
-from scripts.better_plan.domain.models import checkpoints_template, semantic_digest
+from scripts.better_plan.domain.models import (
+    checkpoints_template,
+    semantic_digest,
+    task_worker_kind,
+)
 from scripts.better_plan.domain.validation import (
+    MAX_TASK_NODES,
+    MAX_TASK_VERIFICATION_COMMANDS,
+    MAX_TASK_WRITE_PATHS,
     plan_readiness_issues,
     validate_checkpoints_document,
     validate_plan_document,
@@ -232,21 +239,34 @@ class V3ProtocolTests(unittest.TestCase):
         issues = validate_plan_document(self.path, plan)
         self.assertTrue(any("Node dependency cycle" in issue.message for issue in issues))
 
-    def test_risk_tags_do_not_override_the_designer_worker_tier(self) -> None:
+    def test_risk_tags_select_no_worker_role_and_legacy_tier_is_inert(self) -> None:
         plan = complete_plan()
         plan["spec"]["tasks"][0]["risks"] = ["migration"]
         self.assertEqual(validate_plan_document(self.path, plan), [])
-        plan["spec"]["tasks"][0]["difficulty"] = "complex"
-        self.assertEqual(validate_plan_document(self.path, plan), [])
 
-    def test_worker_specialization_defaults_to_general_and_rejects_unknown_values(self) -> None:
+        # The removed field stays schema-valid, routes nothing, and is never inspected: no role
+        # reads it, so no value of it can be wrong.
+        for value in ("complex", "routine", None):
+            with self.subTest(difficulty=value):
+                plan["spec"]["tasks"][0]["difficulty"] = value
+                self.assertEqual(validate_plan_document(self.path, plan), [])
+                self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_worker_responsibility_defaults_to_code_and_rejects_unknown_values(self) -> None:
         plan = complete_plan()
         plan["spec"]["tasks"][0].pop("worker")
         self.assertEqual(validate_plan_document(self.path, plan), [])
 
         plan["spec"]["tasks"][0]["worker"] = "backend"
         issues = validate_plan_document(self.path, plan)
-        self.assertTrue(any("must be general or frontend" in issue.message for issue in issues))
+        self.assertTrue(any("must be code or hybrid" in issue.message for issue in issues))
+
+        # A Plan sealed before the rename keeps validating and keeps its responsibility.
+        for legacy, kind in (("general", "code"), ("frontend", "hybrid")):
+            with self.subTest(legacy=legacy):
+                plan["spec"]["tasks"][0]["worker"] = legacy
+                self.assertEqual(validate_plan_document(self.path, plan), [])
+                self.assertEqual(task_worker_kind(plan["spec"]["tasks"][0]), kind)
 
     def test_authorized_phase_binds_the_semantic_digest(self) -> None:
         plan = complete_plan()
@@ -267,6 +287,179 @@ class V3ProtocolTests(unittest.TestCase):
         plan["spec"]["requirements"][0]["statement"] = "A silently expanded requirement."
         issues = validate_plan_document(self.path, plan)
         self.assertTrue(any("stale semantic binding" in issue.message for issue in issues))
+
+    def _oversized_ready_plan(self) -> dict:
+        """Return a ready Plan whose single Task exceeds four single-session ceilings.
+
+        One Task is one Worker dispatch, so its Node DAG, ownership surface and
+        verification surface are all carried by a single session. This fixture is the
+        shape that made a real delivery grind for thousands of steps instead of
+        returning a handoff.
+        """
+
+        plan = complete_plan()
+        oversized = plan["spec"]["tasks"][0]
+        oversized["nodes"] = [
+            {
+                "code": "NODE-1%02d" % index,
+                "title": "slice-%02d" % index,
+                "outcome": "Complete one bounded slice of the Task.",
+                "prerequisites": [],
+            }
+            for index in range(MAX_TASK_NODES + 1)
+        ]
+        oversized["ownership"]["write_paths"] = ["source.txt"] + [
+            "slice-%02d.txt" % index for index in range(MAX_TASK_WRITE_PATHS)
+        ]
+        oversized["focused_regression"]["paths"] = list(oversized["ownership"]["write_paths"])
+        oversized["focused_regression"]["commands"] = [
+            "run slice %02d" % index for index in range(MAX_TASK_VERIFICATION_COMMANDS + 1)
+        ]
+        return plan
+
+    def test_oversized_task_shape_is_rejected_before_authorization(self) -> None:
+        plan = self._oversized_ready_plan()
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+
+        issues = plan_readiness_issues(self.path, plan)
+        fields = {issue.message.split(":", 1)[0] for issue in issues}
+        self.assertIn("TASK-001.node_count", fields)
+        self.assertIn("TASK-001.max_parallel_frontier", fields)
+        self.assertIn("TASK-001.write_path_count", fields)
+        self.assertIn("TASK-001.verification_command_count", fields)
+        ceilings = [issue for issue in issues if "exceeds the single-session ceiling" in issue.message]
+        self.assertEqual(len(ceilings), 4)
+        self.assertTrue(all("split this Task" in issue.message for issue in ceilings))
+
+    def test_concurrent_nodes_must_declare_the_machine_resources_they_share(self) -> None:
+        """A wide intra-Task frontier is a physical contention claim, not just structure.
+
+        Nodes share their Task's ownership, so concurrent Nodes contend on the build
+        directory, version-control lock and test stores the Task never assigned away.
+        That is a completeness requirement and never predicts how large the Task is.
+        """
+
+        plan = complete_plan()
+        plan["spec"]["tasks"][0]["nodes"] = [
+            {
+                "code": "NODE-%03d" % index,
+                "title": "branch-%03d" % index,
+                "outcome": "Implement one independent branch of the Task.",
+                "prerequisites": [],
+            }
+            for index in range(1, 4)
+        ]
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        issues = plan_readiness_issues(self.path, plan)
+        self.assertEqual(
+            [issue.message.split(":", 1)[0] for issue in issues],
+            ["TASK-001.ownership.shared_exclusive"],
+        )
+
+        plan["spec"]["tasks"][0]["ownership"]["shared_exclusive"] = [
+            "build directory — isolated per Node under target/<node>/"
+        ]
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_responsibility_and_evidence_must_agree(self) -> None:
+        """`hybrid` means the Task writes code *and* its result is judged visually.
+
+        Responsibility and evidence answer the same question, so a Task that answers it two
+        different ways is a design defect. A sealed Plan is never re-judged.
+        """
+
+        for worker, verification in (("hybrid", "code"), ("code", "hybrid")):
+            with self.subTest(worker=worker, verification=verification):
+                plan = complete_plan()
+                plan["spec"]["tasks"][0]["worker"] = worker
+                plan["spec"]["tasks"][0]["verification"] = verification
+                issues = plan_readiness_issues(self.path, plan)
+                self.assertEqual(
+                    [issue.message.split(":", 1)[0] for issue in issues], ["TASK-001.worker"]
+                )
+                self.assertIn("make both say hybrid or both say code", issues[0].message)
+
+        for worker, verification in (("code", "code"), ("hybrid", "hybrid")):
+            with self.subTest(worker=worker, verification=verification):
+                plan = complete_plan()
+                plan["spec"]["tasks"][0]["worker"] = worker
+                plan["spec"]["tasks"][0]["verification"] = verification
+                self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+        # A sealed Plan is frozen history, not a readiness defect.
+        plan = complete_plan()
+        plan["spec"]["tasks"][0]["verification"] = "hybrid"
+        plan["phase"] = "authorized"
+        digest = semantic_digest(plan)
+        plan["lifecycle"]["sealed"] = {
+            "revision": 1,
+            "semantic_digest": digest,
+            "sealed_at": "2026-01-01T00:00:00Z",
+        }
+        plan["lifecycle"]["authorization"] = {
+            "source": "explicit",
+            "reference_digest": "0" * 64,
+            "semantic_digest": digest,
+            "risk_reasons": [],
+            "autonomy": plan["intent"]["autonomy"],
+            "authorized_at": "2026-01-01T00:00:00Z",
+        }
+        plan["lifecycle"]["reviewer_session"] = None
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_a_wide_frontier_only_requires_the_resources_to_be_named(self) -> None:
+        """Readiness checks that the resources are declared, not how the text describes them.
+
+        The Designer owes concurrent Nodes separate paths, but no wording rule can establish that;
+        the Reviewer judges whether the named text actually separates them.
+        """
+
+        plan = complete_plan()
+        plan["spec"]["tasks"][0]["nodes"] = [
+            {
+                "code": "NODE-%03d" % index,
+                "title": "branch-%03d" % index,
+                "outcome": "Implement one independent branch of the Task.",
+                "prerequisites": [],
+            }
+            for index in range(1, 4)
+        ]
+        plan["spec"]["tasks"][0]["ownership"]["shared_exclusive"] = [
+            "build target directory — one per Node",
+            "shared cargo registry cache",
+        ]
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_a_single_ready_node_declares_no_shared_resource(self) -> None:
+        """One ready Node has no intra-Task contention, so no declaration is required."""
+
+        plan = complete_plan()
+        plan["spec"]["requirements"].append(
+            {"code": "REQ-002", "statement": "A second observable behavior is verified.", "source_refs": ["user-request"]}
+        )
+        plan["spec"]["tasks"].append(
+            task("TASK-002", write_paths=["second.txt"], acceptance_code="AC-002", requirements=["REQ-002"])
+        )
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
+
+    def test_sealed_plan_is_not_re_judged_against_the_task_size_ceiling(self) -> None:
+        plan = self._oversized_ready_plan()
+        plan["phase"] = "authorized"
+        digest = semantic_digest(plan)
+        plan["lifecycle"]["sealed"] = {"revision": 1, "semantic_digest": digest, "sealed_at": "2026-01-01T00:00:00Z"}
+        plan["lifecycle"]["authorization"] = {
+            "source": "explicit",
+            "reference_digest": "0" * 64,
+            "semantic_digest": digest,
+            "risk_reasons": [],
+            "autonomy": plan["intent"]["autonomy"],
+            "authorized_at": "2026-01-01T00:00:00Z",
+        }
+        plan["lifecycle"]["reviewer_session"] = None
+        self.assertEqual(validate_plan_document(self.path, plan), [])
+        self.assertEqual(plan_readiness_issues(self.path, plan), [])
 
     def test_checkpoints_project_every_task_exactly_once(self) -> None:
         plan = complete_plan()
@@ -292,6 +485,8 @@ class V3ProtocolTests(unittest.TestCase):
             document = (directory / "Plan.md").read_text(encoding="utf-8")
             self.assertEqual(document, render_document(plan))
             self.assertIn("render-only projection", document)
+            self.assertIn("before opening the sole Reviewer", document)
+            self.assertNotIn("Run inside the sole Reviewer session", document)
             self.assertIn("TASK-001", document)
             self.assertNotIn("better-plan:begin", document)
 

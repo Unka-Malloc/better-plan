@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .models import (
-    ADAPTER_SKILL_AGENTS,
     AGENTS,
     CURRENT_SKILL_FILES,
     SHARED_SCAN_AGENTS,
@@ -22,10 +21,6 @@ def validate_source_tree(repo_root: Path) -> None:
     missing = [relative for relative in CURRENT_SKILL_FILES if not (repo_root / relative).is_file()]
     if missing:
         raise _InstallError(f"source tree is invalid: missing required file(s): {', '.join(missing)}")
-
-
-def adapter_needs_skill_root(agents: Iterable[str]) -> bool:
-    return any(agent in ADAPTER_SKILL_AGENTS for agent in agents)
 
 
 @contextmanager
@@ -73,16 +68,8 @@ def copy_skill_tree(source: Path, target: Path, *, dry_run: bool) -> None:
 def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
     if agent == "codex":
         return paths.codex_skill
-    if agent == "cursor":
-        return paths.cursor_skill
-    if agent == "copilot":
-        return paths.copilot_skill
-    if agent == "pi":
-        return paths.pi_skill
     if agent == "kilo":
         return paths.kilo_skill
-    if agent == "kimi":
-        return paths.kimi_skill
     raise _InstallError(f"{agent} does not have a native skill tree path")
 
 
@@ -108,24 +95,6 @@ def shared_scan_targets(
     if any(native_skill_path(paths, agent).exists() for agent in names):
         return {agent: ("native", native_skill_path(paths, agent)) for agent in names}
     return {agent: ("shared", paths.shared_skill) for agent in names}
-
-
-def implementation_root(
-    paths: _InstallPaths,
-    targets: dict[str, tuple[str, Path]],
-) -> Path:
-    if paths.shared_skill.exists():
-        return paths.shared_skill
-    for agent in AGENTS:
-        target = targets.get(agent)
-        if target and target[0] == "native":
-            return target[1]
-    for agent in AGENTS:
-        if agent in SHARED_SCAN_AGENTS:
-            native = native_skill_path(paths, agent)
-            if native.exists():
-                return native
-    return paths.shared_skill
 
 
 def remove_path(path: Path) -> None:
@@ -165,28 +134,12 @@ def remove_shared_scan_duplicates(
 def existing_install_paths(paths: _InstallPaths, agents: Iterable[str]) -> list[Path]:
     selected = set(agents)
     values: list[Path] = []
-    if paths.shared_skill.exists() and selected & (SHARED_SCAN_AGENTS | ADAPTER_SKILL_AGENTS):
+    if paths.shared_skill.exists() and selected & SHARED_SCAN_AGENTS:
         values.append(paths.shared_skill)
     if "codex" in selected:
         values.append(paths.codex_skill)
-    if "claude" in selected:
-        values.append(paths.claude_plugin)
-    if "opencode" in selected:
-        values.append(paths.opencode_agent)
-    if "cursor" in selected:
-        values.append(paths.cursor_skill)
-    if "copilot" in selected:
-        values.append(paths.copilot_skill)
-    if "antigravity" in selected:
-        values.append(paths.antigravity_plugin)
-    if "pi" in selected:
-        values.append(paths.pi_skill)
-    if "craft" in selected:
-        values.extend(paths.craft_skills)
     if "kilo" in selected:
         values.append(paths.kilo_skill)
         values.append(paths.kilo_agents / "better-plan.md")
         values.append(paths.kilo_agents.with_name("agents.better-plan.json"))
-    if "kimi" in selected:
-        values.append(paths.kimi_skill)
     return [path for path in values if path.exists()]

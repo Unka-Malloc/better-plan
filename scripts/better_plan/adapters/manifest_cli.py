@@ -144,6 +144,7 @@ _AUTO_REPORT_COMMANDS = frozenset(
         "authorize-plan",
         "begin-continuation",
         "close-continuation",
+        "supersede-decision",
         "dispatch-task",
         "bind-agent",
         "delegation-failed",
@@ -188,7 +189,7 @@ def _add_plan(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_host(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--native-host", choices=("codex",))
+    parser.add_argument("--native-host", choices=("codex", "kilo"))
     parser.add_argument("--codex-home", help=argparse.SUPPRESS)
 
 
@@ -216,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--scope-out", action="append", required=True)
     init.add_argument("--success", action="append", required=True)
     init.add_argument("--risk-boundary", action="append", required=True)
+    init.add_argument(
+        "--worktree-workspace",
+        action="store_true",
+        help="allow creating this workspace inside a linked Git worktree instead of refusing it",
+    )
     init.set_defaults(func=workflow.init_plan)
 
     build = subparsers.add_parser("build-dossier", help="load the single Decision Dossier")
@@ -271,6 +277,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_plan(close)
     close.add_argument("--continuation-id", required=True)
     close.set_defaults(func=workflow.close_continuation)
+
+    supersede = subparsers.add_parser(
+        "supersede-decision",
+        help="replace one resolved decision under fresh explicit user authority",
+    )
+    _add_plan(supersede)
+    supersede.add_argument("--decision", required=True, help="the DEC-* code being replaced")
+    supersede.add_argument("--option", required=True, help="an option id this Question already offered")
+    supersede.add_argument("--reason", required=True)
+    supersede.add_argument("--reference", required=True, help="the user's approval reference")
+    supersede.set_defaults(func=workflow.supersede_decision)
 
     next_action = subparsers.add_parser("next-action", help="name the next delivery action")
     _add_plan(next_action)

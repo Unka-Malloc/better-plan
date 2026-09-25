@@ -26,21 +26,6 @@ def default_paths(args: argparse.Namespace) -> _InstallPaths:
         shared_home=Path(
             args.shared_home or os.environ.get("BETTER_PLAN_SHARED_HOME") or home / ".agents"
         ).expanduser(),
-        claude_home=Path(args.claude_home or os.environ.get("CLAUDE_HOME") or home / ".claude").expanduser(),
-        opencode_config=Path(
-            args.opencode_config or os.environ.get("OPENCODE_CONFIG_HOME") or home / ".config" / "opencode"
-        ).expanduser(),
-        cursor_home=Path(args.cursor_home or os.environ.get("CURSOR_HOME") or home / ".cursor").expanduser(),
-        copilot_home=Path(args.copilot_home or os.environ.get("COPILOT_HOME") or home / ".copilot").expanduser(),
-        antigravity_home=Path(
-            args.antigravity_home
-            or os.environ.get("ANTIGRAVITY_HOME")
-            or home / ".gemini" / "config"
-        ).expanduser(),
-        pi_home=Path(args.pi_home or os.environ.get("PI_HOME") or home / ".pi" / "agent").expanduser(),
-        craft_home=Path(
-            args.craft_home or os.environ.get("CRAFT_AGENT_HOME") or home / ".craft-agent"
-        ).expanduser(),
         kilo_home=Path(
             args.kilo_home or os.environ.get("KILO_HOME") or home / ".kilo"
         ).expanduser(),
@@ -48,9 +33,6 @@ def default_paths(args: argparse.Namespace) -> _InstallPaths:
             args.kilo_config
             or os.environ.get("KILO_CONFIG_HOME")
             or config_home / "kilo"
-        ).expanduser(),
-        kimi_home=Path(
-            args.kimi_home or os.environ.get("KIMI_CODE_HOME") or home / ".kimi-code"
         ).expanduser(),
     )
 
@@ -90,21 +72,13 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets: all, codex, claude, opencode, cursor, copilot, antigravity, pi, craft, kilo, kimi",
+        help="agent targets: all, codex, kilo",
     )
     parser.add_argument("--source", help="source tree for installation or Doctor comparison; defaults to the running package")
     parser.add_argument("--codex-home", help="Codex home directory")
     parser.add_argument("--shared-home", help="shared agent home")
-    parser.add_argument("--claude-home", help="Claude home directory")
-    parser.add_argument("--opencode-config", help="OpenCode config directory")
-    parser.add_argument("--cursor-home", help="Cursor home directory")
-    parser.add_argument("--copilot-home", help="GitHub Copilot home directory")
-    parser.add_argument("--antigravity-home", help="Antigravity customization directory")
-    parser.add_argument("--pi-home", help="Pi agent configuration directory")
-    parser.add_argument("--craft-home", help="Craft Agents configuration directory")
     parser.add_argument("--kilo-home", help="Kilo skill home directory")
     parser.add_argument("--kilo-config", help="Kilo configuration directory")
-    parser.add_argument("--kimi-home", help="Kimi Code configuration directory")
 
 
 def build_parser() -> argparse.ArgumentParser:
