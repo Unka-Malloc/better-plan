@@ -57,20 +57,18 @@ Task is tiered by difficulty: there is no `Difficulty`/`Tier` field, and `Worklo
 Codex uses this explicit matrix only for first initialization; it does not import model choices from
 unrelated local agents. Any existing same-name native role (identified by its TOML `name`, even
 under another filename) or role receipt prevents matrix initialization, and existing role files and
-receipts remain unchanged. The 2026-09-23 AA snapshots record Astra Max / XHigh / Low at
-Intelligence Index 53 / 52 / 46 and Codex Luna Max at Coding Agent Index 41 ($0.1759 per task).
-`designer`, `hybrid-worker` and `reviewer` are pinned to the model row for the effort they use, so
-their receipts carry an Intelligence Index proxy with Coding Agent cost unset; `worker` is pinned to
-the Codex Coding Agent row. Never
-compare the two indices as the same scale, and never read an API benchmark cost as a host's
-subscription usage.
+receipts remain unchanged. Every pin is evaluated on one standard basis: the Intelligence Index row
+for the model and effort it selects. The 2026-09-23 AA snapshot records those rows at 53 for
+`designer`, 37 for `worker`, 46 for `hybrid-worker`, and 52 for `reviewer`, each with the task cost
+the same table publishes (`gpt-6-astra` $3.26, `gpt-6-luna` $0.07, `gpt-6-astra-low` $0.82,
+`gpt-6-astra-xhigh` $2.31). No second index, harness comparison, or cross-index comparison is used,
+and an API benchmark cost is never a host's subscription usage.
 
-Both routing catalogs are derived from the complete
+The packaged routing table is derived from the complete
 [AA source snapshot](artificial-analysis-snapshot.json): all 673 model rows (275 current, 398
-historical) and all 19 Coding Agent configurations, with every published source field preserved.
-The model table uses Intelligence Index v4.3.2; the agent table uses Coding Agent Index v1.5.
+historical), with every published source field preserved. It uses Intelligence Index v4.3.2.
 Historical rows retain reference data for explicitly configured models; inclusion does not prove
-local availability. Scores in the compact routing catalogs follow AA's rounded display; original
+local availability. Scores in the compact routing catalog follow AA's rounded display; original
 precision, component results, pricing, latency, throughput, token usage, and run versions remain in
 the source snapshot. Load the snapshot only for benchmark research, never ordinary dispatch.
 

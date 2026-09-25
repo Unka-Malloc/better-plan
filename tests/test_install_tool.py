@@ -12,10 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.better_plan.adapters import install_cli
-from scripts.better_plan.domain.model_routing import (
-    load_coding_agent_catalog,
-    load_model_catalog,
-)
+from scripts.better_plan.domain.model_routing import load_model_catalog
 from scripts.better_plan.hooks import config as hook_config
 from scripts.better_plan.installation import doctor as install_doctor
 from scripts.better_plan.installation import models as install_models
@@ -36,12 +33,12 @@ RETIRED_HOST_SURFACES = (
     ".craft-agent",
     ".kimi-code",
 )
-# The exact four-role Codex contract: role, model, effort, benchmark row, score, task cost.
+# The exact four-role Codex contract: role, model, effort, Intelligence Index row, score, task cost.
 CODEX_PRESET = {
-    "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra", 53, None),
-    "worker": ("worker", "gpt-6-luna", "max", "codex-gpt-6-luna-max", 41, 0.17591172304455457),
-    "hybrid-worker": ("worker", "gpt-6-astra", "low", "gpt-6-astra-low", 46, None),
-    "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh", 52, None),
+    "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra", 53, 3.2575003134834164),
+    "worker": ("worker", "gpt-6-luna", "max", "gpt-6-luna", 37, 0.06809498628701058),
+    "hybrid-worker": ("worker", "gpt-6-astra", "low", "gpt-6-astra-low", 46, 0.8175139285656057),
+    "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh", 52, 2.308795912269076),
 }
 
 
@@ -194,7 +191,6 @@ class InstallToolTests(unittest.TestCase):
         self.assertFalse([path.name for path in (REPO_ROOT / "agents" / "codex").iterdir() if "finder" in path.name])
 
         models = {model.model_id: model for model in load_model_catalog().models}
-        variants = {variant.variant_id: variant for variant in load_coding_agent_catalog().variants}
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
             messages = install_service.install_agents(paths, ["codex"], dry_run=False)
@@ -249,27 +245,22 @@ class InstallToolTests(unittest.TestCase):
             )
             self.assertEqual(
                 receipt["assignments"]["worker.toml"]["cost_per_task_usd"],
-                variants["codex-gpt-6-luna-max"].cost_per_task_usd,
+                models["gpt-6-luna"].cost_per_task_usd,
             )
-            # The two published indices are different scales, so the receipt names the one it used.
-            self.assertEqual(
-                {
-                    name: receipt["assignments"][f"{name}.toml"]["index_basis"]
-                    for name in ("designer", "hybrid-worker", "reviewer", "worker")
-                },
-                {
-                    "designer": "intelligence",
-                    "hybrid-worker": "intelligence",
-                    "reviewer": "intelligence",
-                    "worker": "coding_agent",
-                },
-            )
+            # One standard basis: no receipt carries a second index or its discriminator.
+            for name in ("designer", "hybrid-worker", "reviewer", "worker"):
+                with self.subTest(agent=name):
+                    self.assertNotIn("index_basis", receipt["assignments"][f"{name}.toml"])
+                    self.assertEqual(
+                        receipt["assignments"][f"{name}.toml"]["benchmark_id"],
+                        CODEX_PRESET[name][3],
+                    )
             assignment_message = next(
                 message for message in messages if "immutable after first installation" in message
             )
-            self.assertIn("worker -> worker, gpt-6-luna/max, Coding Agent score 41", assignment_message)
+            self.assertIn("worker -> worker, gpt-6-luna/max, Intelligence Index score 37", assignment_message)
             self.assertIn("hybrid-worker -> worker, gpt-6-astra/low", assignment_message)
-            self.assertIn("Intelligence Index proxy score 46", assignment_message)
+            self.assertIn("Intelligence Index score 46, cost $0.82/task", assignment_message)
             self.assertIn("source codex-default-matrix", assignment_message)
 
     def test_native_role_templates_use_exact_paths_and_survive_updates_and_uninstall(self) -> None:
@@ -714,8 +705,8 @@ class InstallToolTests(unittest.TestCase):
             self.assertEqual(receipt.read_bytes(), receipt_before)
             self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, roles_before)
 
-    def test_a_receipt_written_before_index_basis_still_verifies(self) -> None:
-        """The receipt is immutable: an older record must keep working after the format grows."""
+    def test_a_receipt_written_with_the_retired_second_index_still_verifies(self) -> None:
+        """The receipt is immutable: a record written under the two-index format stays readable."""
 
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = make_paths(Path(tmpdir))
@@ -723,11 +714,13 @@ class InstallToolTests(unittest.TestCase):
             directory = native_role_directory(paths)
             receipt = directory.with_name("agents.better-plan.json")
 
-            def drop_basis(value: dict) -> None:
-                for assignment in value["assignments"].values():
-                    assignment.pop("index_basis")
+            def restore_legacy_basis(value: dict) -> None:
+                for agent_name, assignment in value["assignments"].items():
+                    assignment["index_basis"] = (
+                        "coding_agent" if agent_name == "worker.toml" else "intelligence"
+                    )
 
-            rewrite_receipt(receipt, drop_basis)
+            rewrite_receipt(receipt, restore_legacy_basis)
             receipt_before = receipt.read_bytes()
 
             check = install_doctor.check_native_roles(paths, "codex")
@@ -842,7 +835,6 @@ class InstallToolTests(unittest.TestCase):
         expected_runtime_payload = {
             "references/worker.md",
             "scripts/better_plan/domain/model_catalog.json",
-            "scripts/better_plan/domain/coding_agent_catalog.json",
             "scripts/better_plan/domain/model_routing.py",
             "scripts/better_plan/domain/task_shape.py",
         }

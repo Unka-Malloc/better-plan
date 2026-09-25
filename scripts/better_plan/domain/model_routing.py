@@ -1,10 +1,10 @@
 """Network-free loading of versioned Artificial Analysis snapshots.
 
-The packaged tables are reference data: the model table records the Intelligence
-Index and the Coding Agent table records measured harness combinations. The
-installer reads one row per packaged Codex role pin to record that pin's
-``index_score`` and ``cost_per_task_usd`` provenance. Nothing here selects a
-role, a model, or an effort, and runtime dispatch never calls this module.
+The packaged table is reference data: the model table records the one standard
+Intelligence Index. The installer reads one row per packaged Codex role pin to
+record that pin's ``index_score`` and ``cost_per_task_usd`` provenance. Nothing
+here selects a role, a model, or an effort, and runtime dispatch never calls this
+module.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from .models import ToolError
 
 
 _MODEL_CATALOG_PATH = Path(__file__).with_name("model_catalog.json")
-_CODING_AGENT_CATALOG_PATH = Path(__file__).with_name("coding_agent_catalog.json")
 _MONEY_FIELDS = (
     "cost_per_task_usd",
     "input_price_per_million_usd",
@@ -50,28 +49,6 @@ _MODEL_TOP_LEVEL_FIELDS = frozenset(
         "status_filter",
         "model_count",
         "models",
-    }
-)
-_CODING_AGENT_ROW_FIELDS = frozenset(
-    {
-        "variant_id",
-        "harness",
-        "model",
-        "reasoning_effort",
-        "index_score",
-        "cost_per_task_usd",
-    }
-)
-_CODING_AGENT_TOP_LEVEL_FIELDS = frozenset(
-    {
-        "schema_version",
-        "catalog_version",
-        "as_of",
-        "source_url",
-        "methodology_url",
-        "methodology_version",
-        "variant_count",
-        "variants",
     }
 )
 
@@ -106,32 +83,6 @@ class ModelCatalog:
     status_filter: str
     model_count: int
     models: tuple[ModelRecord, ...]
-
-
-@dataclass(frozen=True)
-class CodingAgentRecord:
-    """One measured coding-harness and model configuration."""
-
-    variant_id: str
-    harness: str
-    model: str
-    reasoning_effort: str
-    index_score: int
-    cost_per_task_usd: float
-
-
-@dataclass(frozen=True)
-class CodingAgentCatalog:
-    """Validated immutable Coding Agent snapshot."""
-
-    schema_version: int
-    catalog_version: str
-    as_of: str
-    source_url: str
-    methodology_url: str
-    methodology_version: str
-    variant_count: int
-    variants: tuple[CodingAgentRecord, ...]
 
 
 def _catalog_error() -> ToolError:
@@ -231,72 +182,9 @@ def _parse_model_catalog(payload: Any) -> ModelCatalog:
     )
 
 
-def _parse_coding_agent_catalog(payload: Any) -> CodingAgentCatalog:
-    if not isinstance(payload, dict) or set(payload) != _CODING_AGENT_TOP_LEVEL_FIELDS:
-        raise _catalog_error()
-    if payload.get("schema_version") != 4:
-        raise _catalog_error()
-    for field in (
-        "catalog_version",
-        "as_of",
-        "source_url",
-        "methodology_url",
-        "methodology_version",
-    ):
-        if not _string_field(payload.get(field)):
-            raise _catalog_error()
-    count = payload.get("variant_count")
-    rows = payload.get("variants")
-    if type(count) is not int or count <= 0 or not isinstance(rows, list) or len(rows) != count:
-        raise _catalog_error()
-    records: list[CodingAgentRecord] = []
-    seen: set[str] = set()
-    for row in rows:
-        if not isinstance(row, dict) or set(row) != _CODING_AGENT_ROW_FIELDS:
-            raise _catalog_error()
-        if not all(
-            _string_field(row.get(field))
-            for field in ("variant_id", "harness", "model", "reasoning_effort")
-        ):
-            raise _catalog_error()
-        score = row.get("index_score")
-        cost = row.get("cost_per_task_usd")
-        if type(score) is not int or score < 0 or not _number_field(cost):
-            raise _catalog_error()
-        variant_id = str(row["variant_id"])
-        if variant_id in seen:
-            raise _catalog_error()
-        seen.add(variant_id)
-        records.append(
-            CodingAgentRecord(
-                variant_id=variant_id,
-                harness=str(row["harness"]),
-                model=str(row["model"]),
-                reasoning_effort=str(row["reasoning_effort"]),
-                index_score=int(score),
-                cost_per_task_usd=float(cost),
-            )
-        )
-    return CodingAgentCatalog(
-        schema_version=4,
-        catalog_version=str(payload["catalog_version"]),
-        as_of=str(payload["as_of"]),
-        source_url=str(payload["source_url"]),
-        methodology_url=str(payload["methodology_url"]),
-        methodology_version=str(payload["methodology_version"]),
-        variant_count=int(count),
-        variants=tuple(records),
-    )
-
-
 @lru_cache(maxsize=1)
 def _load_default_model_catalog() -> ModelCatalog:
     return _parse_model_catalog(_read_json(_MODEL_CATALOG_PATH))
-
-
-@lru_cache(maxsize=1)
-def _load_default_coding_agent_catalog() -> CodingAgentCatalog:
-    return _parse_coding_agent_catalog(_read_json(_CODING_AGENT_CATALOG_PATH))
 
 
 def load_model_catalog(path: Path | None = None) -> ModelCatalog:
@@ -306,14 +194,4 @@ def load_model_catalog(path: Path | None = None) -> ModelCatalog:
         _load_default_model_catalog()
         if path is None
         else _parse_model_catalog(_read_json(Path(path)))
-    )
-
-
-def load_coding_agent_catalog(path: Path | None = None) -> CodingAgentCatalog:
-    """Load the packaged Coding Agent table, or validate one isolated snapshot."""
-
-    return (
-        _load_default_coding_agent_catalog()
-        if path is None
-        else _parse_coding_agent_catalog(_read_json(Path(path)))
     )
