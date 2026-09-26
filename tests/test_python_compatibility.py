@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -63,11 +64,26 @@ class PythonCompatibilityContractTests(unittest.TestCase):
         )
         self.assertIn("python scripts/run_tests.py", workflow)
         self.assertNotIn("unittest discover", workflow)
-        for kind in ("manifest", "plan", "task", "question", "checkpoints"):
-            self.assertIn("python scripts/manifest_tool.py schema %s" % kind, workflow)
-        # Removed verbs must never reappear in the smoke test.
-        for verb in ("uuid", "transition", "schema capability", "schema gate"):
-            self.assertNotIn("manifest_tool.py %s" % verb, workflow)
+        # The smoke step must call the real command surface: `schema` takes no
+        # argument, and a named form would only ever exit 2.
+        invoked = re.findall(r"manifest_tool\.py\s+schema(?:\s+(\S+))?", workflow)
+        self.assertTrue(invoked)
+        self.assertEqual([name for name in invoked if name], [])
+
+    def test_schema_command_reports_the_canonical_tree_shape(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "manifest_tool.py"), "schema"],
+            cwd=str(ROOT),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("better-plan.checkpoints-tree", result.stdout)
 
     def test_running_interpreter_is_within_the_supported_range(self) -> None:
         self.assertGreaterEqual(sys.version_info[:2], (3, 8))

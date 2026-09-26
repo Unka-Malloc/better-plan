@@ -5,7 +5,7 @@
 - Maintain the Better Plan source repository with the ordinary native repository workflow.
   Maintaining its code, documentation, tests, templates, installer, or releases does not require
   following the Better Plan workflow.
-- Do not discover, create, select, update, dispatch, regress, or audit a Better Plan Plan or Node
+- Do not discover, create, select, update, dispatch, regress, or audit a Better Plan Tree or Node
   merely because work is being performed in this repository.
 - Do not create or maintain a repository-local Better Plan workspace such as `docs/plan` for
   ordinary repository development. Use temporary fixtures when product behavior requires one.
@@ -16,7 +16,7 @@
 ## Test scope
 
 - Keep one representative test at the narrowest useful layer for each invariant. Do not repeat the
-  same lifecycle branch through domain, CLI, hook, and installer tests unless that boundary adds a
+  same lifecycle branch through domain, CLI, and installer tests unless that boundary adds a
   distinct contract.
 - End-to-end coverage should prove the normal grouped path and one repair path. Prefer focused tests
   while editing; run the complete repository suite once after the change is integrated.
@@ -42,8 +42,8 @@
   Better Plan may create its role matrix only when no same-name role configuration or receipt exists.
 - Install, update, uninstall, Doctor, migration, repair, and explicit replacement requests never authorize
   Better Plan to edit, remove, adopt, re-sign, or regenerate an existing local role matrix or its
-  receipt. Update only skills, Hooks, plugins, and adapters around it.
+  receipt. Update only skills, plugins, and adapters around it.
 - A receipt mismatch is a report-only Doctor warning. Never recommend replacement as its repair,
   never convert the current bytes into a fresh receipt, and never displace unrelated local agents.
 - Verify that role files and receipts remain byte-identical across every non-initial installation
-  operation, then report the separate skill, Hook, plugin, and adapter Doctor results.
+  operation, then report the separate skill, plugin, and adapter Doctor results.

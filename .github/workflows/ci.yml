@@ -29,9 +29,4 @@ jobs:
         run: python scripts/run_tests.py
 
       - name: Smoke test Python CLI
-        run: |
-          python scripts/manifest_tool.py schema manifest
-          python scripts/manifest_tool.py schema plan
-          python scripts/manifest_tool.py schema task
-          python scripts/manifest_tool.py schema question
-          python scripts/manifest_tool.py schema checkpoints
+        run: python scripts/manifest_tool.py schema

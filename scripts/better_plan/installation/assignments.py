@@ -25,7 +25,6 @@ CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingPr
     {
         "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra"),
         "worker": ("worker", "gpt-6-luna", "max", "gpt-6-luna"),
-        "hybrid-worker": ("worker", "gpt-6-astra", "low", "gpt-6-astra-low"),
         "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
     }
 )

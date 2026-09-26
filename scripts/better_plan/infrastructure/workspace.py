@@ -1,11 +1,13 @@
-"""Filesystem persistence for Better Plan v3 workspaces."""
+"""Filesystem persistence for a Checkpoints Tree workspace.
+
+One JSON object, one lock, atomic writes. Nothing here knows what a Tree means.
+"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
-import hashlib
+from typing import Any, Iterator
 import json
 import os
 import tempfile
@@ -16,26 +18,7 @@ if os.name == "nt":
 else:
     import fcntl as _native_lock
 
-from ..domain.models import (
-    AUTHORIZED_PHASES,
-    CHECKPOINTS_NAME,
-    DESIGN_NAME,
-    DESIGN_PRISTINE_NAME,
-    MANIFEST_NAME,
-    PLAN_NAME,
-    REPORT_NAME,
-    ToolError,
-    is_relative_workspace_path,
-    plain_regression_paths,
-)
-from ..domain.validation import (
-    validate_checkpoints_document,
-    validate_manifest_document,
-    validate_plan_document,
-)
-
-
-IGNORED_DIRECTORIES = {".git", ".venv", "node_modules", "build", "dist", "target"}
+from ..domain.models import ToolError
 
 
 def read_json(path: Path) -> Any:
@@ -69,63 +52,11 @@ def write_text(path: Path, value: str) -> None:
     _atomic_write(path, value)
 
 
-def linked_worktree_root(value: Path) -> Path | None:
-    """Return the enclosing linked-worktree root, or ``None`` in a normal repository.
-
-    A linked worktree records its main repository in a ``.git`` *file* whose first line is
-    ``gitdir: <path>``, while an ordinary checkout has a ``.git`` directory. Hosts disagree about
-    where worktrees live, so this detects that signal instead of matching a path convention.
-
-    One delivery must have one workspace: a workspace inside a worktree forks the delivery into two
-    sealed revisions that cannot be reconciled afterwards. Callers refuse that location and point at
-    the ``project_root`` alternative instead.
-    """
-
-    current = value.expanduser().resolve()
-    if current.is_file():
-        current = current.parent
-    while True:
-        marker = current / ".git"
-        if marker.is_file():
-            try:
-                head = marker.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
-            except OSError:
-                head = ""
-            return current if head.startswith("gitdir:") else None
-        if marker.is_dir():
-            return None
-        if current == current.parent:
-            return None
-        current = current.parent
-
-
-def workspace_root(value: Path) -> Path:
-    value = value.expanduser()
-    if value.is_file():
-        if value.name == MANIFEST_NAME:
-            return value.parent.resolve()
-        if value.name in {PLAN_NAME, CHECKPOINTS_NAME}:
-            candidate = value.parent.parent / MANIFEST_NAME
-            if candidate.is_file():
-                return candidate.parent.resolve()
-    resolved = value.resolve()
-    if (resolved / MANIFEST_NAME).is_file() or not resolved.exists():
-        return resolved
-    current = resolved
-    while current != current.parent:
-        if (current / MANIFEST_NAME).is_file():
-            return current
-        current = current.parent
-    return resolved
-
-
 def _acquire_windows_lock(path: Path):
     """Open and lock the workspace file, retrying mandatory-lock collisions.
 
     Windows `msvcrt.locking` is mandatory: another process holding the lock can
     make `open()` or `locking()` raise `PermissionError` instead of waiting.
-    `LK_LOCK` itself gives up after 10 seconds, which is shorter than a
-    concurrent accept-task handshake.
     """
 
     deadline = time.monotonic() + 30
@@ -150,8 +81,19 @@ def _acquire_windows_lock(path: Path):
 
 
 @contextmanager
-def workspace_lock(root: Path) -> Iterator[None]:
-    root.mkdir(parents=True, exist_ok=True)
+def workspace_lock(root: Path, *, create: bool = False) -> Iterator[None]:
+    """Hold the one lock a Tree workspace has, for short state writes only.
+
+    Long work — running a Node's commands — happens outside this lock. A workspace
+    is created only when the caller is the one creating it; every other caller must
+    already have one, so naming a wrong or missing directory never leaves a
+    directory or a lock file behind.
+    """
+
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+    elif not root.is_dir():
+        raise ToolError("no Checkpoints Tree workspace at %s" % (root.name or str(root)))
     path = root / ".better-plan.lock"
     if os.name == "nt":
         stream = _acquire_windows_lock(path)
@@ -169,175 +111,3 @@ def workspace_lock(root: Path) -> Iterator[None]:
                 _native_lock.flock(stream.fileno(), _native_lock.LOCK_UN)
         finally:
             stream.close()
-
-
-def load_manifest(root: Path) -> dict[str, Any]:
-    value = read_json(root / MANIFEST_NAME)
-    issues = validate_manifest_document(root / MANIFEST_NAME, value)
-    if issues:
-        raise ToolError("invalid Manifest.json: %s" % "; ".join(issue.message for issue in issues))
-    return dict(value)
-
-
-def resolve_plan_entry(manifest: Mapping[str, Any], selector: str) -> dict[str, Any]:
-    matches = [
-        entry
-        for entry in manifest.get("plans", [])
-        if isinstance(entry, Mapping)
-        and selector in {entry.get("code"), entry.get("title"), entry.get("directory")}
-    ]
-    if len(matches) != 1:
-        raise ToolError("plan selector must resolve exactly one Delivery Plan")
-    return dict(matches[0])
-
-
-def plan_paths(root: Path, entry: Mapping[str, Any]) -> dict[str, Path]:
-    directory = entry.get("directory")
-    if not is_relative_workspace_path(directory):
-        raise ToolError("invalid plan directory")
-    plan_dir = root / str(directory)
-    return {
-        "directory": plan_dir,
-        "plan": plan_dir / PLAN_NAME,
-        "checkpoints": plan_dir / CHECKPOINTS_NAME,
-        "design": plan_dir / DESIGN_NAME,
-        "design_pristine": plan_dir / DESIGN_PRISTINE_NAME,
-        "report": plan_dir / REPORT_NAME,
-    }
-
-
-def load_plan(root: Path, selector: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Path]]:
-    manifest = load_manifest(root)
-    entry = resolve_plan_entry(manifest, selector)
-    paths = plan_paths(root, entry)
-    plan = read_json(paths["plan"])
-    issues = validate_plan_document(paths["plan"], plan)
-    if issues:
-        raise ToolError("invalid Plan.json: %s" % "; ".join(issue.message for issue in issues))
-    if any(plan.get(field) != entry.get(field) for field in ("code", "directory")):
-        raise ToolError("Manifest and Plan identity do not match")
-    return manifest, dict(plan), paths
-
-
-def validate_workspace(root: Path) -> list[str]:
-    messages: list[str] = []
-    manifest_path = root / MANIFEST_NAME
-    if not manifest_path.is_file():
-        return ["Manifest.json: missing"]
-    manifest = read_json(manifest_path)
-    messages.extend(issue.message for issue in validate_manifest_document(manifest_path, manifest))
-    if not isinstance(manifest, Mapping):
-        return messages
-    for entry in manifest.get("plans", []):
-        if not isinstance(entry, Mapping):
-            continue
-        paths = plan_paths(root, entry)
-        if not paths["plan"].is_file():
-            messages.append("%s: missing" % entry.get("plan"))
-            continue
-        plan = read_json(paths["plan"])
-        messages.extend(issue.message for issue in validate_plan_document(paths["plan"], plan))
-        if isinstance(plan, Mapping) and any(
-            plan.get(field) != entry.get(field) for field in ("code", "directory")
-        ):
-            messages.append("%s: Manifest identity mismatch" % entry.get("plan"))
-        if paths["checkpoints"].is_file():
-            checkpoints = read_json(paths["checkpoints"])
-            messages.extend(
-                issue.message
-                for issue in validate_checkpoints_document(paths["checkpoints"], checkpoints, plan)
-            )
-        elif isinstance(plan, Mapping) and plan.get("phase") in AUTHORIZED_PHASES:
-            messages.append("%s: missing authorized Checkpoints.json" % entry.get("directory"))
-        compile_receipt = (
-            plan.get("lifecycle", {}).get("designer_session", {}).get("compile")
-            if isinstance(plan, Mapping)
-            and isinstance(plan.get("lifecycle"), Mapping)
-            and isinstance(plan.get("lifecycle", {}).get("designer_session"), Mapping)
-            else None
-        )
-        if isinstance(compile_receipt, Mapping) and not isinstance(plan.get("lifecycle", {}).get("sealed"), Mapping):
-            if not paths["design"].is_file():
-                messages.append("Design.md: missing before authorization")
-            else:
-                try:
-                    design_digest = hashlib.sha256(paths["design"].read_bytes()).hexdigest()
-                except OSError:
-                    messages.append("Design.md: cannot read")
-                else:
-                    if design_digest != compile_receipt.get("pristine_digest"):
-                        messages.append("Design.md: changed after Designer close")
-            if not paths["design_pristine"].is_file():
-                messages.append("Design.pristine.md: missing before authorization")
-            else:
-                try:
-                    digest = hashlib.sha256(paths["design_pristine"].read_bytes()).hexdigest()
-                except OSError:
-                    messages.append("Design.pristine.md: cannot read")
-                else:
-                    if digest != compile_receipt.get("pristine_digest"):
-                        messages.append("Design.pristine.md: digest mismatch")
-    return messages
-
-
-def discover_workspaces(root: Path) -> list[Path]:
-    """Return every valid v3 workspace beneath one directory."""
-
-    root = root.resolve()
-    if root.is_file():
-        root = root.parent
-    candidates: list[Path] = []
-    for current, directories, files in os.walk(str(root)):
-        directories[:] = [name for name in directories if name not in IGNORED_DIRECTORIES]
-        if MANIFEST_NAME not in files:
-            continue
-        candidate = Path(current)
-        try:
-            manifest = read_json(candidate / MANIFEST_NAME)
-        except ToolError:
-            continue
-        if not validate_manifest_document(candidate / MANIFEST_NAME, manifest):
-            candidates.append(candidate)
-    return sorted(candidates)
-
-
-def fingerprint_paths(
-    project_root: Path,
-    paths: list[str],
-    *,
-    excluded_paths: Iterable[Path] = (),
-) -> str:
-    """Hash declared paths as a receipt, never as a gate.
-
-    A path a Task has not produced yet is recorded as absent rather than raising,
-    so a greenfield Task can be dispatched and accepted normally. Symlinks and
-    non-relative paths remain hard errors because they break the safety boundary.
-    Exact excluded paths contribute neither their name nor their content.
-    """
-
-    excluded = set(excluded_paths)
-    digest = hashlib.sha256()
-    for relative in sorted(set(plain_regression_paths(paths))):
-        if not is_relative_workspace_path(relative):
-            raise ToolError("fingerprint path must be repository-relative")
-        path = project_root / relative
-        if path.is_symlink():
-            raise ToolError("fingerprint path is unsafe: %s" % relative)
-        if path in excluded:
-            continue
-        digest.update(relative.encode("utf-8"))
-        if not path.exists():
-            digest.update(b"\x00absent")
-        elif path.is_file():
-            digest.update(path.read_bytes())
-        else:
-            for child in sorted(
-                item
-                for item in path.rglob("*")
-                if item.is_file()
-                and not item.is_symlink()
-                and item not in excluded
-            ):
-                digest.update(child.relative_to(project_root).as_posix().encode("utf-8"))
-                digest.update(child.read_bytes())
-    return digest.hexdigest()

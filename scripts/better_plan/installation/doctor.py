@@ -7,7 +7,6 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..hooks.config import hook_config_status as _hook_config_status
 from . import skills as _skills
 from . import targets as _targets
 from .models import (
@@ -20,11 +19,13 @@ from .models import (
 
 
 def run_manifest_tool(skill_root) -> bool:
+    """Prove the installed tool runs by asking it for the Tree shape."""
+
     tool = skill_root / "scripts" / "manifest_tool.py"
     if not tool.is_file():
         return False
-    result = _targets.run_text_command([sys.executable, str(tool), "schema", "plan"], timeout=10)
-    return result.returncode == 0 and "better-plan.plan/v3" in result.stdout
+    result = _targets.run_text_command([sys.executable, str(tool), "schema"], timeout=10)
+    return result.returncode == 0 and "better-plan.checkpoints-tree" in result.stdout
 
 
 def check_skill_tree(target: str, root) -> _Check:
@@ -64,19 +65,15 @@ def check_skill_source(target: str, root: Path, source: Path) -> _Check:
     return _Check("OK", label, "all packaged files match the selected source")
 
 
-def check_agent_hooks(paths: _InstallPaths, agent: str) -> _Check:
-    config = _targets.hook_config_path(paths, agent)
-    ok, message = _hook_config_status(config, agent)
-    return _Check("OK" if ok else "FAIL", f"{agent} hooks", message)
-
-
 def check_shared_scan_agent(paths: _InstallPaths, target: str) -> _Check:
     kind, root = _skills.shared_scan_skill_target(paths, target)
     check = check_skill_tree(target, root)
     if check.status != "OK":
         return check
     native_root = _skills.native_skill_path(paths, target)
-    if kind == "shared" and native_root.exists():
+    # A host whose own path *is* the shared directory has no duplicate to report: the
+    # shared skill is its native skill, so comparing the two would always match.
+    if kind == "shared" and native_root != paths.shared_skill and native_root.exists():
         return _Check("WARN", target, "shared skill is installed but a duplicate native skill still exists")
     return _Check("OK", target, f"installed via {kind} skill")
 
@@ -135,23 +132,23 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
     if "codex" in agents:
         checks.append(check_native_roles(paths, "codex"))
         checks.append(check_shared_scan_agent(paths, "codex"))
-        checks.append(check_agent_hooks(paths, "codex"))
     if "claude" in agents:
         checks.append(check_native_roles(paths, "claude"))
         checks.append(check_claude(paths))
-        checks.append(check_agent_hooks(paths, "claude"))
     if "cursor" in agents:
         checks.append(check_native_roles(paths, "cursor"))
         checks.append(check_shared_scan_agent(paths, "cursor"))
-        checks.append(check_agent_hooks(paths, "cursor"))
-        if "cursor" in OPTIONAL_CLIENT_CLI_COMMANDS:
-            checks.append(check_optional_client_cli("cursor"))
+        checks.append(check_optional_client_cli("cursor"))
     if "kilo" in agents:
         checks.append(check_kilo_agents(paths))
         checks.append(check_shared_scan_agent(paths, "kilo"))
+    if "dsh" in agents:
+        # DeepSeek Harness reads the shared skill and spawns subagents from a prompt,
+        # so it installs no role file and no lifecycle Hook to verify.
+        checks.append(check_shared_scan_agent(paths, "dsh"))
 
     # Shared consumers use the same payload. Compare it once, while retaining
-    # each host's separate role, Hook, and adapter checks above.
+    # each host's separate role, plugin, and adapter checks above.
     skill_roots = {root: kind for kind, root in scan_targets.values()}
     checks.extend(
         check_skill_source(target, root, paths.repo_root)

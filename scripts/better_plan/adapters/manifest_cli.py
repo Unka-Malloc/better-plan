@@ -1,399 +1,168 @@
-"""Public CLI for the Better Plan v3 protocol."""
+"""Public CLI for the Checkpoints Tree and the programme index."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 import argparse
 import json
 import sys
 
-from ..application import workflow
-from ..domain.design_compile import DESIGN_TEMPLATE
-from ..domain.models import (
-    CHECKPOINTS_SCHEMA,
-    MANIFEST_TEMPLATE,
-    PLAN_SCHEMA,
-    PLAN_TEMPLATE,
-    REPORT_NAME,
-    ToolError,
-    question_template,
-    task_template,
-)
-from ..domain.report import load_template, render_report_html, report_payload
-from ..domain.tree import render_plan_tree, status_payload
-from ..infrastructure.workspace import (
-    load_manifest,
-    load_plan,
-    plan_paths,
-    read_json,
-    resolve_plan_entry,
-    validate_workspace,
-    workspace_root,
-    write_text,
-)
-
-
-def validate_command(args: argparse.Namespace) -> int:
-    root = workspace_root(Path(args.root))
-    issues = validate_workspace(root)
-    if args.json:
-        print(json.dumps({"valid": not issues, "issues": issues}))
-    elif issues:
-        for issue in issues:
-            print("error: %s" % issue)
-    elif not args.quiet:
-        print("OK: Better Plan v3 workspace is valid")
-    return 0 if not issues else 1
+from .. import __version__
+from ..application import programme_workflow, tree_workflow
+from ..domain.checkpoints_tree import tree_template
+from ..domain.programme import programme_template
 
 
 def schema_command(args: argparse.Namespace) -> int:
-    if args.kind == "design":
-        print(DESIGN_TEMPLATE, end="")
-        return 0
-    payloads: dict[str, Any] = {
-        "manifest": MANIFEST_TEMPLATE,
-        "plan": PLAN_TEMPLATE,
-        "task": task_template(),
-        "question": question_template(),
-        "checkpoints": {
-            "schema": CHECKPOINTS_SCHEMA,
-            "plan": "PLAN-001",
-            "revision": 1,
-            "semantic_digest": "SHA256",
-            "delivery_status": "pending",
-            "full_regression": None,
-            "tasks": [],
-        },
-    }
-    print(json.dumps(payloads[args.kind], indent=2, ensure_ascii=False, sort_keys=True))
+    name = getattr(args, "name", None) or "tree"
+    template = tree_template() if name == "tree" else programme_template()
+    print(json.dumps(template, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
 
-def tree_command(args: argparse.Namespace) -> int:
-    root = workspace_root(Path(args.root))
-    entries = load_manifest(root).get("plans", [])
-    if args.plan:
-        entries = [
-            entry
-            for entry in entries
-            if args.plan in {entry.get("code"), entry.get("title"), entry.get("directory")}
-        ]
-    if not entries:
-        raise ToolError("no matching Plan")
-    rendered: list[str] = []
-    for entry in entries:
-        _, plan, paths = load_plan(root, str(entry.get("code")))
-        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
-        rendered.append(render_plan_tree(plan, checkpoints, details=args.details))
-    print("\n\n".join(rendered))
+def version_command(args: argparse.Namespace) -> int:
+    print("better-plan %s (%s)" % (__version__, tree_template()["schema"]))
     return 0
-
-
-def status_command(args: argparse.Namespace) -> int:
-    root = workspace_root(Path(args.root))
-    values = []
-    for entry in load_manifest(root).get("plans", []):
-        _, plan, paths = load_plan(root, str(entry.get("code")))
-        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
-        values.append(status_payload(plan, checkpoints))
-    if args.json:
-        print(json.dumps({"plans": values}))
-    else:
-        for value in values:
-            print("%(code)s [%(phase)s] tasks=%(task_counts)s" % value)
-    return 0
-
-
-def report_command(args: argparse.Namespace) -> int:
-    root = workspace_root(Path(args.root))
-    entries = load_manifest(root).get("plans", [])
-    if args.plan:
-        entries = [
-            entry
-            for entry in entries
-            if args.plan in {entry.get("code"), entry.get("title"), entry.get("directory")}
-        ]
-    if not entries:
-        raise ToolError("no matching Plan")
-    plans = []
-    for entry in entries:
-        paths = plan_paths(root, entry)
-        # A report is a read-only projection: render whatever state exists,
-        # including Plans written before newer required fields appeared.
-        plan = read_json(paths["plan"])
-        if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
-            raise ToolError("not a v3 Plan: %s" % paths["plan"].name)
-        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
-        plans.append({"plan": plan, "checkpoints": checkpoints})
-    html = render_report_html(report_payload(plans), load_template())
-    output = Path(args.out).expanduser()
-    output.write_text(html, encoding="utf-8")
-    print("wrote %s" % output.resolve())
-    return 0
-
-
-_AUTO_REPORT_COMMANDS = frozenset(
-    {
-        "init-plan",
-        "build-dossier",
-        "resolve-dossier",
-        "open-designer-session",
-        "close-designer-session",
-        "compile-design",
-        "authorize-plan",
-        "begin-continuation",
-        "close-continuation",
-        "supersede-decision",
-        "dispatch-task",
-        "bind-agent",
-        "delegation-failed",
-        "agent-complete",
-        "main-complete",
-        "accept-task",
-        "record-task-input",
-        "block-task",
-        "run-full-regression",
-        "open-reviewer-session",
-        "record-reviewer-findings",
-        "close-reviewer-session",
-    }
-)
-
-
-def _auto_report(args: argparse.Namespace) -> None:
-    """Best-effort HTML projection after a state-changing command.
-
-    A projection must never fail the command that produced the state, so every
-    error degrades to a stderr warning.
-    """
-
-    if getattr(args, "command", None) not in _AUTO_REPORT_COMMANDS:
-        return
-    selector = getattr(args, "plan", None) or getattr(args, "code", None)
-    try:
-        root = workspace_root(Path(getattr(args, "root", ".")))
-        entry = resolve_plan_entry(load_manifest(root), str(selector))
-        paths = plan_paths(root, entry)
-        plan = read_json(paths["plan"])
-        checkpoints = read_json(paths["checkpoints"]) if paths["checkpoints"].is_file() else None
-        html = render_report_html(report_payload([{"plan": plan, "checkpoints": checkpoints}]), load_template())
-        write_text(paths["report"], html)
-    except Exception as exc:
-        print("warning: report projection skipped (%s)" % exc, file=sys.stderr)
-
-
-def _add_plan(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("root", nargs="?", default=".")
-    parser.add_argument("--plan", required=True)
-
-
-def _add_host(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--native-host", choices=("codex", "claude", "cursor", "kilo"))
-    parser.add_argument("--codex-home", help=argparse.SUPPRESS)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Better Plan v3 utility")
+    parser = argparse.ArgumentParser(
+        prog="manifest_tool.py",
+        description="Author and run one Checkpoints Tree, and index many of them.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="better-plan %s (%s)" % (__version__, tree_template()["schema"]),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    validate = subparsers.add_parser("validate", help="validate one v3 workspace")
-    validate.add_argument("root", nargs="?", default=".")
-    validate.add_argument("--quiet", action="store_true")
-    validate.add_argument("--json", action="store_true")
-    validate.set_defaults(func=validate_command)
-
-    schema = subparsers.add_parser("schema", help="print one canonical shape")
-    schema.add_argument("kind", choices=("manifest", "plan", "task", "question", "checkpoints", "design"))
+    schema = subparsers.add_parser("schema", help="print a canonical shape")
+    schema.add_argument(
+        "name",
+        nargs="?",
+        default="tree",
+        choices=("tree", "programme"),
+        help="which shape to print (default: tree)",
+    )
     schema.set_defaults(func=schema_command)
 
-    init = subparsers.add_parser("init-plan", help="create one draft Delivery Plan")
-    init.add_argument("root", nargs="?", default=".")
-    init.add_argument("--code", required=True)
-    init.add_argument("--title", required=True)
-    init.add_argument("--directory", required=True)
-    init.add_argument("--goal", required=True)
-    init.add_argument("--scope-in", action="append", required=True)
-    init.add_argument("--scope-out", action="append", required=True)
-    init.add_argument("--success", action="append", required=True)
-    init.add_argument("--risk-boundary", action="append", required=True)
-    init.add_argument(
-        "--worktree-workspace",
+    tree_init = subparsers.add_parser("tree-init", help="create one empty Checkpoints Tree")
+    tree_init.add_argument("root", nargs="?", default=".")
+    tree_init.add_argument("--id", help="Tree id (default: TREE-001, or the replaced Tree's id)")
+    tree_init.add_argument("--title", help="delivery title; required unless a Tree is replaced")
+    tree_init.add_argument(
+        "--replace",
         action="store_true",
-        help="allow creating this workspace inside a linked Git worktree instead of refusing it",
+        help="re-author an existing Tree, carrying its identity and history forward",
     )
-    init.set_defaults(func=workflow.init_plan)
+    tree_init.add_argument("--reason", help="why the existing Tree is replaced (with --replace)")
+    tree_init.set_defaults(func=tree_workflow.init_tree)
 
-    build = subparsers.add_parser("build-dossier", help="load the single Decision Dossier")
-    _add_plan(build)
-    build.add_argument("--input", required=True)
-    build.set_defaults(func=workflow.build_dossier)
-
-    resolve = subparsers.add_parser("resolve-dossier", help="apply selections and defaults once")
-    _add_plan(resolve)
-    resolve.add_argument("--input", required=True)
-    resolve.set_defaults(func=workflow.resolve_dossier)
-
-    open_designer = subparsers.add_parser("open-designer-session", help="dispatch the sole Designer")
-    _add_plan(open_designer)
-    _add_host(open_designer)
-    open_designer.set_defaults(func=workflow.open_designer_session)
-
-    close_designer = subparsers.add_parser("close-designer-session", help="close the sole Designer")
-    _add_plan(close_designer)
-    close_designer.add_argument("--dispatch-id", required=True)
-    close_designer.set_defaults(func=workflow.close_designer_session)
-
-    compile_design = subparsers.add_parser("compile-design", help="preview compilation or apply one Plan repair receipt")
-    _add_plan(compile_design)
-    mode = compile_design.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--check", action="store_true")
-    mode.add_argument("--apply", action="store_true")
-    compile_design.set_defaults(func=workflow.compile_design)
-
-    readiness = subparsers.add_parser("check-readiness", help="list every remaining readiness issue")
-    _add_plan(readiness)
-    readiness.set_defaults(func=workflow.check_readiness)
-
-    authorize = subparsers.add_parser("authorize-plan", help="gate readiness, seal, and start execution")
-    _add_plan(authorize)
-    authorize.add_argument(
-        "--source",
-        required=True,
-        choices=("explicit", "inherited_host_plan", "inherited_implementation_request"),
+    tree_apply = subparsers.add_parser(
+        "tree-apply", help="apply one atomic batch of Tasks and Nodes to Tree.json"
     )
-    authorize.add_argument("--reference", required=True)
-    authorize.add_argument("--risk-reason", action="append")
-    authorize.add_argument("--verify-command", action="append")
-    authorize.add_argument("--verify-path", action="append")
-    authorize.set_defaults(func=workflow.authorize_plan)
+    tree_apply.add_argument("root", nargs="?", default=".")
+    tree_apply.add_argument("--input", required=True, help="JSON batch file, or - for stdin")
+    tree_apply.add_argument("--dry-run", action="store_true", help="validate the batch without writing")
+    tree_apply.add_argument("--json", action="store_true")
+    tree_apply.set_defaults(func=tree_workflow.apply_batch)
 
-    begin = subparsers.add_parser("begin-continuation", help="revise unstarted work or correct unfinished Task execution")
-    _add_plan(begin)
-    begin.add_argument("--reason", required=True)
-    begin.set_defaults(func=workflow.begin_continuation)
-
-    close = subparsers.add_parser("close-continuation", help="reseal an inherited continuation")
-    _add_plan(close)
-    close.add_argument("--continuation-id", required=True)
-    close.set_defaults(func=workflow.close_continuation)
-
-    supersede = subparsers.add_parser(
-        "supersede-decision",
-        help="replace one resolved decision under fresh explicit user authority",
+    tree_next = subparsers.add_parser(
+        "tree-next", help="list executable Nodes whose prerequisites are complete"
     )
-    _add_plan(supersede)
-    supersede.add_argument("--decision", required=True, help="the DEC-* code being replaced")
-    supersede.add_argument("--option", required=True, help="an option id this Question already offered")
-    supersede.add_argument("--reason", required=True)
-    supersede.add_argument("--reference", required=True, help="the user's approval reference")
-    supersede.set_defaults(func=workflow.supersede_decision)
+    tree_next.add_argument("root", nargs="?", default=".")
+    tree_next.add_argument("--limit", type=int, default=0)
+    tree_next.add_argument("--explain", action="store_true", help="include blockers and running Nodes")
+    tree_next.add_argument("--json", action="store_true")
+    tree_next.set_defaults(func=tree_workflow.next_nodes)
 
-    next_action = subparsers.add_parser("next-action", help="name the next delivery action")
-    _add_plan(next_action)
-    next_action.set_defaults(func=workflow.next_action)
-
-    dispatch = subparsers.add_parser("dispatch-task", help="dispatch or re-dispatch one Worker")
-    dispatch.add_argument("task")
-    _add_plan(dispatch)
-    _add_host(dispatch)
-    dispatch.add_argument(
-        "--request-id",
-        help="reuse one caller correlation id for idempotent active dispatch",
+    tree_transition = subparsers.add_parser(
+        "tree-transition",
+        help="apply one state transition to one Node (a Node with contract.commands completes via tree-verify)",
     )
-    dispatch.set_defaults(func=workflow.dispatch_task)
-
-    bind = subparsers.add_parser("bind-agent", help="bind one host agent id to one dispatch")
-    bind.add_argument("target")
-    _add_plan(bind)
-    bind.add_argument("--dispatch-id", required=True)
-    bind.add_argument("--agent-id", required=True)
-    bind.set_defaults(func=workflow.bind_agent)
-
-    failed = subparsers.add_parser("delegation-failed", help="record a conclusive delegation failure")
-    failed.add_argument("target")
-    _add_plan(failed)
-    failed.add_argument("--dispatch-id", required=True)
-    failed.add_argument("--reason", required=True)
-    failed.set_defaults(func=workflow.delegation_failed)
-
-    complete = subparsers.add_parser("agent-complete", help="consume one exact final callback")
-    _add_plan(complete)
-    complete.add_argument("--agent-id", required=True)
-    complete.add_argument("--final", action="store_true")
-    complete.set_defaults(func=workflow.agent_complete)
-
-    main_complete = subparsers.add_parser("main-complete", help="record native-main fallback completion")
-    main_complete.add_argument("target")
-    _add_plan(main_complete)
-    main_complete.add_argument("--dispatch-id", required=True)
-    main_complete.set_defaults(func=workflow.main_complete)
-
-    accept = subparsers.add_parser("accept-task", help="run focused regression and complete one Task")
-    accept.add_argument("task")
-    _add_plan(accept)
-    accept.set_defaults(func=workflow.accept_task)
-
-    task_input = subparsers.add_parser("record-task-input", help="record or resolve missing user input without granting authority")
-    task_input.add_argument("task")
-    _add_plan(task_input)
-    input_change = task_input.add_mutually_exclusive_group(required=True)
-    input_change.add_argument("--needed", metavar="SAFE_SUMMARY")
-    input_change.add_argument("--resolved", metavar="SAFE_SUMMARY")
-    task_input.set_defaults(func=workflow.record_task_input)
-
-    block = subparsers.add_parser("block-task", help="record a hard Task blocker")
-    block.add_argument("task")
-    _add_plan(block)
-    block.add_argument("--kind", required=True, choices=("authority", "environment"))
-    block.add_argument("--reason", required=True)
-    block.set_defaults(func=workflow.block_task)
-
-    regression = subparsers.add_parser("run-full-regression", help="run the independent complete regression stage")
-    _add_plan(regression)
-    regression.set_defaults(func=workflow.run_full_regression)
-
-    open_reviewer = subparsers.add_parser("open-reviewer-session", help="dispatch the sole Reviewer")
-    _add_plan(open_reviewer)
-    _add_host(open_reviewer)
-    open_reviewer.set_defaults(func=workflow.open_reviewer_session)
-
-    record_findings = subparsers.add_parser(
-        "record-reviewer-findings",
-        help="persist the Reviewer's complete out-of-scope handoff",
+    tree_transition.add_argument("root", nargs="?", default=".")
+    tree_transition.add_argument("node")
+    tree_transition.add_argument(
+        "action", choices=("start", "complete", "fail", "block", "cancel", "reset")
     )
-    _add_plan(record_findings)
-    record_findings.add_argument("--dispatch-id", required=True)
-    record_findings.add_argument("--input", required=True)
-    record_findings.set_defaults(func=workflow.record_reviewer_findings)
+    tree_transition.add_argument("--executor", help="which executor is running or ran this Node")
+    tree_transition.add_argument("--evidence", help="JSON evidence value")
+    tree_transition.add_argument("--note")
+    tree_transition.add_argument("--json", action="store_true")
+    tree_transition.set_defaults(func=tree_workflow.transition_node)
 
-    close_reviewer = subparsers.add_parser("close-reviewer-session", help="close after post-regression audit")
-    _add_plan(close_reviewer)
-    close_reviewer.add_argument("--dispatch-id", required=True)
-    close_reviewer.add_argument("--blocked-reason")
-    close_reviewer.set_defaults(func=workflow.close_reviewer_session)
+    tree_verify = subparsers.add_parser(
+        "tree-verify",
+        help="run one Node's declared contract.commands and complete it on tool-produced evidence",
+    )
+    tree_verify.add_argument("root", nargs="?", default=".")
+    tree_verify.add_argument("node")
+    tree_verify.add_argument("--executor", help="which executor is running this Node")
+    tree_verify.add_argument(
+        "--cwd", help="directory to run the commands in; defaults to the Tree's directory"
+    )
+    tree_verify.add_argument("--json", action="store_true")
+    tree_verify.set_defaults(func=tree_workflow.verify_node)
 
-    tree = subparsers.add_parser("tree", help="render live Plan structure and status")
+    tree_status = subparsers.add_parser("tree-status", help="show Tree state and who owns which Node")
+    tree_status.add_argument("root", nargs="?", default=".")
+    tree_status.add_argument("--json", action="store_true")
+    tree_status.set_defaults(func=tree_workflow.tree_status)
+
+    tree_validate = subparsers.add_parser("tree-validate", help="validate one Checkpoints Tree")
+    tree_validate.add_argument("root", nargs="?", default=".")
+    tree_validate.add_argument("--json", action="store_true")
+    tree_validate.add_argument("--quiet", action="store_true")
+    tree_validate.set_defaults(func=tree_workflow.validate_tree_command)
+
+    tree = subparsers.add_parser("tree", help="render the Tree as text")
     tree.add_argument("root", nargs="?", default=".")
-    tree.add_argument("--plan")
     tree.add_argument("--details", action="store_true")
-    tree.set_defaults(func=tree_command)
+    tree.add_argument("--json", action="store_true", help="export the Tree and its derived state")
+    tree.set_defaults(func=tree_workflow.show_tree)
 
-    status = subparsers.add_parser("status", help="summarize every Delivery Plan")
-    status.add_argument("root", nargs="?", default=".")
-    status.add_argument("--json", action="store_true")
-    status.set_defaults(func=status_command)
+    programme_init = subparsers.add_parser(
+        "programme-init", help="create one empty programme index over many deliveries"
+    )
+    programme_init.add_argument("root", nargs="?", default=".")
+    programme_init.add_argument("--id", default="PROGRAMME-001")
+    programme_init.add_argument("--title", required=True)
+    programme_init.set_defaults(func=programme_workflow.init_programme)
 
-    report = subparsers.add_parser("report", help="render a self-contained HTML report")
-    report.add_argument("root", nargs="?", default=".")
-    report.add_argument("--plan")
-    report.add_argument("--out", default="plan-report.html")
-    report.set_defaults(func=report_command)
+    programme_apply = subparsers.add_parser(
+        "programme-apply", help="apply one atomic batch of deliveries to Programme.json"
+    )
+    programme_apply.add_argument("root", nargs="?", default=".")
+    programme_apply.add_argument("--input", required=True, help="JSON batch file, or - for stdin")
+    programme_apply.add_argument("--dry-run", action="store_true")
+    programme_apply.add_argument("--json", action="store_true")
+    programme_apply.set_defaults(func=programme_workflow.apply_programme_batch)
+
+    programme_status = subparsers.add_parser(
+        "programme-status", help="derive every delivery's state from its Tree"
+    )
+    programme_status.add_argument("root", nargs="?", default=".")
+    programme_status.add_argument("--json", action="store_true")
+    programme_status.set_defaults(func=programme_workflow.programme_status)
+
+    programme_validate = subparsers.add_parser(
+        "programme-validate", help="validate the programme index"
+    )
+    programme_validate.add_argument("root", nargs="?", default=".")
+    programme_validate.add_argument("--json", action="store_true")
+    programme_validate.add_argument("--quiet", action="store_true")
+    programme_validate.set_defaults(func=programme_workflow.programme_validate_command)
+
+    programme = subparsers.add_parser("programme", help="render the programme index as text")
+    programme.add_argument("root", nargs="?", default=".")
+    programme.set_defaults(func=programme_workflow.show_programme)
+
     return parser
 
 
 def _configure_stdio() -> None:
-    """Keep tree markers and JSON printable on Windows cp1252 consoles."""
+    """Keep Tree markers and JSON printable on Windows cp1252 consoles."""
 
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -411,17 +180,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = args.func(args)
-    except ToolError as exc:
+    except Exception as exc:  # ToolError is caller-fixable; anything else is named, not traced.
         print("error: %s" % exc, file=sys.stderr)
         return 1
-    except Exception as exc:
-        # Name the defect without leaking a traceback path: an autonomous loop
-        # must be able to tell a repairable state error from a crash.
-        print(
-            "error: operation could not be completed safely (%s: %s)" % (type(exc).__name__, exc),
-            file=sys.stderr,
-        )
-        return 1
-    if result == 0:
-        _auto_report(args)
     return result
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

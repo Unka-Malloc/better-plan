@@ -2,16 +2,16 @@
 
 This document is the canonical rationale and evolution criteria for Better Plan itself. Use it when
 maintaining, auditing, simplifying, or extending the skill across workflow, state, roles, tools,
-installation, and host integration. `SKILL.md` remains the operational entry contract, and the CLI
-schemas remain authoritative for runtime state.
+installation, and host integration. `SKILL.md` remains the operational entry contract, and the
+`schema` command remains authoritative for runtime state.
 
 ## Disclosure boundary
 
-Keep general skill knowledge separate from role-specific execution knowledge. This reference does
-not replace `references/designer.md`, `references/worker.md`, `references/reviewer.md`, native role
-templates, or the compiled brief for one dispatch. Preserve those role contracts and load them when
-that role starts. Do not inject this general reference into every leaf role unless the assigned work
-actually requires reasoning about Better Plan's cross-cutting design.
+Keep general skill knowledge separate from the knowledge that belongs to one assignment. This
+reference does not replace `references/checkpoints-tree.md`, a Node's own contract, or the task the
+executor was given. Preserve those contracts and load them when the work needs them. Do not inject
+this general reference into every leaf role unless the assigned work actually requires reasoning
+about Better Plan's cross-cutting design.
 
 ## Principles
 
@@ -21,25 +21,20 @@ actually requires reasoning about Better Plan's cross-cutting design.
    slow orchestration that adds no distinct safety or evidence boundary. Every step, state, role,
    artifact, and validation must justify its operational and context cost.
 
-2. **Use progressive disclosure.** Separate common skill knowledge from role-specific knowledge,
-   load references only when they become relevant, and give each role the smallest complete context
-   for its assignment. Keep role-specific prompts and references intact so a Designer, Worker, or
-   Reviewer knows its exact authority, prohibitions, evidence duties, and completion contract.
-   Minimize irrelevant context so role attention stays on the assigned work.
+2. **Use progressive disclosure.** Separate common skill knowledge from the work at hand, load
+   references only when they become relevant, and give each executor the smallest complete context
+   for its assignment. Keep a Node's contract intact so whoever runs it knows the exact outcome,
+   dependencies, and check it owes. Minimize irrelevant context so attention stays on the assigned
+   work.
 
-3. **Spend scarce model intelligence on solution design and automate representation work.** When a
-   planning stage uses an especially capable or expensive model, constrain it only where user
-   authority, safety, privacy, scope, or semantic correctness requires a hard boundary. Let that
-   model produce one structured solution plan in the form that best preserves its reasoning,
-   tradeoffs, architecture, risks, and delivery strategy; do not spend its context and attention on
-   stable codes, receipt mechanics, schema boilerplate, graph normalization, or other work that
-   deterministic tooling can perform. Python automation should convert that structured proposal into
-   the canonical Better Plan representation, derive mechanical fields, validate the result, and
-   report conversion defects precisely. If conversion is incomplete, ambiguous, or invalid, the
-   native main takes ownership of completing and repairing `Plan.json` instead of constraining or
-   redispatching the expensive model. After the Designer returns, `Design.md` is a read-only source
-   record: never repair conversion by changing or deleting its content. Keep `Plan.json` as the sole
-   semantic source.
+3. **Spend scarce model intelligence on solution design and automate representation work.** Constrain
+   the designing model only where authority, safety, privacy, scope, or semantic correctness needs a
+   hard boundary. Its job is the solution: outcomes, dependencies, contracts, risks, and the order of
+   work. Codes, sequence numbers, timestamps, state derivation, graph validation, and evidence
+   receipts are deterministic work that belongs to the tool, which must report a defect precisely
+   (exact field, exact operation) instead of asking the model to guess again. The Designer writes the
+   Tree through atomic `tree-apply` batches; the tool derives everything derivable, and one invalid
+   operation rejects the whole batch.
 
 4. **Make deterministic tools finish diagnostic work.** A compiler error must identify the exact
    source line or line range, the canonical target field, and the specific failed condition. Missing
@@ -53,81 +48,65 @@ actually requires reasoning about Better Plan's cross-cutting design.
    multiple independently acceptable parallel Tasks, or long-lived recovery justify its cost.
 
 6. **Discover facts before requesting decisions.** Inspect repository contracts, tests, schemas,
-   state owners, failure behavior, and tooling first. Ask the user only for outcome-changing choices
-   that cannot be discovered, and consolidate them into one coherent Decision Dossier. If none
-   remain, retain `not_required` and skip clarification. Defaults never grant reserved authority.
+   state owners, failure behavior, and tooling first, and record what was observed. Ask the user
+   only for outcome-changing choices that cannot be discovered, and ask them together rather than
+   one at a time. If none remain, ask nothing. Declared defaults never grant reserved authority.
 
-7. **Give each phase one accountable authority.** Resolve decisions once, use one Designer for the
-   solution draft and one deterministic compiler write path for its Plan representation, authorize
-   one exact revision, and use one writable Reviewer. Repair within the native main, current Task,
-   or Reviewer session instead of creating recursive planning and repair roles. Confirmed defects
-   outside the authorized Plan are structured handoffs: close the current delivery first, then let
-   deterministic tooling create separate unapproved draft Plans for later user authorization.
+7. **Give each phase one accountable authority.** One Designer authors the Tree, one deterministic
+   tool derives and validates it, and the executor of a Node never grades the check it can run
+   itself. Repair inside the current delivery instead of inventing recursive planning or review
+   roles. A confirmed defect outside the current delivery gets its own Tree rather than being
+   folded silently into this one.
 
-8. **Keep one semantic source for each kind of truth.** `Plan.json` owns delivery semantics,
-   `Manifest.json` indexes Plans, `Checkpoints.json` owns execution state, and `Plan.md` is a
-   render-only projection. Derive secondary views instead of synchronizing competing ledgers.
+8. **Keep one semantic source.** `Tree.json` owns the delivery: Tasks, executable Nodes, dependency
+   edges, execution state, evidence, and history. There is no second ledger to synchronize, no
+   approval projection to keep honest, and no mapping layer between two models of the same work.
+   Derived views are rendered on demand and are never parsed back. A `Programme.json` beside a set
+   of Trees is an index, not a ledger: it stores identity, location, and cross-delivery order, never
+   status, and everything it reports is read from the Trees.
 
-9. **Compile plans into independently acceptable outcomes.** A Task represents one observable
-   result, not a file list, role, or development phase. Freeze its scope, guaranteed outputs,
-   ownership, risk, design decisions, acceptance oracle, evidence, and focused regression so a
-   fresh-context Worker can execute it without the original conversation. A Task is also one Worker
-   session, so it carries a bounded execution shape: readiness rejects a Task whose Node DAG,
-   ownership surface, or verification surface exceeds the single-session ceiling, and the fix is to
-   split it into more mutually parallel-safe Tasks rather than to relabel or promote it.
+9. **Make the executable unit the one that carries the outcome.** A Node is one independently
+   acceptable, observable result; a Task groups the Nodes of one delivery outcome. A Node a machine
+   can check declares `contract.commands`; a Node only a person can judge declares none and is
+   completed by an explicit report. Freeze each Node's outcome, dependencies, and contract so any
+   executor can run it without the original conversation, and keep a Node small enough to finish in
+   one sitting.
 
-10. **Execute every available parallel frontier.** The native main passes requirements, not a
-    predesigned Task graph. The Designer makes all Tasks mutually independent, then gives each Task
-    a minimal Node DAG: declare an edge only for a real ordering or data dependency, branch every
-    independent Node, and join only where its prerequisites converge. Python compiles and validates
-    that structure; Workers run every ready Node concurrently, and the native main then runs focused
-    acceptance serially, one returning Task at a time, because build tooling already serializes itself
-    on its output directory and one warm cache serves the whole delivery. Long-running work never
-    holds the global state lock. No Node receives a separate role, approval, or persistent execution ledger.
+10. **Execute every available parallel frontier.** `after` is the only ordering: it names the Nodes
+    a Node waits for, and it may cross Tasks. Every Node whose dependencies are complete is ready,
+    and every ready Node may run at once — with no separate scheduling document, approval, or
+    per-Node ledger.
 
     Disjoint write paths are necessary but not sufficient for real parallelism: it is a property of
-    the machine. A plan must also attribute the resources parallel units contend on — build and
-    artifact directories, version-control indexes and locks, test stores, ports, devices, toolchain
-    caches — at both Task and intra-Task frontier level. Because Nodes share their Task's ownership,
-    a resource under a wide frontier cannot be held exclusively among those Nodes, and the cross-Task
-    collision check has no second Task to compare with, so only an `isolated` path per Node gives
-    real parallelism. Readiness enforces the declaration, not the wording: an empty resource list
-    under a frontier wider than one is rejected, while whether the named paths really separate the
-    Nodes is the Reviewer's audit, because the ownership field carries free text rather than a
-    disposition the schema can check. These
-    declarations are what a Worker actually uses: it runs its own focused checks only inside the
-    isolated build, test, and cache paths its Task assigns it, while the native main keeps the single
-    canonical acceptance stage. Module
-    boundaries belong to the Designer for the same reason: a file touched by more than one parallel
-    unit must be split, or given a single named writer, as part of the design rather than left to
-    collide at runtime.
+    the machine. Attribute the resources parallel units contend on — build and artifact directories,
+    version-control indexes and locks, test stores, ports, devices, toolchain caches. Nodes declare
+    them in `resources`, and the tool reports every shared one that no `after` path orders, so the
+    check is a command rather than a review. Across deliveries, the ordering that keeps two of them
+    off one resource belongs in the programme's `requires` edges, next to the Trees it orders.
 
-11. **Bind authorization to exact semantics.** Seal authorization to a revision and semantic digest.
-   Freeze started Task guarantees, ownership, design, acceptance, and historical evidence. After a
-   Worker returns, the native main may correct an unfinished Task's focused command or path error
-   while preserving the oracle, recording the reason and before/after contract, and obtaining fresh
-   acceptance. Completed Task definitions stay frozen. Other continuation edits apply to unstarted
-   work and must not expand goal, scope, user decisions, elevated risk, or irreversible authority.
-   Reuse an existing exact authorization; recording its source does not require another user vote.
+11. **Keep authority with the user, and observation with the tool.** A delivery runs on the request
+   that authorized it: the Tree records no approval ceremony, and no agent may widen the goal,
+   scope, or risk boundary on its own — that needs a fresh user decision. The inverse holds too: the
+   Tree never accepts an executor's word for a check the tool can run itself, and never treats a
+   rendered status as evidence that the work happened.
 
-12. **Continue autonomously after authorization.** Do not return ordinary implementation decisions
-    to the user. Apply selected decisions, authorized intent, public repository contracts, the safest
-    reversible behavior, and the simplest adequate implementation in that order. Promptly report
-    missing user prerequisites to the native main. It records pending input, prepares the concrete
-    decision within existing authorization, and requests only the missing input or approval while
-    independent branches continue. Preserve explicit approval requirements; a routine defect report
-    does not add one. Do not finalize merely unanswered requests as hard blockers.
+12. **Continue autonomously inside the authorized request.** Do not return ordinary implementation
+    decisions to the user. Apply the user's request, public repository contracts, the safest
+    reversible behavior, and the simplest adequate implementation in that order. Report a genuinely
+    missing prerequisite promptly, prepare the concrete decision, and ask only for what is missing
+    while independent Nodes keep running. Preserve explicit approval requirements; a routine defect
+    report does not add one, and an unanswered request is not a hard blocker.
 
-13. **Define completion with executable evidence.** Complete each Task only through its focused
-    regression. Run the complete regression as an independent Python stage before Reviewer
-    dispatch; Reviewer session commands must never own or execute it. Give the Reviewer its
-    diagnostics, and reuse green evidence unless Reviewer repairs change covered paths. Require real
-    rendered evidence for visual behavior; source inspection, snapshots, or build success are not
-    substitutes for the declared oracle.
+13. **Define completion with executable evidence.** A Node that declares commands is complete only
+    when the tool ran them and recorded the receipts; a reported completion is stored and displayed as
+    reported, never as a verified one. Never treat a status field, a summary, or a build log as proof
+    that a declared check passed. Rendered behavior needs rendered evidence: source inspection,
+    snapshots, and build success are not substitutes for the declared oracle.
 
-14. **Make delegation precise and recovery explicit.** Bind every live dispatch to one host agent
-    identity and consume only an exact final callback. Spawn is not completion, silence is not
-    failure, and context loss must be recoverable from canonical state, receipts, and bounded briefs.
+14. **Make delegation precise and recovery explicit.** Bind each dispatched unit to one identifiable
+    executor and consume one exact final report. A spawn is not a completion, silence is not a
+    failure, and any executor must be able to resume from `Tree.json` alone after its context is
+    lost.
 
 15. **Protect privacy and fail closed.** Keep secrets, machine identity, absolute local paths,
     runtime endpoints, and backend runtime data out of state, prompts, evidence, and reports. Reject
@@ -135,15 +114,15 @@ actually requires reasoning about Better Plan's cross-cutting design.
     guessing, translating, or broadening authority. Rejection applies to the attempted transition;
     use permitted repair and verification paths supported by current authority and repository facts.
 
-16. **Integrate additively with native hosts.** Use each host's native skill, role, Hook, and plugin
+16. **Integrate additively with native hosts.** Use each host's native skill, role, and plugin
     formats. Manage only Better Plan-owned artifacts and namespaced entries, preserve unrelated local
     configuration, and verify the installed generation, selectors, receipts, structure, and Doctor
     result after installation changes.
 
 ## Change test
 
-A Better Plan change is aligned only when it preserves the authorized outcome with less or equal
+A Better Plan change is aligned only when it preserves the delivery outcome with less or equal
 workflow complexity, context burden, duplicated state, and repeated work, or when every added cost
 is required by a distinct correctness, authority, privacy, evidence, recovery, or host boundary.
-Never simplify by deleting role-specific instructions or runtime enforcement that carries such a
-boundary.
+Removing a cost is aligned only when no such boundary depended on it. Never simplify by deleting
+instructions or runtime enforcement that carries such a boundary.

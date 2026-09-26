@@ -16,24 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = ROOT / "tests"
 SHARDS = {
     "core": (
-        "tests.test_design_compile",
+        "tests.test_checkpoints_tree",
+        "tests.test_programme",
         "tests.test_model_routing",
         "tests.test_python_compatibility",
-        "tests.test_v3_protocol",
     ),
     "hosts": (
         "tests.test_agent_templates",
-        "tests.test_hook_tool",
-        "tests.test_kilo_task_adapter",
         "tests.test_native_role_resolution",
     ),
     "installation": ("tests.test_install_tool",),
-    "workflow": ("tests.test_v3_workflow", "tests.test_workflow_briefs"),
-    "tooling": (
-        "tests.test_efficiency_inspector",
-        "tests.test_parallel_test_runner",
-        "tests.test_report",
-    ),
+    "tooling": ("tests.test_parallel_test_runner",),
 }
 
 

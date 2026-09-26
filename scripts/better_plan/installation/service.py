@@ -9,9 +9,6 @@ from . import targets as _targets
 from .models import AGENTS, InstallPaths as _InstallPaths
 
 
-_MANAGED_HOOK_AGENTS = frozenset({"codex", "claude", "cursor"})
-
-
 def install_agents(
     paths: _InstallPaths,
     agents: list[str],
@@ -54,21 +51,6 @@ def install_agents(
     return messages
 
 
-def uninstall_hooks(paths: _InstallPaths, agents: list[str], *, dry_run: bool) -> list[str]:
-    """Remove only Better Plan-managed lifecycle handlers."""
-    messages: list[str] = []
-    for agent in agents:
-        if agent in _MANAGED_HOOK_AGENTS:
-            _, changed = _targets.remove_agent_hooks(paths, agent, dry_run=dry_run)
-            action = "would remove managed handlers" if dry_run else "removed managed handlers"
-            if not changed:
-                action = "no managed handlers found"
-            messages.append(f"{agent}: {action}")
-        else:
-            messages.append(f"{agent}: no managed lifecycle config")
-    return messages
-
-
 def uninstall_agents(
     paths: _InstallPaths,
     agents: list[str],
@@ -77,19 +59,16 @@ def uninstall_agents(
     dry_run: bool,
 ) -> list[str]:
     messages: list[str] = []
-    for agent in _MANAGED_HOOK_AGENTS:
-        if agent not in agents:
-            continue
-        _, changed = _targets.remove_agent_hooks(paths, agent, dry_run=dry_run)
-        if changed:
-            action = "would remove managed handlers" if dry_run else "removed managed handlers"
-        else:
-            action = "no managed handlers found"
-        messages.append(f"{agent} hooks: {action}")
-
     for agent in AGENTS:
         if agent in agents:
-            messages.extend(_targets.remove_target(paths, agent, dry_run=dry_run))
+            messages.extend(
+                _targets.remove_target(
+                    paths,
+                    agent,
+                    remove_shared=remove_shared,
+                    dry_run=dry_run,
+                )
+            )
     if remove_shared:
         if not dry_run:
             _skills.remove_path(paths.shared_skill)
