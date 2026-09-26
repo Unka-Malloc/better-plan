@@ -1,4 +1,4 @@
-"""Network-free loading of versioned Artificial Analysis snapshots.
+"""Network-free loading of the packaged model catalog.
 
 The packaged table is reference data: the model table records the one standard
 Intelligence Index. The installer reads one row per packaged Codex role pin to

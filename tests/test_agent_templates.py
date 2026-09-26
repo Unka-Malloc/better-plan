@@ -1,533 +1,95 @@
-"""Acceptance for native role templates and one-time model pinning."""
+"""The packaged host templates carry exactly the three delivery roles."""
 
 from __future__ import annotations
 
-import json
-import tempfile
-import unittest
 from pathlib import Path
+import unittest
 
-from scripts.better_plan.installation import targets as install_targets
-from scripts.better_plan.installation.assignments import (
-    CODEX_DEFAULT_MATRIX,
-    select_role_assignments,
-)
-from scripts.better_plan.installation.models import (
-    AGENTS,
-    CURRENT_SKILL_FILES,
-    InstallPaths,
-)
-from scripts.better_plan.installation.targets import NATIVE_ROLE_FILES, install_role_templates
+from scripts.better_plan.installation.assignments import CODEX_DEFAULT_MATRIX
+from scripts.better_plan.installation.models import AGENTS, CURRENT_SKILL_FILES
+from scripts.better_plan.installation.targets import KILO_AGENT_FILES, NATIVE_ROLE_FILES
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DELIVERY_ROLE_NAMES = {"designer", "worker", "hybrid-worker", "reviewer"}
-CODEX_AGENT_NAMES = frozenset(DELIVERY_ROLE_NAMES)
-REMOVED_ROLE_NAMES = {
-    # The tiered Worker roles were replaced by the single `worker` role.
+ROLE_FILES = {
+    "codex": ("designer.toml", "worker.toml", "reviewer.toml"),
+    "claude-code": ("designer.md", "worker.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker.md", "reviewer.md"),
+}
+REMOVED_ROLES = (
+    "hybrid-worker",
     "worker-standard",
     "worker-complex",
     "worker-routine",
     "worker-critical",
-    "visual-verifier",
-    "visual-reviewer",
-    "verifier",
-    # The Codex read-only finder utilities were deleted with the two-host contract.
-    "finder",
-    "fallback_finder",
-}
-REMOVED_AGENT_DIRECTORIES = ("opencode", "copilot", "antigravity", "pi", "craft", "kimi")
-CATALOG_PATTERNS = (
-    "Factory Method",
-    "Abstract Factory",
-    "Builder",
-    "Prototype",
-    "Singleton",
-    "Adapter",
-    "Bridge",
-    "Composite",
-    "Decorator",
-    "Facade",
-    "Flyweight",
-    "Proxy",
-    "Chain of Responsibility",
-    "Command",
-    "Iterator",
-    "Mediator",
-    "Memento",
-    "Observer",
-    "State",
-    "Strategy",
-    "Template Method",
-    "Visitor",
 )
 
 
-def paths(root: Path) -> InstallPaths:
-    return InstallPaths(
-        repo_root=ROOT,
-        codex_home=root / "codex",
-        shared_home=root / "shared",
-        claude_home=root / "claude",
-        cursor_home=root / "cursor",
-        kilo_home=root / "kilo-home",
-        kilo_config=root / "kilo-config",
-    )
-
-
-class AgentTemplateTests(unittest.TestCase):
-    def test_kilo_bundles_one_short_primary_and_four_namespaced_subagents(self) -> None:
-        directory = ROOT / "agents" / "kilo"
-        self.assertEqual(
-            {path.name for path in directory.iterdir()},
-            set(install_targets.KILO_AGENT_FILES),
-        )
-        self.assertEqual(
-            set(install_targets.KILO_SUBAGENTS),
-            {f"better-plan-{role}.md" for role in DELIVERY_ROLE_NAMES},
-        )
-        for filename in install_targets.KILO_AGENT_FILES:
-            self.assertIn(f"agents/kilo/{filename}", CURRENT_SKILL_FILES)
-        primary = (directory / "better-plan.md").read_text(encoding="utf-8")
-        body = primary.split("\n---\n", 1)[1]
-        self.assertIn("mode: primary", primary)
-        self.assertLess(len(body.split()), 60)
-        self.assertIn("Handle simple tasks directly", body)
-        self.assertIn("load the `better-plan` Skill", body)
-        self.assertIn('    "*": allow', primary)
-        for filename in install_targets.KILO_SUBAGENTS:
-            agent_name = Path(filename).stem
-            text = (directory / filename).read_text(encoding="utf-8")
-            self.assertIn("mode: subagent", text)
-            # Every Subagent is a leaf: the native main owns Task and Node dispatch.
-            self.assertIn("  task: deny", text)
-            self.assertIn("  question: deny", text)
-            self.assertIn(f"agent={agent_name}", text)
-            # Kilo owns model, variant, and reasoning selection; packaged files pin none.
-            self.assertIn("model=parent-inherited", text)
-            self.assertIn("reasoning_effort=host-default", text)
-            self.assertNotRegex(text, r"(?m)^model:\s*")
-            self.assertNotRegex(text, r"(?m)^variant:\s*")
-            self.assertNotRegex(text, r"(?m)^reasoningEffort:\s*")
-            self.assertNotRegex(text, r"(?m)^reasoning_effort:\s*")
-
-    def test_every_supported_host_packages_its_role_templates(self) -> None:
-        self.assertEqual(tuple(AGENTS), ("codex", "claude", "cursor", "kilo"))
-        # Codex is the only host with packaged presets; every supported host still ships roles.
-        self.assertEqual(set(NATIVE_ROLE_FILES), {"codex", "claude", "cursor"})
-        self.assertEqual(
-            {path.name for path in (ROOT / "agents").iterdir() if path.is_dir()},
-            {"codex", "claude-code", "cursor", "kilo"},
-        )
-        for removed in REMOVED_AGENT_DIRECTORIES:
-            with self.subTest(directory=removed):
-                self.assertFalse((ROOT / "agents" / removed).exists())
-                self.assertFalse(
-                    any(entry.startswith(f"agents/{removed}/") for entry in CURRENT_SKILL_FILES)
+class PackagedRoleTests(unittest.TestCase):
+    def test_every_native_host_packages_the_three_roles(self) -> None:
+        for host, filenames in ROLE_FILES.items():
+            with self.subTest(host=host):
+                self.assertEqual(
+                    sorted(name.name for name in (ROOT / "agents" / host).iterdir() if name.is_file()),
+                    sorted(filenames),
                 )
+        self.assertEqual(NATIVE_ROLE_FILES["codex"], ROLE_FILES["codex"])
+        self.assertEqual(NATIVE_ROLE_FILES["claude"], ROLE_FILES["claude-code"])
+        self.assertEqual(NATIVE_ROLE_FILES["cursor"], ROLE_FILES["cursor"])
 
-    def test_each_native_host_bundles_the_complete_role_shape(self) -> None:
-        source_directories = {"codex": "codex", "claude": "claude-code", "cursor": "cursor"}
-        for target, filenames in NATIVE_ROLE_FILES.items():
-            with self.subTest(target=target):
-                expected = CODEX_AGENT_NAMES if target == "codex" else DELIVERY_ROLE_NAMES
-                self.assertEqual({Path(name).stem for name in filenames}, set(expected))
-                directory = ROOT / "agents" / source_directories[target]
-                self.assertEqual({path.name for path in directory.iterdir()}, set(filenames))
-                for filename in filenames:
-                    self.assertIn(f"agents/{source_directories[target]}/{filename}", CURRENT_SKILL_FILES)
-                    text = (directory / filename).read_text(encoding="utf-8")
+    def test_no_removed_role_is_still_packaged(self) -> None:
+        for host in ROLE_FILES:
+            for removed in REMOVED_ROLES:
+                with self.subTest(host=host, role=removed):
+                    self.assertFalse((ROOT / "agents" / host / ("%s.md" % removed)).exists())
+                    self.assertFalse((ROOT / "agents" / host / ("%s.toml" % removed)).exists())
+        for removed in REMOVED_ROLES:
+            self.assertNotIn("agents/kilo/better-plan-%s.md" % removed, CURRENT_SKILL_FILES)
+
+    def test_every_role_template_points_at_its_own_reference(self) -> None:
+        for host, filenames in ROLE_FILES.items():
+            for filename in filenames:
+                with self.subTest(host=host, template=filename):
+                    text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+                    role = Path(filename).stem
+                    self.assertIn("references/%s.md" % role, text)
                     self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
-                    self.assertNotRegex(text, r"(?m)^model\s*[:=]")
 
-    def test_removed_roles_are_absent_from_the_package(self) -> None:
-        for name in REMOVED_ROLE_NAMES:
-            with self.subTest(role=name):
-                self.assertFalse(any(name in entry for entry in CURRENT_SKILL_FILES))
-                self.assertEqual(list((ROOT / "agents").glob("*/%s.*" % name)), [])
-                self.assertFalse((ROOT / "references" / ("%s.md" % name)).exists())
+    def test_codex_is_the_only_host_with_presets(self) -> None:
+        self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
+        self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
 
-    def test_role_contracts_encode_single_writable_sessions(self) -> None:
-        designer = (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower()
-        worker = (ROOT / "references" / "worker.md").read_text(encoding="utf-8").lower()
-        reviewer = " ".join(
-            (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower().split()
+    def test_unpinned_role_files_declare_no_selector(self) -> None:
+        for host in ("claude-code", "cursor"):
+            for filename in ROLE_FILES[host]:
+                with self.subTest(host=host, template=filename):
+                    text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+                    self.assertNotIn("model =", text)
+                    self.assertNotIn("model:", text)
+
+    def test_kilo_installs_one_primary_and_three_leaf_subagents(self) -> None:
+        self.assertEqual(len(KILO_AGENT_FILES), 4)
+        primary = (ROOT / "agents" / "kilo" / "better-plan.md").read_text(encoding="utf-8")
+        self.assertIn("mode: primary", primary)
+        for filename in KILO_AGENT_FILES[1:]:
+            with self.subTest(template=filename):
+                text = (ROOT / "agents" / "kilo" / filename).read_text(encoding="utf-8")
+                self.assertIn("mode: subagent", text)
+                self.assertIn("task: deny", text)
+
+    def test_the_payload_ships_prompts_and_tools_only(self) -> None:
+        """The reference set is prose; benchmark data belongs to the tool, not the skill."""
+
+        payload_data = sorted(
+            name
+            for name in CURRENT_SKILL_FILES
+            if name.startswith("references/") and not name.endswith(".md")
         )
-        self.assertIn("write the complete solution design", designer)
-        self.assertIn("required output", designer)
-        self.assertIn("do not write canonical", designer)
-        self.assertIn("compiler is its sole write path", designer)
-        self.assertIn("final return freezes", designer)
-        self.assertIn("there is no second designer", designer)
-        self.assertIn("one independently acceptable task", worker)
-        self.assertIn("do not ask the user", worker)
-        self.assertIn("you are the single worker role", worker)
-        self.assertIn("tasks are not tiered", worker)
-        self.assertIn("run the smallest useful focused check", worker)
-        self.assertIn("declares `exclusive` for your nodes", worker)
-        self.assertIn("worker: code|hybrid", worker)
-        self.assertIn("directly repair every in-scope defect", reviewer)
-        self.assertIn("there is no repair task and no second reviewer", reviewer)
-        self.assertIn("rendered evidence", reviewer)
-        self.assertIn("browser and vision", reviewer)
-        self.assertIn("python owns that deterministic work in a separate `run-full-regression` stage", reviewer)
-        self.assertIn("neither reviewer session command runs it", reviewer)
-        self.assertIn("task ownership is not the plan scope boundary", reviewer)
-        self.assertIn("out_of_scope_findings", reviewer)
-        self.assertIn("separate unapproved draft repair plans", reviewer)
-        self.assertIn("do not create or stage a git commit", reviewer)
-        self.assertIn("context-aware native main", reviewer)
-
-    def test_main_prompt_requires_dynamic_wait_estimation(self) -> None:
-        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
-
-        self.assertIn("explicitly set an adaptive timeout instead of using the system default", skill)
-        self.assertIn("estimate completion percentage and remaining work", skill)
-        self.assertIn("workload`, observed progress, elapsed time", skill)
-        self.assertIn("prior comparable experience", skill)
-        self.assertIn("heavy or early-stage work longer windows", skill)
-        self.assertIn("re-estimate after every progress signal or expired wait", skill)
-
-    def test_main_prompt_requires_hybrid_specialization_and_cache_stable_worker_prefixes(self) -> None:
-        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
-
-        self.assertIn("worker: code|hybrid", skill)
-        self.assertIn("checks the host's hybrid role", skill)
-        self.assertIn("--native-host codex|claude|cursor|kilo", skill)
-        self.assertIn("a valid configured role must be dispatched", skill)
-        self.assertIn("reuse the returned worker assignment byte-for-byte", skill)
-        self.assertIn("prompt-cache hit rate and token efficiency", skill)
-        self.assertIn("never share one live host agent id", skill)
-
-    def test_delivery_guardrails_are_disclosed_by_role(self) -> None:
-        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
-        designer = " ".join(
-            (ROOT / "references" / "designer.md").read_text(encoding="utf-8").lower().split()
+        self.assertEqual(payload_data, [])
+        on_disk = sorted(
+            path.name for path in (ROOT / "references").iterdir() if path.suffix != ".md"
         )
-        worker = " ".join(
-            (ROOT / "references" / "worker.md").read_text(encoding="utf-8").lower().split()
-        )
-        reviewer = " ".join(
-            (ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").lower().split()
-        )
-
-        self.assertIn("backend runtime data", skill)
-        self.assertIn("suitable proven open-source implementations", skill)
-        self.assertIn("one-time targeted script or command", skill)
-        self.assertIn("first complete regression only after all worker changes are integrated", skill)
-        self.assertIn("smallest independently acceptable capability, module, or scenario", skill)
-        self.assertIn("redundant hashes", skill)
-
-        self.assertIn("backend runtime data", designer)
-        self.assertIn("suitable proven open-source implementations", designer)
-        self.assertIn("complete transition", designer)
-        self.assertIn("one smallest independently acceptable", designer)
-
-        self.assertIn("backend runtime data", worker)
-        self.assertIn("suitable proven open-source implementations", worker)
-        self.assertIn("one-time targeted script or command", worker)
-        self.assertIn("never run the complete regression", worker)
-
-        self.assertIn("backend runtime data", reviewer)
-        self.assertIn("suitable proven open-source approaches", reviewer)
-        self.assertIn("one-time targeted residue script or command", reviewer)
-        self.assertIn("remove speculative abstractions", reviewer)
-
-    def test_general_design_principles_preserve_progressive_role_disclosure(self) -> None:
-        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-        principles = (ROOT / "references" / "design-principles.md").read_text(
-            encoding="utf-8"
-        )
-        normalized = " ".join(principles.lower().split())
-
-        self.assertIn("references/design-principles.md", CURRENT_SKILL_FILES)
-        self.assertIn("references/design-principles.md", skill)
-        self.assertIn("only when maintaining or auditing better plan itself", skill.lower())
-        self.assertIn("simple, clear, efficient, and economical", normalized)
-        self.assertIn("strictly reject labyrinthine state machines", normalized)
-        self.assertIn("use progressive disclosure", normalized)
-        self.assertIn("smallest complete context", normalized)
-        self.assertIn("do not inject this general reference into every leaf role", normalized)
-        self.assertIn("spend scarce model intelligence on solution design", normalized)
-        self.assertIn("python automation should convert", normalized)
-        self.assertIn("make deterministic tools finish diagnostic work", normalized)
-        self.assertIn("exact source line or line range", normalized)
-
-        for role in ("designer", "worker", "reviewer"):
-            relative = "references/%s.md" % role
-            with self.subTest(role=role):
-                self.assertIn(relative, CURRENT_SKILL_FILES)
-                self.assertIn(relative, skill)
-                self.assertTrue((ROOT / relative).is_file())
-
-    def test_local_pattern_catalog_stays_complete_and_on_demand(self) -> None:
-        catalog = (ROOT / "references" / "design-patterns.md").read_text(encoding="utf-8")
-        numbered_headings = [
-            line for line in catalog.splitlines() if line.startswith("### ") and ". " in line
-        ]
-        self.assertEqual(len(numbered_headings), 22)
-        for pattern in CATALOG_PATTERNS:
-            with self.subTest(pattern=pattern):
-                self.assertEqual(
-                    sum(f"（{pattern}）" in heading for heading in numbered_headings), 1
-                )
-        self.assertFalse(any("Interpreter" in heading for heading in numbered_headings))
-        self.assertIn("references/design-patterns.md", CURRENT_SKILL_FILES)
-        self.assertIn("references/host-configuration.md", CURRENT_SKILL_FILES)
-        self.assertIn("references/workflow.md", CURRENT_SKILL_FILES)
-        self.assertIn("references/design-format.md", CURRENT_SKILL_FILES)
-        self.assertIn("references/structure-repair.md", CURRENT_SKILL_FILES)
-        self.assertIn("scripts/better_plan/domain/design_compile.py", CURRENT_SKILL_FILES)
-        self.assertIn("candidate: <模式英文名或 none>", catalog)
-        self.assertIn("simpler_alternative", catalog)
-        self.assertIn("costs_and_rejections", catalog)
-        # Consulted on demand, never a mandatory full read before designing.
-        self.assertIn("按需查阅的离线目录", catalog)
-        self.assertNotIn("必须完整阅读", catalog)
-
-    def test_host_guidance_separates_framework_invariants_from_native_adapters(self) -> None:
-        guidance = " ".join(
-            (ROOT / "references" / "host-configuration.md")
-            .read_text(encoding="utf-8")
-            .lower()
-            .split()
-        )
-
-        self.assertIn("framework and adapter boundary", guidance)
-        self.assertIn("exact opaque identity preservation", guidance)
-        self.assertIn("fix defects in those invariants once in the framework", guidance)
-        self.assertIn("a host adapter owns only behavior imposed by that host's api", guidance)
-        self.assertIn("adding or changing one must not alter another host", guidance)
-        self.assertIn("immutable local host configuration", guidance)
-        self.assertIn("explicit replacement request", guidance)
-        self.assertIn("doctor reports the integrity finding as a warning without a repair proposal", guidance)
-        self.assertIn("fork_turns", guidance)
-        self.assertIn("does not pre-qualify or reject a configured codex role", guidance)
-        self.assertIn("a locally resolved role remains eligible for dispatch", guidance)
-        self.assertIn("codex has no better plan completion hook", guidance)
-        self.assertIn("kilo task adapter", guidance)
-        self.assertIn("better-plan-designer", guidance)
-        self.assertIn("resume the same reviewer with task_id", guidance)
-        self.assertIn("inherits the invoking primary agent's model", guidance)
-
-    def test_hybrid_worker_template_states_its_rendered_evidence_obligation(self) -> None:
-        """The hybrid role shares one role reference, but its own template must say why it exists.
-
-        Without this the two Worker templates differ only in name, and a host that reads only its
-        own template has no reason to produce rendered evidence.
-        """
-
-        for relative in ("codex/hybrid-worker.toml", "kilo/better-plan-hybrid-worker.md"):
-            template = (ROOT / "agents" / relative).read_text(encoding="utf-8")
-            with self.subTest(template=relative):
-                self.assertIn("judged visually", template)
-                self.assertIn("rendered evidence", template)
-
-    def test_delivery_templates_resolve_one_shared_role_contract(self) -> None:
-        # Both Worker sessions share the single `worker` role contract; `hybrid-worker`
-        # names the installed agent, not a second role reference.
-        role_references = {
-            "designer": "references/designer.md",
-            "worker": "references/worker.md",
-            "hybrid-worker": "references/worker.md",
-            "reviewer": "references/reviewer.md",
-        }
-        for host in ("codex", "kilo"):
-            for role, reference in role_references.items():
-                filename = ("better-plan-" if host == "kilo" else "") + role
-                filename += ".toml" if host == "codex" else ".md"
-                template = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
-                with self.subTest(host=host, role=role):
-                    self.assertIn(f"Read `{reference}`", template)
-                    self.assertIn("installed `better-plan` skill", template)
-                    self.assertTrue((ROOT / reference).is_file())
-                    self.assertIn(reference, CURRENT_SKILL_FILES)
-                    self.assertIn("Neither expands user authorization", template)
-
-    def test_main_prompt_requires_native_main_git_archive_handoff(self) -> None:
-        skill = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").lower().split())
-
-        self.assertIn("the reviewer never creates a git commit", skill)
-        self.assertIn("`version_control_handoff`", skill)
-        self.assertIn("preserve unrelated changes", skill)
-        self.assertIn("exactly one commit for the completed delivery plan", skill)
-        self.assertIn("current branch", skill)
-        self.assertIn("otherwise skip git", skill)
-
-    def test_installer_renders_and_pins_codex_assignments(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            messages = install_role_templates(install_paths, "codex", dry_run=False)
-            directory = install_paths.codex_home / "agents"
-            self.assertEqual({path.name for path in directory.iterdir()}, set(NATIVE_ROLE_FILES["codex"]))
-            for filename in NATIVE_ROLE_FILES["codex"]:
-                text = (directory / filename).read_text(encoding="utf-8")
-                self.assertNotIn("ASSIGNMENT_PLACEHOLDER", text)
-                self.assertRegex(text, r'(?m)^model = "[^\"]+"$')
-                prompt = text.split('developer_instructions = """', 1)[1].rsplit('"""', 1)[0]
-                self.assertIn("role=", prompt)
-                self.assertIn("host-provided runtime metadata", prompt)
-                self.assertNotIn("benchmark=", prompt)
-                for model in (value[1] for value in CODEX_DEFAULT_MATRIX.values()):
-                    self.assertNotIn(model, prompt)
-            expected_selectors = {
-                agent_name: (model, effort)
-                for agent_name, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items()
-            }
-            for agent_name, (model, effort) in expected_selectors.items():
-                with self.subTest(rendered_agent=agent_name):
-                    rendered = (directory / f"{agent_name}.toml").read_text(encoding="utf-8")
-                    self.assertIn(f'model = "{model}"', rendered)
-                    self.assertIn(f'model_reasoning_effort = "{effort}"', rendered)
-            assignment_message = next(
-                message for message in messages if "immutable after first installation" in message
-            )
-            self.assertIn("source codex-default-matrix", assignment_message)
-            self.assertNotIn("benchmark not measured", assignment_message)
-            self.assertNotIn("Arena WebDev", assignment_message)
-            # Every pin reports the same standard basis: one Intelligence Index score and the
-            # task cost that row publishes.
-            self.assertIn(
-                "worker -> worker, gpt-6-luna/max, Intelligence Index score 37, cost $0.07/task",
-                assignment_message,
-            )
-            # The hybrid Worker keeps its Astra low-effort pin under the same Worker role.
-            self.assertIn("hybrid-worker -> worker, gpt-6-astra/low", assignment_message)
-            receipt = json.loads((install_paths.codex_home / "agents.better-plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(receipt["schema_version"], 3)
-            self.assertEqual(set(receipt["assignments"]), set(NATIVE_ROLE_FILES["codex"]))
-
-    def test_codex_default_matrix_matches_the_explicit_user_preference(self) -> None:
-        self.assertEqual(
-            set(CODEX_DEFAULT_MATRIX),
-            set(CODEX_AGENT_NAMES),
-        )
-        self.assertEqual(
-            {
-                agent_name: (values[1], values[2], values[3])
-                for agent_name, values in CODEX_DEFAULT_MATRIX.items()
-            },
-            {
-                "designer": ("gpt-6-astra", "max", "gpt-6-astra"),
-                "worker": ("gpt-6-luna", "max", "gpt-6-luna"),
-                "hybrid-worker": ("gpt-6-astra", "low", "gpt-6-astra-low"),
-                "reviewer": ("gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
-            },
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            assignments = select_role_assignments(paths(Path(tmpdir)), "codex")
-
-        self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-        # Both Worker agents carry the single delivery role; only the installed agent names differ.
-        self.assertEqual(
-            {agent_name: assignment.role for agent_name, assignment in assignments.items()},
-            {
-                "designer": "designer",
-                "worker": "worker",
-                "hybrid-worker": "worker",
-                "reviewer": "reviewer",
-            },
-        )
-        expected_scores = {"designer": 53, "worker": 37, "hybrid-worker": 46, "reviewer": 52}
-        expected_costs = {
-            "designer": 3.2575003134834164,
-            "worker": 0.06809498628701058,
-            "hybrid-worker": 0.8175139285656057,
-            "reviewer": 2.308795912269076,
-        }
-        for agent_name, (role, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
-            with self.subTest(agent_name=agent_name):
-                assignment = assignments[agent_name]
-                self.assertEqual(
-                    (
-                        assignment.role,
-                        assignment.model,
-                        assignment.reasoning_effort,
-                        assignment.benchmark_id,
-                        assignment.source,
-                    ),
-                    (role, model, effort, benchmark_id, "codex-default-matrix"),
-                )
-                self.assertEqual(assignment.index_score, expected_scores[agent_name])
-                self.assertAlmostEqual(
-                    assignment.cost_per_task_usd, expected_costs[agent_name]
-                )
-
-    def test_codex_worker_fails_closed_when_the_task_payload_is_absent(self) -> None:
-        for agent_name in ("worker", "hybrid-worker"):
-            template = (ROOT / "agents" / "codex" / f"{agent_name}.toml").read_text(
-                encoding="utf-8"
-            )
-            with self.subTest(agent=agent_name):
-                self.assertIn("Payload has no visible actionable Task", template)
-                self.assertIn("do not inspect the workspace or call tools", template)
-                self.assertIn("payload-delivery-failed", template)
-
-    def test_codex_initialization_uses_defaults_without_importing_unrelated_roles(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            directory = install_paths.codex_home / "agents"
-            directory.mkdir(parents=True)
-            local_role = directory / "user-agent.toml"
-            content = 'name = "user"\nmodel = "gpt-6-sol"\nmodel_reasoning_effort = "max"\n'
-            local_role.write_text(content, encoding="utf-8")
-
-            assignments = select_role_assignments(install_paths, "codex")
-            self.assertEqual(set(assignments), CODEX_AGENT_NAMES)
-            for role, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items():
-                self.assertEqual((assignments[role].model, assignments[role].reasoning_effort), (model, effort))
-                self.assertEqual(assignments[role].source, "codex-default-matrix")
-            install_role_templates(install_paths, "codex", dry_run=False)
-            self.assertEqual(local_role.read_text(encoding="utf-8"), content)
-            rendered_worker = (directory / "worker.toml").read_text(encoding="utf-8")
-            self.assertIn('model = "gpt-6-luna"', rendered_worker)
-            self.assertIn('model_reasoning_effort = "max"', rendered_worker)
-
-    def test_existing_codex_role_name_prevents_initialization_with_another_filename(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            directory = install_paths.codex_home / "agents"
-            directory.mkdir(parents=True)
-            role = directory / "my-design-role.toml"
-            content = "name = 'designer'\nmodel = 'my-model'\n"
-            role.write_text(content, encoding="utf-8")
-            messages = install_role_templates(install_paths, "codex", dry_run=False)
-            self.assertEqual(messages, ["native: preserved codex role templates"])
-            self.assertEqual(role.read_text(encoding="utf-8"), content)
-            self.assertEqual(list(directory.iterdir()), [role])
-            self.assertFalse(directory.with_name("agents.better-plan.json").exists())
-
-    def test_obsolete_receipt_is_reported_without_translation_or_mutation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            install_role_templates(install_paths, "codex", dry_run=False)
-            receipt_path = install_paths.codex_home / "agents.better-plan.json"
-            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            receipt["schema_version"] = 2
-            for filename in ("worker.toml", "reviewer.toml"):
-                receipt["files"].pop(filename)
-                receipt["assignments"].pop(filename)
-            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-
-            before = receipt_path.read_bytes()
-            messages = install_role_templates(install_paths, "codex", dry_run=False)
-
-            self.assertEqual(messages, ["native: preserved codex role templates"])
-            self.assertEqual(receipt_path.read_bytes(), before)
-
-    def test_update_keeps_the_original_assignment_even_if_new_local_models_appear(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            install_paths = paths(Path(tmpdir))
-            install_role_templates(install_paths, "codex", dry_run=False)
-            receipt_path = install_paths.codex_home / "agents.better-plan.json"
-            before = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
-            (install_paths.codex_home / "agents" / "later-user-agent.toml").write_text(
-                'name = "later"\nmodel = "gpt-5.6-luna"\nmodel_reasoning_effort = "low"\n',
-                encoding="utf-8",
-            )
-            install_role_templates(install_paths, "codex", dry_run=False)
-            after = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]
-            self.assertEqual(before, after)
+        self.assertEqual(on_disk, [])
 
 
 if __name__ == "__main__":

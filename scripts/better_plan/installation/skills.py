@@ -72,6 +72,10 @@ def native_skill_path(paths: _InstallPaths, agent: str) -> Path:
         return paths.cursor_skill
     if agent == "kilo":
         return paths.kilo_skill
+    if agent == "dsh":
+        # DeepSeek Harness has no native skill tree of its own: it scans the shared
+        # directory, so that path is the whole install.
+        return paths.shared_skill
     raise _InstallError(f"{agent} does not have a native skill tree path")
 
 
@@ -124,7 +128,13 @@ def remove_shared_scan_duplicates(
     for name, (kind, _) in targets.items():
         if kind != "shared":
             continue
-        removed = remove_duplicate_skill_tree(native_skill_path(paths, name), dry_run=dry_run)
+        native = native_skill_path(paths, name)
+        if native == paths.shared_skill:
+            # A host whose own path *is* the shared directory has no duplicate to
+            # remove. Deleting here would delete the skill that was just installed.
+            messages.append(f"{name}: no duplicate native skill")
+            continue
+        removed = remove_duplicate_skill_tree(native, dry_run=dry_run)
         if removed:
             verb = "would remove duplicate native skill" if dry_run else "removed duplicate native skill"
             messages.append(f"{name}: {verb}")

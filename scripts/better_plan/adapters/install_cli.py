@@ -78,7 +78,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="agent targets: all, codex, claude, cursor, kilo",
+        help="agent targets: all, codex, claude, cursor, kilo, dsh",
     )
     parser.add_argument("--source", help="source tree for installation or Doctor comparison; defaults to the running package")
     parser.add_argument("--codex-home", help="Codex home directory")
@@ -97,7 +97,6 @@ def build_parser() -> argparse.ArgumentParser:
         "update": ("update Better Plan adapters", update_command),
         "doctor": ("verify installed adapters", doctor_command),
         "uninstall": ("remove Better Plan adapters", uninstall_command),
-        "uninstall-hooks": ("remove Better Plan managed hooks", uninstall_hooks_command),
     }
     for name, (help_text, handler) in commands.items():
         command = subparsers.add_parser(name, help=help_text)
@@ -114,7 +113,7 @@ def install_command(args: argparse.Namespace) -> int:
     paths = default_paths(args)
     agents = parse_agents(args.agents)
     if _skills.existing_install_paths(paths, agents):
-        print("existing Better Plan install found; switching installer to update")
+        print("existing Better Plan install found; refreshing it in place")
     for message in _service.install_agents(
         paths,
         agents,
@@ -154,14 +153,6 @@ def uninstall_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def uninstall_hooks_command(args: argparse.Namespace) -> int:
-    for message in _service.uninstall_hooks(
-        default_paths(args), parse_agents(args.agents), dry_run=args.dry_run
-    ):
-        print(message)
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run the installer without exposing implementation symbols at the entrypoint."""
     arguments = list(sys.argv[1:] if argv is None else argv)
@@ -175,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     except _InstallError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    except Exception:
-        print("error: installer operation could not be completed safely", file=sys.stderr)
+    except Exception as exc:
+        # Name the defect instead of hiding it behind a generic message; a traceback
+        # is still not the contract.
+        print(f"error: {exc.__class__.__name__}: {exc}", file=sys.stderr)
         return 2

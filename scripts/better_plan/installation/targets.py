@@ -11,11 +11,6 @@ import subprocess
 from pathlib import Path
 
 from ..domain.models import ToolError
-from ..hooks.config import (
-    HookConfigError as _HookConfigError,
-    install_hook_config as _install_hook_config,
-    uninstall_hook_config as _uninstall_hook_config,
-)
 from ..infrastructure.native_roles import configured_codex_role_names
 from .models import (
     AGENTS,
@@ -34,9 +29,9 @@ from .skills import (
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker.toml", "hybrid-worker.toml", "reviewer.toml"),
-    "claude": ("designer.md", "worker.md", "hybrid-worker.md", "reviewer.md"),
-    "cursor": ("designer.md", "worker.md", "hybrid-worker.md", "reviewer.md"),
+    "codex": ("designer.toml", "worker.toml", "reviewer.toml"),
+    "claude": ("designer.md", "worker.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker.md", "reviewer.md"),
 }
 # Claude Code keeps its packaged role sources under `agents/claude-code`.
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
@@ -47,10 +42,8 @@ KILO_AGENT_FILES = (
     "better-plan.md",
     "better-plan-designer.md",
     "better-plan-worker.md",
-    "better-plan-hybrid-worker.md",
     "better-plan-reviewer.md",
 )
-KILO_SUBAGENTS = KILO_AGENT_FILES[1:]
 # Kilo owns model and variant selection. A packaged Kilo file must never pin one.
 _KILO_SELECTOR_PIN = re.compile(r"(?m)^(?:model|variant|reasoning_effort|reasoningEffort)\s*:")
 
@@ -73,17 +66,15 @@ def _native_source_directory(paths: _InstallPaths, target: str) -> Path:
     return paths.repo_root / "agents" / _NATIVE_SOURCE_TARGET.get(target, target)
 
 
-def _delivery_role(agent_name: str) -> str:
-    """Return the delivery role one installed agent name provides."""
-
-    return "worker" if agent_name == "hybrid-worker" else agent_name
-
-
 def _unpinned_assignment_line(agent_name: str) -> str:
-    """Return the static identity line for a host that packages no selector."""
+    """Return the static identity line for a host that packages no selector.
+
+    Every worker slot a delivery uses is dispatched to this one installed worker
+    role, so the identity line names the agent, not a slot.
+    """
 
     return (
-        f"assignment: agent={agent_name} | role={_delivery_role(agent_name)} | "
+        f"assignment: agent={agent_name} | role={agent_name} | "
         "model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance"
     )
 
@@ -519,7 +510,7 @@ def install_unpinned_role_templates(
     *,
     dry_run: bool,
 ) -> list[str]:
-    """Install the four unpinned role files once, without a packaged selector."""
+    """Install the three unpinned role files once, without a packaged selector."""
 
     if native_role_configuration_exists(paths, target):
         return [f"native: preserved {target} role templates"]
@@ -661,34 +652,6 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
 
 
 
-def hook_config_path(paths: _InstallPaths, agent: str) -> Path:
-    if agent == "codex":
-        return paths.codex_hooks
-    if agent == "claude":
-        return paths.claude_settings
-    if agent == "cursor":
-        return paths.cursor_hooks
-    raise _InstallError(f"{agent} does not support Better Plan lifecycle Hooks")
-
-
-def update_agent_hooks(paths: _InstallPaths, agent: str, *, dry_run: bool) -> tuple[Path, bool]:
-    config = hook_config_path(paths, agent)
-    try:
-        changed = _install_hook_config(config, agent, dry_run=dry_run)
-    except _HookConfigError as exc:
-        raise _InstallError(str(exc)) from exc
-    return config, changed
-
-
-def remove_agent_hooks(paths: _InstallPaths, agent: str, *, dry_run: bool) -> tuple[Path, bool]:
-    config = hook_config_path(paths, agent)
-    try:
-        changed = _uninstall_hook_config(config, agent, dry_run=dry_run)
-    except _HookConfigError as exc:
-        raise _InstallError(str(exc)) from exc
-    return config, changed
-
-
 def run_text_command(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -750,46 +713,88 @@ def install_target(
         raise _InstallError(f"unknown agent target: {target}")
     if target == "kilo":
         return install_kilo_agent_matrix(paths, dry_run=dry_run)
+    if target == "dsh":
+        # DeepSeek Harness reads the shared skill at `~/.agents/skills`, and its
+        # subagents are spawned from a prompt, so it installs no role file, no pin,
+        # and no lifecycle Hook. Every role runs on whatever the harness runs.
+        return [
+            "dsh: skill only; roles are prompts and inherit the harness model"
+        ]
     messages: list[str] = []
     if target == "claude":
         # Claude Code loads the skill from its plugin layout, so install that tree first.
         install_claude_plugin(paths, dry_run=dry_run)
         messages.append(f"claude: {'would update' if dry_run else 'updated'} plugin")
     messages.extend(install_role_templates(paths, target, dry_run=dry_run))
-    _, changed = update_agent_hooks(paths, target, dry_run=dry_run)
-    action = "would update" if dry_run and changed else "updated" if changed else "already current"
-    messages.append(f"{target} hooks: {action} managed handlers")
     return messages
 
 
-def remove_target(paths: _InstallPaths, target: str, *, dry_run: bool) -> list[str]:
+def _shared_scan_skill_messages(
+    paths: _InstallPaths,
+    label: str,
+    native: Path,
+    *,
+    remove_shared: bool,
+    dry_run: bool,
+) -> list[str]:
+    """Report the skill this host actually reads, and only removals that happened.
+
+    A shared-scan host installs to `~/.agents/skills/better-plan` whenever that
+    directory exists, so uninstalling one host must not silently claim to have
+    removed a skill that either was never there or is still shared with another
+    host. Removal of the shared path stays an explicit `--remove-shared` decision.
+    """
+
+    action = "would remove" if dry_run else "removed"
+    if native == paths.shared_skill or paths.shared_skill.exists():
+        if remove_shared:
+            return [f"{label}: {action} the shared scan skill"]
+        return [
+            f"{label}: skill is the shared scan path; kept (pass --remove-shared to remove it)"
+        ]
+    if native.exists():
+        if not dry_run:
+            _remove_path(native)
+        return [f"{label}: {action} native skill"]
+    return [f"{label}: no skill to remove"]
+
+
+def remove_target(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    remove_shared: bool,
+    dry_run: bool,
+) -> list[str]:
     if target not in AGENTS:
         raise _InstallError(f"unknown agent target: {target}")
     action = "would remove" if dry_run else "removed"
-    if target == "kilo":
-        if not dry_run:
-            _remove_path(paths.kilo_skill)
-        return [
-            f"kilo: {action} native skill",
-            "kilo: preserved immutable native Agent matrix",
-        ]
     if target == "claude":
-        if not dry_run:
-            _remove_path(paths.claude_plugin)
+        plugin = paths.claude_plugin
+        existed = plugin.exists()
+        if existed and not dry_run:
+            _remove_path(plugin)
         return [
             "claude: preserved immutable native role templates",
-            f"claude: {action} plugin",
+            f"claude: {action} plugin" if existed else "claude: no plugin to remove",
         ]
-    if target == "cursor":
-        if not dry_run:
-            _remove_path(paths.cursor_skill)
-        return [
-            "cursor: preserved immutable native role templates",
-            f"cursor: {action} native skill",
-        ]
-    if not dry_run:
-        _remove_path(paths.codex_skill)
-    return [
-        "codex: preserved immutable native role templates",
-        f"codex: {action} native skill",
-    ]
+    native = {
+        "codex": paths.codex_skill,
+        "cursor": paths.cursor_skill,
+        "kilo": paths.kilo_skill,
+        "dsh": paths.shared_skill,
+    }[target]
+    messages = _shared_scan_skill_messages(
+        paths,
+        target,
+        native,
+        remove_shared=remove_shared,
+        dry_run=dry_run,
+    )
+    if target == "kilo":
+        messages.append("kilo: preserved immutable native Agent matrix")
+    elif target == "dsh":
+        messages.append("dsh: no native role artifacts")
+    else:
+        messages.append(f"{target}: preserved immutable native role templates")
+    return messages

@@ -1,112 +1,121 @@
 # Host Configuration and Role Visibility
 
 Read this reference only before the first Better Plan role dispatch in a conversation, native role
-configuration changes, installation/update/Doctor work, selector diagnosis, or host integration.
-Ordinary planning and delivery turns do not load it.
+configuration changes, installation/update/Doctor work, or host integration. Ordinary planning and
+delivery turns do not load it.
 
-Better Plan supports four hosts: Codex, Claude Code, Cursor, and Kilo Code. Codex is the only one
-with packaged role presets; every other host installs unpinned roles and inherits its model and
-reasoning effort from the host and the user's own configuration.
+Better Plan supports five targets: Codex, Claude Code, Cursor, Kilo Code, and DeepSeek Harness.
+Codex is the only one with packaged role presets; every other target installs unpinned roles and
+inherits its model and reasoning effort from the host and the user's own configuration.
 
-## Stable roles and current workflow guidance
+Better Plan owns the Tree and its CLI. It installs **no Hooks, no dispatch adapter, and no lifecycle
+callback**: who spawns which role, how a spawn is correlated with a result, and what the host's
+concurrency limit is, all remain native host behaviour. Nothing in this package reads or writes a
+host's session state.
+
+## Stable roles
+
+A delivery has three role names and no more:
+
+| Role | Purpose | Codex preset selector |
+|---|---|---|
+| `designer` | authors the Tree: Nodes, order, executor chains, and the commands that check them | `gpt-6-astra / max` |
+| `worker` | executes one Node; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
+| `reviewer` | audits the finished delivery against its own evidence | `gpt-6-astra / xhigh` |
+
+A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. There is no
+second kind of worker, no difficulty tier, and no per-Task role field: a Node declares the slot that
+owes its outcome, and every slot is dispatched to the one installed `worker` agent. A Task that
+would outgrow one session is split into more Nodes rather than promoted to a different role.
 
 New first-install role templates contain stable identity and permission boundaries plus a reference
 to `references/designer.md`, `references/worker.md`, or `references/reviewer.md` in the installed
-skill. The native main forwards the dispatch's `role_reference` with its complete brief. The role
-reads that reference before acting; detailed workflow and reporting instructions live there so a
-skill update can maintain them without changing the host role file.
+skill. The native main forwards the dispatch's brief; the role reads that reference before acting,
+so a skill update can maintain detailed workflow and reporting instructions without changing the
+host role file.
 
 Existing local roles, including older inline workflow instructions, remain immutable. A shared
 reference or dispatch brief cannot override their host constraints. Report a concrete conflict to
 the native main when it affects authorized work; neither recommendation drift nor an update itself
 creates a new approval question. Only future first installations use the smaller templates.
 
-## Role matrix
+## Role matrix per target
 
-Better Plan installs four delivery roles per supported host:
-
-| Role | Purpose | Codex preset selector |
+| Target | Roles installed as | Selector |
 |---|---|---|
-| `designer` | one structured solution draft, compiled into the Plan by Python | `gpt-6-astra / max` |
-| `worker` | the `worker: code` Task, whose result its own commands prove | `gpt-6-luna / max` |
-| `hybrid-worker` | the `worker: hybrid` Task, which writes code and is judged visually | `gpt-6-astra / low` |
-| `reviewer` | the sole writable terminal audit after complete regression | `gpt-6-astra / xhigh` |
+| Codex | `$CODEX_HOME/agents/{designer,worker,reviewer}.toml` | packaged, written once |
+| Claude Code | `~/.claude/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
+| Cursor | `~/.cursor/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
+| Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
+| DeepSeek Harness | no role file at all; roles are prompts | none |
 
-Codex writes these four selectors once at first installation and never rewrites them afterwards.
-Claude Code installs the same four roles as unpinned `~/.claude/agents/*.md` files beside its
-plugin, and Cursor installs them as unpinned `~/.cursor/agents/*.md` files. Neither pins a model,
-variant, or reasoning effort: each role file carries one static
-`source=host-inheritance` assignment line, and the host and the user's own configuration decide what
-the session runs on. Kilo Code installs the same four roles as one short primary Agent plus the
-namespaced Subagents `better-plan-designer`, `better-plan-worker`, `better-plan-hybrid-worker`, and
-`better-plan-reviewer`, and pins no model, variant, or reasoning effort for any of them.
+Claude Code and Cursor receive one static
+`assignment: agent=<role> | role=<role> | model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance`
+line, because the host and the user's own configuration own that choice. Never synthesize a model or
+effort for them.
 
-Only Codex keeps a role receipt, because it is the only host whose installed files encode a packaged
-choice. Claude Code and Cursor roles are verified by comparing the installed files with the rendered
-templates: an edit the user made is reported, never repaired and never used to re-sign anything.
+Every Kilo Subagent is a leaf: the packaged files deny the Task and question tools, so a worker
+cannot dispatch its own Nodes and nesting cannot recurse. Kilo pins no model, no variant, and no
+reasoning effort, so each Subagent inherits the invoking primary Agent's model and the host's
+default reasoning behaviour. A user may pin a Kilo-supported model as their own local configuration;
+install, update, and Doctor never rewrite it.
 
-The two Workers are responsibilities, not strength tiers. `worker: code` runs on `worker` because
-the Task's own commands prove its result; `worker: hybrid` runs on `hybrid-worker` because its
-result is also judged visually and therefore owes rendered evidence. Every Task declares
-`worker: code|hybrid`, `Verification` repeats that answer, and readiness rejects a Task that says
-one thing in each field. A Plan sealed before the rename may still carry the legacy values `general`
-(reads as `code`) and `frontend` (reads as `hybrid`). Dispatch looks for `hybrid-worker` only. No
-Task is tiered by difficulty: there is no `Difficulty`/`Tier` field, and `Workload`
-(`light|medium|heavy`) is an execution-volume estimate that selects no role.
+DeepSeek Harness installs only the shared skill: it reads the shared scan directory and spawns
+subagents from a prompt, so there is no role file, no pin, and no receipt to manage.
 
-Codex uses this explicit matrix only for first initialization; it does not import model choices from
-unrelated local agents. Any existing same-name native role (identified by its TOML `name`, even
-under another filename) or role receipt prevents matrix initialization, and existing role files and
-receipts remain unchanged. Every pin is evaluated on one standard basis: the Intelligence Index row
-for the model and effort it selects. The 2026-09-23 AA snapshot records those rows at 53 for
-`designer`, 37 for `worker`, 46 for `hybrid-worker`, and 52 for `reviewer`, each with the task cost
-the same table publishes (`gpt-6-astra` $3.26, `gpt-6-luna` $0.07, `gpt-6-astra-low` $0.82,
-`gpt-6-astra-xhigh` $2.31). No second index, harness comparison, or cross-index comparison is used,
-and an API benchmark cost is never a host's subscription usage.
+## Receipts
 
-The packaged routing table is derived from the complete
-[AA source snapshot](artificial-analysis-snapshot.json): all 673 model rows (275 current, 398
-historical), with every published source field preserved. It uses Intelligence Index v4.3.2.
-Historical rows retain reference data for explicitly configured models; inclusion does not prove
-local availability. Scores in the compact routing catalog follow AA's rounded display; original
-precision, component results, pricing, latency, throughput, token usage, and run versions remain in
-the source snapshot. Load the snapshot only for benchmark research, never ordinary dispatch.
+Codex and Kilo keep a managed receipt next to — never inside — their role directory
+(`$CODEX_HOME/agents.better-plan.json`, `<kilo-config>/agents.better-plan.json`). Codex's receipt
+records each file digest plus the assignment it was rendered from; Kilo's records file digests only.
+Claude Code and Cursor keep no receipt: their roles are verified by comparing the installed files
+with the rendered templates.
 
-A complete valid installed matrix is authoritative. Use it automatically and silently; never ask the
-user to choose between installed and recommended matrices, and never pause delivery for that choice.
-On Codex, resolve a role by its TOML `name`, preferring the delivery project's `.codex/agents` over
-personal roles in `$CODEX_HOME/agents`. A role with no model or effort pin inherits the host's
-settings; report `host-default` rather than replacing it with a recommendation. Report an unreadable
-or invalid requested role without silently substituting a default. The package recommendation is
-only an absent-role reference and never overrides or mutates a configured role.
+A receipt is an integrity record, never an authority. It is read, never rewritten, and a mismatch is
+a report-only Doctor warning. Nothing in Better Plan turns current bytes into a fresh receipt, and a
+receipt that disagrees with local files never causes a role file to be replaced.
 
-Show the installed-versus-recommended comparison only when the matrix is missing or invalid, or when
-the user asks about role configuration. Kilo Code has no packaged selector, so there is nothing to
-compare there. Render selectors as `model / effort`; when either side pins a provider, append
-`@ provider` and label the other side `@ unpinned`. Mark missing roles explicitly, never infer a
-provider, and never inspect credentials. Never inject this table from Hooks.
+## Codex presets
+
+Codex writes its three selectors once at first installation and never rewrites them afterwards.
+Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
+selects. The packaged catalog records those rows at 53 for `designer`, 37 for `worker`, and 52 for
+`reviewer`, each with the task cost the same table publishes (`gpt-6-astra` $3.26, `gpt-6-luna`
+$0.07, `gpt-6-astra-xhigh` $2.31). No second index, harness comparison, or cross-index comparison is
+used, and an API benchmark cost is never a host's subscription usage.
+
+The catalog (`scripts/better_plan/domain/model_catalog.json`) is read for that provenance only, at
+first installation, and it is the sole source of those rows: Better Plan ships no separate benchmark
+dataset. A row is reference data for the pinned model and effort, not proof that a host can run it.
+
+A role is identified by the TOML `name` in a Codex role file, never by its filename, so a renamed
+file still counts as the same role and an unrelated file never does. Better Plan's installer reads
+those names only to decide whether a same-name role already exists; it does not resolve, recommend,
+or adopt a selector, and no command prints an installed-versus-recommended comparison. If a local
+role exists, the host uses it; if none exists, the host decides what to run, and the packaged
+presets above are only what a first installation writes.
 
 ## Native role immutability
 
 An existing native role file or role receipt is immutable local host configuration. Better Plan may
 install its matrix only when no same-name role configuration or receipt exists. After that first
-installation, every install, update, uninstall, migration, repair, and Doctor operation must leave all role
-files and receipts byte-identical while updating only skills, Hooks, plugins, and adapters.
+installation, every install, update, uninstall, migration, repair, and Doctor operation must leave
+all role files and receipts byte-identical while updating only skills, plugins, and adapters.
 
 Neither a receipt mismatch nor an explicit replacement request authorizes Better Plan to edit,
 remove, adopt, re-sign, or regenerate local roles. Doctor reports the integrity finding as a warning
 without a repair proposal. If the user wants different native roles, that remains a manual
-host-configuration operation outside the Better Plan installer; never describe a local override as
-a recommendation change. Uninstall removes the selected skills, Hooks, plugins, and adapters while
-preserving every native role file and receipt, including when the receipt is invalid or missing.
+host-configuration operation outside the Better Plan installer; never describe a local override as a
+recommendation change. Uninstall removes the selected skills, plugins, and adapters while preserving
+every native role file and receipt, including when the receipt is invalid or missing.
 
 ## Additive host integration — iron rule
 
 Protect host and user files that Better Plan did not create or does not own. General installation,
-update, provider, model, routing, Hook, MCP, or skill requests never authorize replacing, overwriting,
+update, provider, model, routing, skill, or plugin requests never authorize replacing, overwriting,
 renaming, moving, deleting, adopting, or wholesale rewriting those unmanaged files. An installation
-or update request does authorize maintenance of Better Plan-owned skills, Hooks, plugins, and
-adapters within their existing ownership; it does not require naming each owned file again.
+or update request does authorize maintenance of Better Plan-owned skills, plugins, and adapters
+within their existing ownership; it does not require naming each owned file again.
 
 Create a uniquely named Better Plan-owned file, or add only the smallest authorized namespaced entry
 when the host format supports a non-destructive merge. A receipt covers only artifacts or entries
@@ -117,125 +126,37 @@ Existing native role files and receipts are always governed by the stricter immu
 including Better Plan-created roles; neither this update authorization nor the explicit-file
 exception permits changing them.
 
-## Selector and generation rules
+## Skill layout
 
-The current local native role matrix is authoritative whether or not its receipt still matches. On
-Codex, runtime reads the installed selector and uses the packaged selector only when no local role
-exists; its four presets are written once at first installation and never rewritten. Claude Code,
-Cursor, and Kilo have no packaged selector at all, so there is nothing to substitute and nothing to
-compare: their roles inherit the host. Never reselect
-from conversation memory or leaderboard changes. Normal updates and explicit requests both preserve
-every local role byte and receipt byte. Verify that immutability first, then verify skill structure
-and the separate Hook, plugin, and adapter Doctor results.
+One shared payload is published per host:
 
-Doctor reports skill structure and source equality separately. Run it from the intended source
-checkout, or pass that checkout with `--source`. An installed tree compared with itself cannot prove
-that an update occurred; Doctor reports that limitation. Source comparison checks packaged files
-once per shared installation and excludes immutable host role files and receipts. A successful
-skill comparison does not mean existing native role instructions were updated.
+- **Codex, Cursor, Kilo, and DeepSeek Harness** read the shared scan directory
+  (`~/.agents/skills/better-plan`, overridable with `BETTER_PLAN_SHARED_HOME`). When that directory
+  already exists it is the install target; otherwise a host's own existing skill path is refreshed,
+  and on a fresh machine the shared path is created. A native duplicate left over from that choice
+  is reported and removed by the installer so a host never loads two copies of the skill.
+- **Claude Code** loads the skill from its plugin layout (`~/.claude/skills/better-plan`, with
+  `.claude-plugin/plugin.json` and the payload under `skills/better-plan`).
 
-## Framework and adapter boundary
+Skill and plugin updates prepare a complete tree before publishing it. If publishing fails, the
+installer restores the previous tree; if the filesystem prevents restoration, it retains that tree
+in its staging directory for recovery. Successful updates leave no previous-version directory.
 
-Keep lifecycle truth host-neutral. Exact opaque identity preservation, one-ID-to-one-dispatch
-binding, retry ceilings, Task independence, and final-callback reduction are Better Plan framework
-rules. Fix defects in those invariants once in the framework; never duplicate them across native
-hosts.
+## Doctor
 
-A host adapter owns only behavior imposed by that host's API or configuration format: native event
-names and payload fields, response encoding, spawn options, capacity semantics, and the identity the
-host exposes at each boundary. Each host adapter is isolated; adding or changing one must not alter
-another host's event inventory or completion parser. If a new host already satisfies the shared
-framework contract, its adapter stays declarative and minimal.
+Doctor is read-only and reports each selected target separately:
 
-## Claude Code and Cursor adapters
+| Target | Checks |
+|---|---|
+| Codex | local role matrix, installed skill structure, source comparison |
+| Claude Code | local role files, plugin manifest, `claude plugin validate` when the CLI is present |
+| Cursor | local role files, installed skill structure, the Cursor CLI version when it is present |
+| Kilo | Agent matrix against the packaged sources, installed skill structure, `kilo agent list` when the CLI is present |
+| DeepSeek Harness | installed skill structure |
 
-Both hosts install the four delivery roles as unpinned Markdown agent files: Claude Code under
-`~/.claude/agents/`, Cursor under `~/.cursor/agents/`. The file names are the dispatch names
-(`designer`, `worker`, `hybrid-worker`, `reviewer`), so `--native-host claude` and
-`--native-host cursor` return the role name as `agent_type` and the native main spawns that exact
-role. Neither host receives a packaged selector: the rendered identity line reports
-`model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance`, because the host
-and the user's own configuration own that choice. Never synthesize a model or effort for them.
-
-Claude Code loads the skill from its plugin layout (`~/.claude/skills/better-plan`, with
-`.claude-plugin/plugin.json` and the payload under `skills/better-plan`). Cursor uses the shared
-Agent Skills scan path, or its native `~/.cursor/skills/better-plan` tree when that already exists.
-
-Both install managed lifecycle handlers: Claude Code in the nested Hook map of
-`~/.claude/settings.json` (`SessionStart`, `UserPromptSubmit`, `SubagentStop`), and Cursor in its
-flat `hooks.json` (`version: 1`, `sessionStart`, `beforeSubmitPrompt`, `postToolUse`). The handlers
-inject bounded session context and normalize a host-reported subagent completion. The native main
-still owns correlation: bind every spawn with `bind-agent` and consume only the exact final callback
-with `agent-complete`, exactly as for any other host.
-
-## Kilo Task adapter
-
-Kilo installs one short user-selectable `better-plan` primary Agent and four namespaced Subagents:
-`better-plan-designer`, `better-plan-worker`, `better-plan-hybrid-worker`, and
-`better-plan-reviewer`. Dispatch the exact role returned by Better Plan with the matching Kilo
-`subagent_type`; never substitute Kilo's generic or explore Subagent.
-
-Kilo Agent files pin no model, no variant, and no reasoning effort, so each Subagent inherits the
-invoking primary Agent's model and the host's default reasoning behaviour. A user may pin a
-Kilo-supported model as their own local configuration; install, update, and Doctor never rewrite it.
-
-Each Kilo Task call creates an isolated child session. Preserve its returned opaque task ID exactly
-for `bind-agent` and `agent-complete`. When post-repair regression returns `resume_reviewer`, resume
-the same Reviewer with task_id unchanged instead of creating another Reviewer. Completion is
-parent-driven because Better Plan installs no Kilo completion Hook.
-
-Issue separate Task calls for every independently eligible frontier member in the same primary turn
-so Kilo may run them concurrently.
-
-Every Subagent is a leaf. Better Plan grants no Subagent the Task tool, so a Worker cannot dispatch
-its own Nodes and nesting cannot recurse. The native main owns Task and Node dispatch, the single
-task-level lifecycle record, and every join; a Worker returns its Nodes' focused evidence to the
-native main, which accepts only after all of them are integrated and checked.
-
-## Codex collaboration adapter
-
-Forward the dispatch's `assignment_line` alongside the complete brief. It is generated from the
-current resolved selector on every dispatch, not baked into a role prompt. Child roles report
-host-provided runtime model and effort when available; otherwise they echo this line with its
-configuration source intact, or report unknown when neither source is available. Configuration
-selection is not runtime confirmation. Never infer model identity from a benchmark or old transcript.
-
-Codex configured roles require a fresh child context. For every Designer, Worker, Hybrid Worker, or
-Reviewer spawn, pass the returned Better Plan `agent_type`, set `fork_turns` to `none`, and give the
-attempt a unique lower-snake `task_name`. Never combine `agent_type` with a full-history fork: Codex
-inherits the parent role in that mode and rejects the configured child role.
-
-For the Worker frontier, group dispatches by exact returned `agent_type` only to reuse the returned
-assignment as a byte-identical prompt prefix. Append each Task's compiled brief afterward. The
-stable prefix improves provider prompt-cache hits and Token efficiency without merging Tasks,
-serializing the frontier, or reusing one live agent ID. A hybrid Task groups under its own
-`hybrid-worker` assignment, so its brief never rides a `worker` prefix.
-
-Use the active host's reported spawn capacity and counting semantics before `dispatch-task`.
-Do not infer a fixed limit or whether the primary is counted: Codex's configuration key
-`agents.max_concurrent_threads_per_session` excludes the primary, while a live tool may expose
-a different capacity contract. The live host controls which eligible Tasks can start; keep the
-rest pending until it admits more work. Capacity-limited batching is a host constraint, not permission
-to merge Tasks, serialize their internal Nodes, or substitute a generically configured agent. If
-the exact returned Worker role cannot start, use the existing `delegation-failed`, retry, and
-`main-complete` lifecycle for that same role.
-
-Bind the canonical `task_name` returned by Codex spawn, for example `/root/backend_worker`, without
-normalization. It is the sole Better Plan host identity; a UI task/thread UUID is not equivalent.
-Wait for the exact final callback from that spawned task, then have the native main invoke
-`agent-complete` with the same canonical task name.
-
-A Worker that receives no visible actionable Task must return `payload-delivery-failed`; it must not
-infer a Task by scanning the workspace or selecting a nearby Plan. This checks the actual dispatch
-payload only and never rejects a provider or conversion layer in advance.
-
-Better Plan does not pre-qualify or reject a configured Codex role based on provider wire format,
-conversion layers, or the presence of a particular encrypted message envelope. A locally resolved
-role remains eligible for dispatch; its actual runtime result follows the normal delegation
-lifecycle.
-
-Codex has no Better Plan completion Hook. Its current subagent-stop event identifies the child by a
-thread UUID rather than the canonical task name returned by spawn, so a Hook cannot correlate the
-two safely—especially for parallel children using the same role. Session-start and prompt-submit
-Hooks remain supported; completion stays parent-driven until Codex exposes one stable shared
-identity at both boundaries.
+Source comparison checks the shared payload once per selected install; it excludes immutable host
+role files and receipts, so a successful skill comparison never means those were updated. Run Doctor
+from the intended source checkout, or pass that checkout with `--source`. An installed tree compared
+with itself cannot prove that an update occurred, and Doctor reports that limitation. A `FAIL` exits
+non-zero; a `WARN` — drift that Better Plan must not repair, or a host CLI that is simply not
+installed — does not.
