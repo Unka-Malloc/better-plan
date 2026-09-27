@@ -19,7 +19,7 @@ A delivery has three role names and no more:
 
 | Role | Purpose | Codex preset selector |
 |---|---|---|
-| `designer` | authors the Tree: Nodes, order, executor chains, and the commands that check them | `gpt-6-astra / max` |
+| `designer` | authors the Tree: Nodes, order, executor chains, and the commands that check them | `gpt-6-astra / xhigh` |
 | `worker` | executes one Node; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
 | `reviewer` | audits the finished delivery against its own evidence | `gpt-6-astra / xhigh` |
 
@@ -79,9 +79,9 @@ receipt that disagrees with local files never causes a role file to be replaced.
 
 Codex writes its three selectors once at first installation and never rewrites them afterwards.
 Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
-selects. The packaged catalog records those rows at 53 for `designer`, 37 for `worker`, and 52 for
-`reviewer`, each with the task cost the same table publishes (`gpt-6-astra` $3.26, `gpt-6-luna`
-$0.07, `gpt-6-astra-xhigh` $2.31). No second index, harness comparison, or cross-index comparison is
+selects. The packaged catalog records those rows at 52 for `designer` and `reviewer` and 37 for
+`worker`, each with the task cost the same table publishes (`gpt-6-astra-xhigh` $2.31, `gpt-6-luna`
+$0.07). No second index, harness comparison, or cross-index comparison is
 used, and an API benchmark cost is never a host's subscription usage.
 
 The catalog (`scripts/better_plan/domain/model_catalog.json`) is read for that provenance only, at

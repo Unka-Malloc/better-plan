@@ -23,7 +23,7 @@ from .models import InstallPaths as _InstallPaths
 # written and receipted in this order; the packaged role names themselves sort alphabetically.
 CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
     {
-        "designer": ("designer", "gpt-6-astra", "max", "gpt-6-astra"),
+        "designer": ("designer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
         "worker": ("worker", "gpt-6-luna", "max", "gpt-6-luna"),
         "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
     }

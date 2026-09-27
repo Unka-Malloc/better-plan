@@ -11,6 +11,7 @@ from pathlib import Path
 from scripts.better_plan.domain import model_routing
 from scripts.better_plan.domain.model_routing import load_model_catalog
 from scripts.better_plan.domain.models import ToolError
+from scripts.better_plan.installation.assignments import CODEX_DEFAULT_MATRIX
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +69,29 @@ class CatalogReferenceTests(unittest.TestCase):
         self.assertEqual(models["gpt-6-astra-xhigh"].intelligence_index, 52)
         self.assertEqual(models["gpt-6-luna"].intelligence_index, 37)
         self.assertAlmostEqual(models["gpt-6-luna"].cost_per_task_usd, 0.06809498628701058)
+
+    def test_every_preset_pin_resolves_to_its_own_catalog_row(self) -> None:
+        """A pin is the row it names; a pin with no row fails at first installation."""
+
+        models = {model.model_id: model for model in load_model_catalog().models}
+        self.assertEqual(
+            {role: (model, effort) for role, (_, model, effort, _) in CODEX_DEFAULT_MATRIX.items()},
+            {
+                "designer": ("gpt-6-astra", "xhigh"),
+                "worker": ("gpt-6-luna", "max"),
+                "reviewer": ("gpt-6-astra", "xhigh"),
+            },
+        )
+        for role, (_, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
+            with self.subTest(role=role):
+                selected = models.get(benchmark_id)
+                self.assertIsNotNone(selected, "%s pin has no catalog row" % role)
+                assert selected is not None
+                # The row must be the one the selector names: same selector model, and an
+                # effort-stamped row id wherever the catalog stamps the effort into it.
+                self.assertEqual(selected.model.lower().split(" (")[0].replace(" ", "-"), model)
+                self.assertEqual(benchmark_id, model if effort == "max" else selected.model_id)
+                self.assertEqual(selected.model.rsplit("(", 1)[-1].rstrip(")"), effort)
 
     def test_catalog_validation_fails_closed(self) -> None:
         payload = json.loads(MODEL_PATH.read_text(encoding="utf-8"))
