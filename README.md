@@ -142,7 +142,7 @@ and never re-signed. Doctor verifies structure and source equality separately, a
 reports each host's own checks (the Claude plugin manifest, the Cursor and Kilo CLIs when present).
 
 Codex pins its three packaged presets once, at first installation, and no later update rewrites
-them: `designer` `gpt-6-astra / max`, `worker` `gpt-6-luna / max`, and `reviewer`
+them: `designer` `gpt-6-astra / xhigh`, `worker` `gpt-6-luna / max`, and `reviewer`
 `gpt-6-astra / xhigh`. Each pin is evaluated on one standard basis — the Intelligence Index row for
 the model and effort it selects — and the receipt records that row's score and published task cost.
 
