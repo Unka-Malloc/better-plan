@@ -131,6 +131,9 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
     scan_targets = _skills.shared_scan_targets(paths, agents)
     if "codex" in agents:
         checks.append(check_native_roles(paths, "codex"))
+        checks.append(check_role_receipt(paths, "codex"))
+        ok, message = _targets.codex_template_status(paths)
+        checks.append(_Check("OK" if ok else "WARN", "codex role templates", message))
         checks.append(check_shared_scan_agent(paths, "codex"))
     if "claude" in agents:
         checks.append(check_native_roles(paths, "claude"))
@@ -141,6 +144,7 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_optional_client_cli("cursor"))
     if "kilo" in agents:
         checks.append(check_kilo_agents(paths))
+        checks.append(check_role_receipt(paths, "kilo"))
         checks.append(check_shared_scan_agent(paths, "kilo"))
     if "dsh" in agents:
         # DeepSeek Harness reads the shared skill and spawns subagents from a prompt,
@@ -167,7 +171,13 @@ def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
         status = "WARN"
     else:
         status = "FAIL"
-    return _Check(status, f"{target} native roles", message)
+    label = "native roles" if target == "codex" else "role templates"
+    return _Check(status, f"{target} {label}", message)
+
+
+def check_role_receipt(paths: _InstallPaths, target: str) -> _Check:
+    ok, message = _targets.role_receipt_status(paths, target)
+    return _Check("OK" if ok else "WARN", f"{target} role receipt", message)
 
 
 def check_kilo_agents(paths: _InstallPaths) -> _Check:

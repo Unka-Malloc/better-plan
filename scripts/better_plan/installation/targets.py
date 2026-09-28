@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from ..domain.models import ToolError
-from ..infrastructure.native_roles import configured_codex_role_names
+from ..infrastructure.native_roles import configured_codex_role_names, _role_documents, tomllib
 from .models import (
     AGENTS,
     DESCRIPTION,
@@ -239,36 +239,13 @@ def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
     """Compare the installed Kilo Agents with the packaged matrix.
 
     Kilo pins no model, so its Agent files are installed verbatim and can be compared byte for
-    byte. The managed receipt is never required and never rewritten; it is read only as report-only
-    context, so a receipt that disagrees with the local files is reported rather than repaired.
+    byte. Receipt integrity is checked independently; neither check rewrites host files.
     """
 
     try:
         sources = _validate_kilo_sources(paths)
     except _InstallError:
         return False, "the packaged Kilo Agent sources are unreadable"
-    notes: list[str] = []
-    try:
-        receipt = _load_kilo_receipt(_kilo_receipt_path(paths))
-    except _InstallError:
-        receipt = None
-        notes.append("managed receipt is unreadable; report only")
-    if receipt is None:
-        notes.append("no managed receipt to verify against; report only")
-    else:
-        try:
-            for filename, digest in sorted(receipt.items()):
-                path = paths.kilo_agents / filename
-                if path.is_symlink() or not path.is_file():
-                    continue
-                if _content_digest(path.read_bytes()) != digest:
-                    notes.append(
-                        "managed receipt reports %s changed outside Better Plan; report only"
-                        % filename
-                    )
-        except OSError:
-            notes.append("Kilo Agent files are unreadable; report only")
-    suffix = f" ({'; '.join(notes)})" if notes else ""
     missing: list[str] = []
     changed: list[str] = []
     try:
@@ -281,16 +258,10 @@ def kilo_agent_status(paths: _InstallPaths) -> tuple[bool, str]:
     except OSError:
         return False, "Kilo Agent files are unreadable"
     if missing:
-        return False, "missing Agent file(s): %s%s" % (", ".join(missing), suffix)
+        return False, "missing Agent file(s): %s" % ", ".join(missing)
     if changed:
-        return False, "Agent file(s) differ from the packaged matrix: %s%s" % (
-            ", ".join(changed),
-            suffix,
-        )
-    return True, "current namespaced Kilo Agent matrix verified (%d files)%s" % (
-        len(sources),
-        suffix,
-    )
+        return False, "Agent template(s) differ: %s; difference alone does not establish a workflow conflict" % ", ".join(changed)
+    return True, "current namespaced Kilo Agent matrix verified (%d files)" % len(sources)
 
 
 def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
@@ -427,15 +398,9 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
     return payload
 
 
-def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
-    """Render one packaged Codex role with its identity block and pinned selector.
-
-    The installed prompt never repeats the installation-time benchmark receipt:
-    Codex reports runtime identity, so the selector lives only in the TOML fields.
-    """
-
-    line = (
-        f"Role identity: agent={assignment.agent_name} | role={assignment.role}\n"
+def _role_identity(agent_name: str, role: str) -> str:
+    return (
+        f"Role identity: agent={agent_name} | role={role}\n"
         "Report model and reasoning_effort from host-provided runtime metadata when available, "
         "with source=host-runtime. Otherwise echo the dispatch's assignment_line unchanged; "
         "its source identifies configured selection, not confirmed runtime identity. "
@@ -443,6 +408,16 @@ def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
         "Never guess your model, repeat an installation-time selector, or report benchmark scores "
         "as runtime identity."
     )
+
+
+def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
+    """Render one packaged Codex role with its identity block and pinned selector.
+
+    The installed prompt never repeats the installation-time benchmark receipt:
+    Codex reports runtime identity, so the selector lives only in the TOML fields.
+    """
+
+    line = _role_identity(assignment.agent_name, assignment.role)
     rendered = source.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
     rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
     marker = "sandbox_mode = "
@@ -551,7 +526,7 @@ def unpinned_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     if missing:
         return False, f"{prefix}missing role file(s): {', '.join(missing)}"
     if changed:
-        return False, f"{prefix}role file(s) changed outside Better Plan: {', '.join(changed)}"
+        return False, f"{prefix}role template(s) differ: {', '.join(changed)}; difference alone does not establish a workflow conflict"
     return True, f"{target} role files verified (%d files, no packaged presets)" % len(expected)
 
 
@@ -582,18 +557,10 @@ def _installed_role_names(paths: _InstallPaths) -> set[str]:
 
 
 def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
-    """Report the local role files against the packaged matrix, without exposing selectors.
-
-    The inventory comes from the local role files, because that is the state a user can act on.
-    The managed receipt stays a separate integrity record: Better Plan never edits, removes,
-    adopts, re-signs, or regenerates it, so a receipt that describes an earlier matrix is context
-    rather than a missing role. A host without a packaged preset has no receipt and is compared
-    against its rendered role files instead.
-    """
+    """Report native role availability. Receipt and template checks are independent."""
 
     if target in UNPINNED_HOSTS:
         return unpinned_role_status(paths, target)
-    destination = _native_role_directory(paths, target)
     preserved = native_role_configuration_exists(paths, target)
     installed = _installed_role_names(paths)
 
@@ -606,40 +573,6 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
         return failure("no local Codex role files are installed", [])
 
     notes: list[str] = []
-    try:
-        receipt = _load_native_receipt(_native_receipt_path(destination), target)
-    except _InstallError:
-        receipt = None
-        notes.append("managed receipt is unreadable; report only")
-    if receipt is None:
-        notes.append("no managed receipt to verify against; report only")
-    else:
-        files = receipt.get("files")
-        if not isinstance(files, dict):
-            notes.append("managed receipt is invalid; report only")
-        elif not files:
-            # A receipt that records no file verifies nothing, so it must never be reported as a
-            # verified matrix. The local roles stay untouched: this is a report-only warning.
-            return failure("managed receipt records no role files", ["report only"])
-        else:
-            try:
-                for filename, digest in files.items():
-                    path = destination / filename
-                    if path.is_symlink() or not path.is_file():
-                        continue
-                    if _content_digest(path.read_bytes()) != digest:
-                        return failure("role file %s changed outside Better Plan" % filename, [])
-            except OSError:
-                return failure("native role files are unreadable", [])
-            detached = sorted(
-                {posixpath.splitext(name)[0] for name in files} - installed
-            )
-            if detached:
-                notes.append(
-                    "managed receipt records role(s) no longer installed: %s; report only"
-                    % ", ".join(detached)
-                )
-
     missing = [name for name in _codex_role_names() if name not in installed]
     if missing:
         return failure("missing packaged role(s): %s" % ", ".join(missing), notes)
@@ -650,6 +583,46 @@ def native_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     return True, f"{summary} ({'; '.join(notes)})" if notes else summary
 
 
+def role_receipt_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
+    destination = paths.kilo_agents if target == "kilo" else _native_role_directory(paths, target)
+    try:
+        receipt = (_load_kilo_receipt(_native_receipt_path(destination)) if target == "kilo"
+                   else _load_native_receipt(_native_receipt_path(destination), target))
+        if receipt is None:
+            return False, "no managed receipt; report only"
+        files = receipt if target == "kilo" else receipt.get("files", {})
+        if not files:
+            return False, "managed receipt records no role files; report only"
+        different = [name for name, digest in files.items()
+                     if not (destination / name).is_file() or (destination / name).is_symlink()
+                     or _content_digest((destination / name).read_bytes()) != digest]
+        if different:
+            return False, "receipt differs for role file(s): %s; report only" % ", ".join(sorted(different))
+        return True, "original role receipt matches local files"
+    except (OSError, _InstallError):
+        return False, "managed receipt or role files unreadable; report only"
+
+
+def codex_template_status(paths: _InstallPaths) -> tuple[bool, str]:
+    """Compare instructions by native name without resolving or changing selectors."""
+    try:
+        sources = _validate_native_sources(paths, "codex")
+        local = {}
+        for _, document in _role_documents(paths.codex_home / "agents"):
+            if document is not None and isinstance(document.get("name"), str) and document["name"] in sources:
+                local.setdefault(document["name"], []).append(document)
+        different = []
+        for role, source in sources.items():
+            expected = tomllib.loads(source.replace("ASSIGNMENT_PLACEHOLDER", _role_identity(role, role)))
+            documents = local.get(role, [])
+            if len(documents) != 1 or any(documents[0].get(key) != expected.get(key)
+                                          for key in ("description", "sandbox_mode", "developer_instructions")):
+                different.append(role)
+        if different:
+            return False, "role template differs or is unavailable: %s; difference alone does not establish a workflow conflict" % ", ".join(sorted(different))
+        return True, "role instructions match current templates; local model selectors were not compared"
+    except (OSError, ValueError, _InstallError):
+        return False, "role template comparison unavailable; report only"
 
 
 def run_text_command(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:

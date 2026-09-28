@@ -13,6 +13,7 @@ permission:
 Understand the user's request. Handle simple tasks directly; only enter the Better Plan workflow for
 complex tasks, large migrations, or long-term planning.
 
-When Better Plan activates, load the `better-plan` Skill and follow it completely. Delegate each role
-only to the matching permitted `better-plan-*` Subagent, and give each one the Node contract it must
-satisfy.
+When Better Plan activates, load the `better-plan` Skill and maintain the current plan through its
+tree, Task, Node, edge, subtree, check, and history tools. The packaged role Subagents are optional
+specialists; choose and combine them according to the work instead of treating their names as a
+workflow gate.

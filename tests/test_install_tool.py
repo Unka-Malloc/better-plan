@@ -170,6 +170,30 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(failures, [], failures)
         self.assertTrue(any(check.status == "WARN" for check in checks), checks)
 
+    def test_doctor_separates_receipts_templates_and_skill_without_rewriting_roles(self) -> None:
+        self.install_all()
+        original = self.protected_role_state()
+        before = {path: path.read_bytes() for path in original}
+        sources = install_targets._validate_native_sources(self.paths, "codex")
+        sources["worker"] = sources["worker"].replace("You are the", "Current template: You are the")
+        with mock.patch.object(install_targets, "_validate_native_sources", return_value=sources):
+            checks = {item.target: item for item in install_doctor.doctor(self.paths, ["codex"])}
+        self.assertEqual(checks["codex role receipt"].status, "OK")
+        self.assertEqual(checks["codex role templates"].status, "WARN")
+        self.assertIn("does not establish", checks["codex role templates"].message)
+        self.assertEqual(checks["shared skill source"].status, "OK")
+        self.assertEqual({path: path.read_bytes() for path in original}, before)
+        # A user-owned selector change affects integrity, but not the instruction comparison.
+        worker = self.paths.codex_home / "agents" / "worker.toml"
+        worker.write_text(worker.read_text(encoding="utf-8").replace('model = "gpt-6-luna"', 'model = "local-choice"'), encoding="utf-8")
+        custom = worker.read_bytes()
+        checks = {item.target: item for item in install_doctor.doctor(self.paths, ["codex"])}
+        self.assertEqual(checks["codex role receipt"].status, "WARN")
+        self.assertEqual(checks["codex role templates"].status, "OK")
+        self.assertEqual(worker.read_bytes(), custom)
+        self.assertEqual({path: path.read_bytes() for path in original if path != worker},
+                         {path: value for path, value in before.items() if path != worker})
+
     def test_uninstall_removes_the_skill_and_keeps_local_roles(self) -> None:
         self.install_all()
         role = self.paths.codex_home / "agents" / "worker.toml"

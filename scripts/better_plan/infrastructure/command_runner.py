@@ -1,15 +1,13 @@
 """Run declared commands and persist only privacy-safe receipts.
 
-Verification evidence must be produced by the tool, never reported by the caller
-that performed the work. This runner owns process execution, receipt shape, and
-diagnostic redaction for every Node the tool completes.
+The runner produces command receipts for optional scoped checks. External results
+may also be recorded explicitly; neither path controls Node or delivery completion.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-import hashlib
 import subprocess
 import sys
 import time
@@ -73,7 +71,7 @@ def run_commands_with_diagnostics(
         output = output_tail.decode("utf-8", "replace")
         receipts.append(
             {
-                "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
+                "command": command,
                 "outcome": outcome,
                 "exit_code": exit_code,
                 "recorded_at": timestamp(),
@@ -87,7 +85,6 @@ def run_commands_with_diagnostics(
             diagnostics.append(
                 {
                     "command_index": index,
-                    "command_sha256": receipts[-1]["command_sha256"],
                     "outcome": outcome,
                     "exit_code": exit_code,
                     "output_tail": tail,

@@ -9,8 +9,7 @@ from .. import __version__
 
 
 SKILL_NAME = "better-plan"
-# One version for the whole package: the CLI reports it, and the Claude Code plugin
-# manifest embeds it, so a host can always name the generation it installed.
+# One version for the whole package: the CLI reports it and host manifests embed it.
 VERSION = __version__
 # Five supported hosts. Only Codex has packaged role presets: it is the only host whose role
 # files pin a model and reasoning effort. Claude Code, Cursor, and Kilo install unpinned role
@@ -26,8 +25,8 @@ OPTIONAL_CLIENT_CLI_COMMANDS = {
     ),
 }
 DESCRIPTION = (
-    "Agent-neutral Checkpoints Tree delivery: one Tree.json owns every Task, executable Node, "
-    "dependency, transition, executor, and evidence record."
+    "Long-lived delivery planning with split current state, local tree operations, "
+    "scoped checks, and immutable on-demand history."
 )
 # This is the minimum executable payload, not a compatibility inventory. Removed
 # top-level implementations must never reappear here.

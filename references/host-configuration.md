@@ -13,22 +13,23 @@ callback**: who spawns which role, how a spawn is correlated with a result, and 
 concurrency limit is, all remain native host behaviour. Nothing in this package reads or writes a
 host's session state.
 
-## Stable roles
+## Optional packaged roles
 
-A delivery has three role names and no more:
+Better Plan offers three role profiles for hosts that want them. They are advisory
+helpers, not a workflow cardinality rule:
 
 | Role | Purpose | Codex preset selector |
 |---|---|---|
-| `designer` | authors the Tree: Nodes, order, executor chains, and the commands that check them | `gpt-6-astra / xhigh` |
-| `worker` | executes one Node; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
-| `reviewer` | audits the finished delivery against its own evidence | `gpt-6-astra / xhigh` |
+| `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
+| `worker` | executes one Node and creates or records its scoped commit; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
+| `reviewer` | audits current outcomes, results, pending reviews, and scoped checks | `gpt-6-astra / xhigh` |
 
-A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. There is no
-second kind of worker, no difficulty tier, and no per-Task role field: a Node declares the slot that
-owes its outcome, and every slot is dispatched to the one installed `worker` agent. A Task that
-would outgrow one session is split into more Nodes rather than promoted to a different role.
+A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. The packaged
+worker profile handles any Node assigned to it. A Task is a group of Node commits delivered in one
+Draft PR, so work that needs independent commits is split into Nodes with explicit dependencies.
 
-New first-install role templates contain stable identity and permission boundaries plus a reference
+New first-install role templates contain stable identity and permission boundaries plus a reference to
+the installed SKILL.md and a reference
 to `references/designer.md`, `references/worker.md`, or `references/reviewer.md` in the installed
 skill. The native main forwards the dispatch's brief; the role reads that reference before acting,
 so a skill update can maintain detailed workflow and reporting instructions without changing the
@@ -37,7 +38,9 @@ host role file.
 Existing local roles, including older inline workflow instructions, remain immutable. A shared
 reference or dispatch brief cannot override their host constraints. Report a concrete conflict to
 the native main when it affects authorized work; neither recommendation drift nor an update itself
-creates a new approval question. Only future first installations use the smaller templates.
+creates a new approval question. Only future first installations use the smaller templates. Before dispatch, report a concrete
+conflict to the main Agent with the conflicting instruction and affected operation. Do not treat
+a template difference alone as a conflict or as authority to replace local roles.
 
 ## Role matrix per target
 
@@ -148,7 +151,7 @@ Doctor is read-only and reports each selected target separately:
 
 | Target | Checks |
 |---|---|
-| Codex | local role matrix, installed skill structure, source comparison |
+| Codex | local role names, receipt integrity, role template comparison, installed skill structure, source comparison |
 | Claude Code | local role files, plugin manifest, `claude plugin validate` when the CLI is present |
 | Cursor | local role files, installed skill structure, the Cursor CLI version when it is present |
 | Kilo | Agent matrix against the packaged sources, installed skill structure, `kilo agent list` when the CLI is present |
@@ -160,3 +163,9 @@ from the intended source checkout, or pass that checkout with `--source`. An ins
 with itself cannot prove that an update occurred, and Doctor reports that limitation. A `FAIL` exits
 non-zero; a `WARN` — drift that Better Plan must not repair, or a host CLI that is simply not
 installed — does not.
+
+Role receipt integrity and current template consistency are independent Doctor results.
+An old unmodified role can match its original receipt while differing from current
+templates. A user-edited role can match current instructions while differing from the
+original receipt. Neither result causes replacement or re-signing. Codex template
+comparison uses native role names and instruction fields, not model selectors.

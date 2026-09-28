@@ -55,6 +55,17 @@ class PackagedRoleTests(unittest.TestCase):
                     self.assertIn("references/%s.md" % role, text)
                     self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
 
+    def test_host_prompts_delegate_workflow_to_current_skill(self) -> None:
+        for host in (*ROLE_FILES, "kilo"):
+            for role in ("designer", "worker", "reviewer"):
+                filename = ("better-plan-" if host == "kilo" else "") + role + (".toml" if host == "codex" else ".md")
+                with self.subTest(host=host, role=role):
+                    text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+                    self.assertIn("SKILL.md", text)
+                    self.assertIn("references/%s.md" % role, text)
+                    self.assertIn("host permissions", text)
+                    self.assertIn("concrete conflict", text)
+
     def test_codex_is_the_only_host_with_presets(self) -> None:
         self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))

@@ -1,4 +1,4 @@
-"""Public CLI for the Checkpoints Tree and the programme index."""
+"""Single grouped CLI for Better Plan current state and immutable history."""
 
 from __future__ import annotations
 
@@ -14,176 +14,277 @@ from ..domain.programme import programme_template
 
 
 def schema_command(args: argparse.Namespace) -> int:
-    name = getattr(args, "name", None) or "tree"
-    template = tree_template() if name == "tree" else programme_template()
-    print(json.dumps(template, indent=2, ensure_ascii=False, sort_keys=True))
+    value = programme_template() if args.name == "programme" else tree_template()
+    print(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
 
-def version_command(args: argparse.Namespace) -> int:
-    print("better-plan %s (%s)" % (__version__, tree_template()["schema"]))
-    return 0
+def _root(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("root", nargs="?", default=".")
+
+
+def _json(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true")
+
+
+def _group(subparsers: Any, name: str, help_text: str):
+    parser = subparsers.add_parser(name, help=help_text)
+    return parser.add_subparsers(dest="%s_command" % name, required=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="manifest_tool.py",
-        description="Author and run one Checkpoints Tree, and index many of them.",
+        description="Maintain a long-lived Checkpoints Tree through local tree operations.",
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="better-plan %s (%s)" % (__version__, tree_template()["schema"]),
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--version", action="version", version="better-plan %s" % __version__)
+    commands = parser.add_subparsers(dest="command", required=True)
 
-    schema = subparsers.add_parser("schema", help="print a canonical shape")
-    schema.add_argument(
-        "name",
-        nargs="?",
-        default="tree",
-        choices=("tree", "programme"),
-        help="which shape to print (default: tree)",
-    )
+    schema = commands.add_parser("schema", help="print a canonical current-state shape")
+    schema.add_argument("name", nargs="?", choices=("tree", "programme"), default="tree")
     schema.set_defaults(func=schema_command)
 
-    tree_init = subparsers.add_parser("tree-init", help="create one empty Checkpoints Tree")
-    tree_init.add_argument("root", nargs="?", default=".")
-    tree_init.add_argument("--id", help="Tree id (default: TREE-001, or the replaced Tree's id)")
-    tree_init.add_argument("--title", help="delivery title; required unless a Tree is replaced")
-    tree_init.add_argument(
-        "--replace",
-        action="store_true",
-        help="re-author an existing Tree, carrying its identity and history forward",
-    )
-    tree_init.add_argument("--reason", help="why the existing Tree is replaced (with --replace)")
-    tree_init.set_defaults(func=tree_workflow.init_tree)
+    tree = _group(commands, "tree", "create, inspect and update a Tree")
+    item = tree.add_parser("init")
+    _root(item)
+    item.add_argument("--id")
+    item.add_argument("--title", required=True)
+    item.add_argument("--goal")
+    item.set_defaults(func=tree_workflow.init_tree)
+    item = tree.add_parser("show")
+    _root(item)
+    _json(item)
+    item.set_defaults(func=tree_workflow.show_tree)
+    item = tree.add_parser("next")
+    _root(item)
+    item.add_argument("--limit", type=int, default=0)
+    _json(item)
+    item.set_defaults(func=tree_workflow.next_nodes)
+    item = tree.add_parser("status")
+    _root(item)
+    _json(item)
+    item.set_defaults(func=tree_workflow.tree_status)
+    item = tree.add_parser("export")
+    _root(item)
+    item.set_defaults(func=tree_workflow.export_tree)
+    item = tree.add_parser("refresh")
+    _root(item)
+    item.set_defaults(func=tree_workflow.refresh_tree)
+    item = tree.add_parser("update")
+    _root(item)
+    item.add_argument("--input", required=True)
+    item.set_defaults(func=tree_workflow.update_tree)
 
-    tree_apply = subparsers.add_parser(
-        "tree-apply", help="apply one atomic batch of Tasks and Nodes to Tree.json"
-    )
-    tree_apply.add_argument("root", nargs="?", default=".")
-    tree_apply.add_argument("--input", required=True, help="JSON batch file, or - for stdin")
-    tree_apply.add_argument("--dry-run", action="store_true", help="validate the batch without writing")
-    tree_apply.add_argument("--json", action="store_true")
-    tree_apply.set_defaults(func=tree_workflow.apply_batch)
+    item = tree.add_parser("finish", help="record engineering delivery; keep PRs Draft")
+    _root(item)
+    result = item.add_mutually_exclusive_group(required=True)
+    result.add_argument("--summary")
+    result.add_argument("--result", help="JSON delivery result including any exceptions")
+    item.set_defaults(func=tree_workflow.finish_delivery)
 
-    tree_next = subparsers.add_parser(
-        "tree-next", help="list executable Nodes whose prerequisites are complete"
-    )
-    tree_next.add_argument("root", nargs="?", default=".")
-    tree_next.add_argument("--limit", type=int, default=0)
-    tree_next.add_argument("--explain", action="store_true", help="include blockers and running Nodes")
-    tree_next.add_argument("--json", action="store_true")
-    tree_next.set_defaults(func=tree_workflow.next_nodes)
+    task = _group(commands, "task", "operate on Task groups")
+    item = task.add_parser("add")
+    _root(item)
+    item.add_argument("--input", required=True)
+    item.set_defaults(func=tree_workflow.add_task)
+    item = task.add_parser("update")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--input", required=True)
+    item.set_defaults(func=tree_workflow.update_task)
+    item = task.add_parser("show")
+    _root(item)
+    item.add_argument("id")
+    item.set_defaults(func=tree_workflow.show_task)
+    item = task.add_parser("remove")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--with-nodes", action="store_true")
+    item.set_defaults(func=tree_workflow.remove_task)
 
-    tree_transition = subparsers.add_parser(
-        "tree-transition",
-        help="apply one state transition to one Node (a Node with contract.commands completes via tree-verify)",
-    )
-    tree_transition.add_argument("root", nargs="?", default=".")
-    tree_transition.add_argument("node")
-    tree_transition.add_argument(
-        "action", choices=("start", "complete", "fail", "block", "cancel", "reset")
-    )
-    tree_transition.add_argument("--executor", help="which executor is running or ran this Node")
-    tree_transition.add_argument("--evidence", help="JSON evidence value")
-    tree_transition.add_argument("--note")
-    tree_transition.add_argument("--json", action="store_true")
-    tree_transition.set_defaults(func=tree_workflow.transition_node)
+    item = task.add_parser("finish", help="record engineering delivery; keep PRs Draft")
+    _root(item)
+    item.add_argument("id")
+    result = item.add_mutually_exclusive_group(required=True)
+    result.add_argument("--summary")
+    result.add_argument("--result", help="JSON delivery result including any exceptions")
+    item.set_defaults(func=tree_workflow.finish_delivery)
 
-    tree_verify = subparsers.add_parser(
-        "tree-verify",
-        help="run one Node's declared contract.commands and complete it on tool-produced evidence",
-    )
-    tree_verify.add_argument("root", nargs="?", default=".")
-    tree_verify.add_argument("node")
-    tree_verify.add_argument("--executor", help="which executor is running this Node")
-    tree_verify.add_argument(
-        "--cwd", help="directory to run the commands in; defaults to the Tree's directory"
-    )
-    tree_verify.add_argument("--json", action="store_true")
-    tree_verify.set_defaults(func=tree_workflow.verify_node)
+    node = _group(commands, "node", "operate on individual Nodes")
+    item = node.add_parser("add")
+    _root(item)
+    item.add_argument("--input", required=True)
+    item.add_argument("--between", nargs=2, metavar=("PREDECESSOR", "SUCCESSOR"))
+    item.set_defaults(func=tree_workflow.add_node)
+    item = node.add_parser("update")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--input", required=True)
+    item.set_defaults(func=tree_workflow.update_node)
+    item = node.add_parser("edit")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--input", help="replacement Node JSON captured before editing")
+    item.add_argument("--editor", help="editor command; runs on a temporary Node copy outside the lock")
+    item.set_defaults(func=tree_workflow.edit_node)
+    item = node.add_parser("move")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--task")
+    item.add_argument("--after", nargs="*")
+    item.set_defaults(func=tree_workflow.move_node)
+    item = node.add_parser("remove")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--disconnect", action="store_true")
+    item.set_defaults(func=tree_workflow.remove_node)
+    item = node.add_parser("start")
+    _root(item)
+    item.add_argument("id")
+    item.set_defaults(func=tree_workflow.start_node)
+    item = node.add_parser("finish")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--result", help="JSON result file, or -")
+    item.add_argument("--summary")
+    item.add_argument("--commit", help="current commit reference for this Node")
+    item.set_defaults(func=tree_workflow.finish_node)
+    item = node.add_parser("review-done")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--source-kind", choices=("tree", "task", "node"))
+    item.add_argument("--source-id")
+    item.set_defaults(func=tree_workflow.review_done)
+    item = node.add_parser("show")
+    _root(item)
+    item.add_argument("id")
+    item.set_defaults(func=tree_workflow.show_node)
 
-    tree_status = subparsers.add_parser("tree-status", help="show Tree state and who owns which Node")
-    tree_status.add_argument("root", nargs="?", default=".")
-    tree_status.add_argument("--json", action="store_true")
-    tree_status.set_defaults(func=tree_workflow.tree_status)
+    edge = _group(commands, "edge", "add or remove dependency edges")
+    for action, handler in (("add", tree_workflow.add_edge), ("remove", tree_workflow.remove_edge)):
+        item = edge.add_parser(action)
+        _root(item)
+        item.add_argument("predecessor")
+        item.add_argument("successor")
+        item.set_defaults(func=handler)
 
-    tree_validate = subparsers.add_parser("tree-validate", help="validate one Checkpoints Tree")
-    tree_validate.add_argument("root", nargs="?", default=".")
-    tree_validate.add_argument("--json", action="store_true")
-    tree_validate.add_argument("--quiet", action="store_true")
-    tree_validate.set_defaults(func=tree_workflow.validate_tree_command)
+    subtree = _group(commands, "subtree", "operate on a branch while preserving external joins")
+    item = subtree.add_parser("show")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--entry", action="append", help="additional entry boundary")
+    item.add_argument("--exit", action="append", help="explicit included exit boundary")
+    item.set_defaults(func=tree_workflow.show_subtree)
+    item = subtree.add_parser("attach")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--entry", action="append")
+    item.add_argument("--exit", action="append")
+    item.add_argument("--after", nargs="*")
+    item.add_argument("--before", nargs="*")
+    item.set_defaults(func=tree_workflow.attach_subtree)
+    item = subtree.add_parser("move")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--entry", action="append")
+    item.add_argument("--exit", action="append")
+    item.add_argument("--after", nargs="*")
+    item.add_argument("--before", nargs="*")
+    item.set_defaults(func=tree_workflow.move_subtree)
+    item = subtree.add_parser("remove")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--entry", action="append")
+    item.add_argument("--exit", action="append")
+    item.set_defaults(func=tree_workflow.remove_subtree)
 
-    tree = subparsers.add_parser("tree", help="render the Tree as text")
-    tree.add_argument("root", nargs="?", default=".")
-    tree.add_argument("--details", action="store_true")
-    tree.add_argument("--json", action="store_true", help="export the Tree and its derived state")
-    tree.set_defaults(func=tree_workflow.show_tree)
+    history = _group(commands, "history", "append and query immutable history archives")
+    item = history.add_parser("archive")
+    _root(item)
+    item.add_argument("--input", required=True)
+    item.add_argument("--kind", choices=("transcript", "summary"), required=True)
+    item.add_argument("--source", required=True)
+    item.add_argument("--id")
+    item.add_argument("--summary")
+    item.add_argument("--attach", nargs="*")
+    item.set_defaults(func=tree_workflow.archive_history)
+    item = history.add_parser("list")
+    _root(item)
+    item.set_defaults(func=tree_workflow.list_history)
+    item = history.add_parser("search")
+    _root(item)
+    item.add_argument("query")
+    item.set_defaults(func=tree_workflow.search_history)
+    item = history.add_parser("show")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--attachment", help="emit one archived attachment's original bytes")
+    item.set_defaults(func=tree_workflow.show_history)
 
-    programme_init = subparsers.add_parser(
-        "programme-init", help="create one empty programme index over many deliveries"
-    )
-    programme_init.add_argument("root", nargs="?", default=".")
-    programme_init.add_argument("--id", default="PROGRAMME-001")
-    programme_init.add_argument("--title", required=True)
-    programme_init.set_defaults(func=programme_workflow.init_programme)
+    checks = _group(commands, "checks", "collect, run or record scoped checks")
+    item = checks.add_parser("list")
+    _root(item)
+    item.add_argument("--node")
+    item.set_defaults(func=tree_workflow.list_checks)
+    item = checks.add_parser("run")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--owner", required=True, help="tree, task:<id>, or node:<id>")
+    item.add_argument("--cwd")
+    item.set_defaults(func=tree_workflow.run_check)
+    item = checks.add_parser("record")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--owner", required=True)
+    item.add_argument("--result")
+    item.add_argument("--status", default="recorded")
+    item.add_argument("--summary")
+    item.set_defaults(func=tree_workflow.record_check)
 
-    programme_apply = subparsers.add_parser(
-        "programme-apply", help="apply one atomic batch of deliveries to Programme.json"
-    )
-    programme_apply.add_argument("root", nargs="?", default=".")
-    programme_apply.add_argument("--input", required=True, help="JSON batch file, or - for stdin")
-    programme_apply.add_argument("--dry-run", action="store_true")
-    programme_apply.add_argument("--json", action="store_true")
-    programme_apply.set_defaults(func=programme_workflow.apply_programme_batch)
+    item = checks.add_parser("recover", help="confirm leftover commands have ended and clear an interrupted execution")
+    _root(item)
+    item.add_argument("id")
+    item.add_argument("--owner", required=True)
+    item.set_defaults(func=tree_workflow.recover_check)
 
-    programme_status = subparsers.add_parser(
-        "programme-status", help="derive every delivery's state from its Tree"
-    )
-    programme_status.add_argument("root", nargs="?", default=".")
-    programme_status.add_argument("--json", action="store_true")
-    programme_status.set_defaults(func=programme_workflow.programme_status)
-
-    programme_validate = subparsers.add_parser(
-        "programme-validate", help="validate the programme index"
-    )
-    programme_validate.add_argument("root", nargs="?", default=".")
-    programme_validate.add_argument("--json", action="store_true")
-    programme_validate.add_argument("--quiet", action="store_true")
-    programme_validate.set_defaults(func=programme_workflow.programme_validate_command)
-
-    programme = subparsers.add_parser("programme", help="render the programme index as text")
-    programme.add_argument("root", nargs="?", default=".")
-    programme.set_defaults(func=programme_workflow.show_programme)
-
+    programme = _group(commands, "programme", "maintain an order-only delivery index")
+    item = programme.add_parser("init")
+    _root(item)
+    item.add_argument("--id")
+    item.add_argument("--title", required=True)
+    item.set_defaults(func=programme_workflow.init_programme)
+    item = programme.add_parser("update")
+    _root(item)
+    item.add_argument("--input", required=True)
+    item.set_defaults(func=programme_workflow.update_programme)
+    item = programme.add_parser("show")
+    _root(item)
+    item.set_defaults(func=programme_workflow.show_programme)
+    item = programme.add_parser("status")
+    _root(item)
+    _json(item)
+    item.set_defaults(func=programme_workflow.programme_status)
     return parser
 
 
 def _configure_stdio() -> None:
-    """Keep Tree markers and JSON printable on Windows cp1252 consoles."""
-
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            continue
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 
 def main() -> int:
     _configure_stdio()
-    parser = build_parser()
-    args = parser.parse_args()
+    args = build_parser().parse_args()
     try:
-        result = args.func(args)
-    except Exception as exc:  # ToolError is caller-fixable; anything else is named, not traced.
+        return args.func(args)
+    except Exception as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1
-    return result
 
 
 if __name__ == "__main__":
