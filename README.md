@@ -1,177 +1,114 @@
 # Better Plan
 
-Better Plan delivers one authorized outcome through a single **Checkpoints Tree**. Reach for it when
-the work has several independently acceptable pieces, must survive a lost context, or touches state,
-data, protocol, or release boundaries. For one small change you can understand and verify directly,
-use your host's ordinary native workflow instead.
+Better Plan is a dependency-tree assistant for long-lived delivery work. It keeps
+the current plan small, gives Agents local Task, Node, edge, and subtree operations,
+and moves old context into immutable archives that are read only on request.
 
-A delivery is one graph with a fixed outside and a free inside:
+It requires Python 3.8 or newer and has no third-party runtime dependency.
 
-- exactly one `designer` Node with no `after` opens it;
-- exactly one `reviewer` Node that nothing waits for closes it;
-- worker Nodes fill the middle, on slots named `worker`, `worker-1`, `worker-2`, …
+## Current workspace
 
-A Node is the executable unit. A Task only groups the Nodes of one delivery outcome.
-
-## One source of truth
-
-`Tree.json` is the delivery: Tasks, executable Nodes, `after` edges, execution state, evidence, and
-history. There is no second ledger to keep honest, no rendered projection to parse back, and no
-approval ceremony to replay. Task and Tree status are derived views computed from Node state.
-
-Each Node declares:
-
-| Field | Meaning |
-| --- | --- |
-| `outcome` | the one independently checkable result, written for an executor who never saw the original conversation |
-| `role` | `designer`, `reviewer`, or a worker slot such as `worker` or `worker-1` |
-| `executors` | an ordered list, best candidate first, of whatever your host can run — a provider and model pair, a named profile, an account |
-| `resources` | what the Node contends on — a worktree, a build directory, a cache, an index, a port; shared resources without an ordering path are reported |
-| `after` | the Nodes this one waits for; the only dependency edge, and it may cross Tasks |
-| `contract.commands` | the commands that prove the outcome, when a machine can check it |
-
-An empty `executors` list means "any executor". The tool keeps no registry and checks no quota; it
-stores the order, records which candidate each attempt used, and names the next one, so a spent
-account or an exhausted quota is one reported failure away from continuing.
-
-Authoring is one batch per Task: `task.add` carries its Task's `nodes`, so a delivery is a handful of
-operations instead of a generator script.
-
-## Many deliveries
-
-Several deliveries with an order between them share one `Programme.json` beside the Trees. It stores
-identity, location, and `requires` edges — never status, which is always derived by reading the
-Trees. `programme-status` reports each delivery's derived state, what may start now, and any resource
-that parallel deliveries share without an order, so a contended worktree or build cache is a
-reported fact rather than something a reviewer discovers at runtime. The index never gates a Node:
-the Tree stays the only writer.
-
-## Running it
-
-```sh
-python3 scripts/manifest_tool.py tree-init   <root> --title "<delivery>"
-python3 scripts/manifest_tool.py tree-apply  <root> --input batch.json --dry-run
-python3 scripts/manifest_tool.py tree-apply  <root> --input batch.json
-python3 scripts/manifest_tool.py tree-next   <root> --explain
-python3 scripts/manifest_tool.py tree-verify <root> NODE-002
-python3 scripts/manifest_tool.py tree-transition <root> NODE-004 complete --note "audited"
-python3 scripts/manifest_tool.py tree-status <root>
+```text
+Tree.json
+tasks/<task-id>.json
+nodes/<node-id>.json
+history/<archive-id>.json
 ```
 
-| Command | Contract |
-| --- | --- |
-| `tree-init` | create one empty Tree (`--id` defaults to `TREE-001`) |
-| `tree-apply` | apply one atomic batch of Tasks and Nodes; `--dry-run` previews it without changing the Tree, `--input -` reads stdin, `--json` prints the receipt |
-| `tree-next` | list ready Nodes with their role, the executor to try next, the fallback order behind it, and what is already spent; `--limit`, `--explain`, `--json` |
-| `tree-transition` | apply one Node transition: `start`, `complete`, `fail`, `block`, `cancel`, `reset` |
-| `tree-verify` | run a Node's declared commands and complete it on tool-produced evidence (`--executor`, `--cwd`, `--json`) |
-| `tree-status` | show Tree state and which Nodes each role owns; lists reported completions separately |
-| `tree-validate` | report data errors, then shape gaps, then resource contention (`--json` separates `issues` from `shape_issues` and reports `runnable`) |
-| `tree` | render the Tree as text (`--details` adds executor, attempts, and evidence count; `--json` exports the Tree with derived state) |
-| `programme-init` | create one empty programme index |
-| `programme-apply` | apply one atomic batch of deliveries |
-| `programme-status` | derive every delivery's state, readiness, and contention |
-| `programme` / `programme-validate` | render and validate the index |
-| `schema` | print a canonical shape (`tree`, `programme`); `--version` names the generation |
+`Tree.json` owns the delivery goal, success criteria, shared requirements, current
+decisions, and Tree checks. A Task is one independently deliverable Node group and
+one Draft PR; its ready Nodes may execute in parallel. A Node is one scoped change
+and one commit. The files may store the
+current Draft PR and commit references; they do not store Git event histories.
+Each Task has a designated integration owner. Task and Tree delivery results are
+recorded explicitly, separately from Node execution progress.
+History never participates in ordinary reads or writes.
 
-Authoring is free. A half-built Tree is valid data: write it through `tree-apply` batches in as many
-passes as you like, and the shape is checked when work starts, not when it is written. One invalid
-operation rejects the whole batch.
+One optional `Programme.json` indexes several delivery workspaces and their order.
+It stores no copied execution state.
 
-## Evidence, not assertions
-
-- A Node that declares `contract.commands` is finished with `tree-verify`. It starts the Node when
-  its dependencies are done, runs those commands itself, and records the receipts it observed
-  (`source: cli`). Completing such a Node by hand is refused — the tool never records a check it did
-  not run.
-- A Node with no commands is judged work. `tree-transition … complete --note "<what you did>"`
-  records who reported it, and `tree-status` lists those completions separately so the two kinds of
-  green never look alike.
-- Long work never holds the workspace lock: `tree-verify` runs the commands outside it, then re-reads
-  the Tree and refuses to complete a Node that moved while they ran.
-- Reject malformed data instead of guessing: unknown fields, unknown roles, cycles, and dangling
-  `after` references all fail closed. Every write is atomic.
-- Keep secrets, tokens, machine identity, absolute local paths, runtime endpoints, and backend data
-  out of state, notes, evidence, and reports. The tool enforces that guard on everything it records;
-  `contract` and `meta` stay opaque project data the tool never reads.
-
-## Roles and references
-
-Hand each executor only what its role needs:
-
-- **Designer:** `references/designer.md` before authoring.
-- **Worker:** `references/worker.md` before executing a Node.
-- **Reviewer:** `references/reviewer.md` before auditing.
-
-`references/checkpoints-tree.md` is the authoritative Tree contract: shapes, rules, authoring
-operations, transitions, and every command's output. `references/programme.md` owns the
-many-delivery index. `references/design-principles.md` is the rationale behind the design and the
-test any change to it must pass. `references/host-configuration.md` owns the per-host role matrix
-and installation rules.
-
-## Installation
-
-Better Plan supports five hosts. Codex is the only one with packaged role presets; every other host
-installs unpinned roles and inherits its model and reasoning effort from the host and the user's own
-configuration.
-
-| Target | What is installed |
-| --- | --- |
-| `codex` | the shared skill, three role files in `$CODEX_HOME/agents`, and one receipt |
-| `claude` | a plugin (`.claude-plugin/plugin.json` plus the skill payload) and three role files in `~/.claude/agents` |
-| `cursor` | the shared skill and three role files in `~/.cursor/agents` |
-| `kilo` | the skill, one `better-plan` primary Agent, three namespaced Subagents, and one receipt |
-| `dsh` | the shared skill only; roles are prompts that inherit the harness model |
+## Quick start
 
 ```sh
-python3 scripts/install.py install   --agents codex
-python3 scripts/install.py update    --agents codex
-python3 scripts/install.py doctor    --agents codex
-python3 scripts/install.py uninstall --agents codex
+python3 scripts/manifest_tool.py tree init docs/plan \
+  --title "Delivery" --goal "The final outcome"
+python3 scripts/manifest_tool.py task add docs/plan --input task.json
+python3 scripts/manifest_tool.py node add docs/plan --input node.json
+python3 scripts/manifest_tool.py edge add docs/plan NODE-001 NODE-002
+python3 scripts/manifest_tool.py node start docs/plan NODE-001
+python3 scripts/manifest_tool.py node finish docs/plan NODE-001 \
+  --summary "Done" --commit <ref>
+python3 scripts/manifest_tool.py task finish docs/plan TASK-001 --summary "Integrated; PR remains Draft"
+python3 scripts/manifest_tool.py tree finish docs/plan --summary "Overall engineering verified"
+python3 scripts/manifest_tool.py tree export docs/plan
 ```
 
-`--agents` accepts `all`, `codex`, `claude`, `cursor`, `kilo`, and `dsh`; `install`, `update`, and
-`uninstall` also accept `--dry-run`. `uninstall` removes Better Plan's skills, plugin, and adapters
-while preserving every native role file and receipt; add `--remove-shared` to remove the shared scan
-skill as well.
+Before updating the current plan, archive the relevant conversation you actually
+have. This is guidance, not a gate:
 
-Installation is additive. Better Plan creates a role matrix only when no same-name role
-configuration or receipt exists, and from then on every role file and receipt is immutable — across
-install, update, uninstall, and Doctor. A receipt mismatch is reported as a warning, never repaired
-and never re-signed. Doctor verifies structure and source equality separately, and additionally
-reports each host's own checks (the Claude plugin manifest, the Cursor and Kilo CLIs when present).
+```sh
+python3 scripts/manifest_tool.py history archive docs/plan \
+  --input conversation.md --kind transcript --source current-chat
+```
 
-Codex pins its three packaged presets once, at first installation, and no later update rewrites
-them: `designer` `gpt-6-astra / xhigh`, `worker` `gpt-6-luna / max`, and `reviewer`
-`gpt-6-astra / xhigh`. Each pin is evaluated on one standard basis — the Intelligence Index row for
-the model and effort it selects — and the receipt records that row's score and published task cost.
+## Operations
+
+The single CLI groups commands by the object they affect:
+
+| Group | Commands |
+| --- | --- |
+| `tree` | `init`, `show`, `next`, `status`, `export`, `refresh`, `update`, `finish` |
+| `task` | `add`, `update`, `show`, `remove`, `finish` |
+| `node` | `add`, `update`, `edit`, `move`, `remove`, `start`, `finish`, `review-done`, `show` |
+| `edge` | `add`, `remove` |
+| `subtree` | `show`, `attach`, `move`, `remove` |
+| `history` | `archive`, `list`, `search`, `show` |
+| `checks` | `list`, `run`, `record`, `recover` |
+| `programme` | `init`, `update`, `show`, `status` |
+
+Node changes propagate a source-keyed review item through the affected downstream
+graph. Completed Nodes keep their results. Unrelated branches are untouched. Node
+removal reconnects its direct predecessors and successors by default; subtree
+operations preserve external joins and accept explicit entry and exit boundaries.
+
+Finishing a Node prints an advisory scoped-commit reminder. When all Nodes finish,
+the designated Task integration owner assembles commits, verifies the integrated
+outcome and maintains its Draft PR before recording `task finish`. The main Agent
+records `tree finish` after overall review. Finish records a conclusion and any
+exceptions, without executing Git or tests. PRs remain Draft; subsequent Ready,
+merge, installation and live acceptance require separate authorization.
+
+Task and Tree delivery states are `unrecorded`, `recorded` or `needs_review`.
+Relevant changes preserve the latest delivery result and mark it for reconfirmation.
+The report exposes execution progress, delivery validity and unresolved child facts
+separately. Programme dependencies require a currently recorded Tree delivery,
+including confirmed Tasks.
+
+Checks are defined once at Node, Task, Tree, or explicit Node-set scope. Relevant
+changes mark those checks pending. A change during a run marks that check dirty, so
+its observed result is retained while another run remains pending. Checks never gate
+Node completion. Each check has an independent nonblocking execution lock.
+Overlapping runs or result writes are rejected without cancelling the active run.
+Interrupted executors require explicit `checks recover` after confirming leftover
+commands have ended. Recovery preserves the previous result and leaves a rerun
+pending; there is no execution deadline or automatic retry.
+
+The tool writes only changed current-state files with atomic replacement under a
+short workspace lock. Editors and check commands run outside the lock. It has no
+whole-tree revision, generation comparison, lifecycle validator, role cardinality
+rule, or approval state machine.
 
 ## Development
 
-Python 3.8 or newer is the supported runtime range.
-
-Run focused tests while changing one invariant; after all changes are integrated, run the complete
-suite once through the process-isolated parallel scheduler:
+Better Plan source maintenance follows this repository's native workflow. Run
+focused tests while editing and the complete suite once before handoff:
 
 ```sh
+python3 -m unittest -v tests.test_checkpoints_tree tests.test_programme
 python3 scripts/run_tests.py
-python3 scripts/run_tests.py --shard core
 ```
 
-The scheduler partitions tests by architecture boundary (`core`, `hosts`, `installation`, `tooling`)
-and runs all shards concurrently. Every `tests/test_*.py` module must belong to exactly one shard.
-
-The Better Plan source repository uses its ordinary native development workflow and never requires a
-repository-local Better Plan workspace for self-maintenance.
-
-## Repository layout
-
-```text
-SKILL.md                     the operational entry contract
-references/                  the Tree contract, design rationale, role briefs, host rules
-agents/                      packaged host role templates (codex, claude-code, cursor, kilo)
-scripts/manifest_tool.py     the Tree CLI entrypoint
-scripts/install.py           the installer entrypoint
-scripts/better_plan/         domain, application, infrastructure, adapters, installation
-tests/                       the suite, sharded by architecture boundary
-```
+See [SKILL.md](SKILL.md), [references/checkpoints-tree.md](references/checkpoints-tree.md),
+and [references/programme.md](references/programme.md) for the maintained contract.
+Host role configuration and receipts are user-owned and immutable after their first
+creation; installer operations update the surrounding skill payload only.

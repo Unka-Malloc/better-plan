@@ -1,308 +1,283 @@
-# Checkpoints Tree
+# Checkpoints Tree contract
 
-The Checkpoints Tree is the canonical delivery state.  It is one JSON object at `Tree.json`.
-Whatever produces it — a Designer, an agent batch, a hand edit, or a converter — the tool
-accepts it only when it matches the canonical shape below.
+## Persisted current state
 
-## Canonical shape
+`Tree.json`:
 
 ```json
 {
   "schema": "better-plan.checkpoints-tree",
   "id": "TREE-001",
   "title": "Delivery",
-  "generation": 3,
-  "tasks": [
-    {
-      "id": "TASK-001",
-      "title": "Build the result",
-      "outcome": "The result is built and ready for verification.",
-      "contract": {},
-      "nodes": [
-        {
-          "id": "NODE-001",
-          "title": "compile",
-          "outcome": "The artifact compiles.",
-          "role": "worker",
-          "executors": ["provider-a/model-x", "provider-b/model-x"],
-          "resources": ["build/", "cargo-target/"],
-          "after": [],
-          "status": "completed",
-          "executor": "any/agent",
-          "attempts": 1,
-          "evidence": [
-            {
-              "verified": true,
-              "commands": [
-                {
-                  "command_sha256": "9f2c…",
-                  "outcome": "passed",
-                  "exit_code": 0,
-                  "recorded_at": "timestamp"
-                }
-              ]
-            }
-          ],
-          "contract": {}
-        },
-        {
-          "id": "NODE-002",
-          "title": "verify",
-          "outcome": "The artifact passes verification.",
-          "role": "worker-2",
-          "executors": [],
-          "resources": [],
-          "after": ["NODE-001"],
-          "status": "pending",
-          "executor": null,
-          "attempts": 0,
-          "evidence": [],
-          "contract": {}
-        }
-      ]
-    }
-  ],
-  "meta": {},
-  "history": [],
-  "created_at": "timestamp",
-  "updated_at": "timestamp"
+  "goal": "Final outcome",
+  "success": ["Observable success criterion"],
+  "architecture": null,
+  "delivery_policy": null,
+  "requirements": ["Shared working requirement"],
+  "open_decisions": [],
+  "delivery": {"result": null, "review": []},
+  "checks": []
 }
 ```
 
-## Rules
-
-1. **Tasks group Nodes.** A Task is not an executable unit; only a Node is executable.
-2. **`after` is the only dependency edge.** It names Node ids and may cross Tasks.
-3. **Only Nodes store execution state.** Task and Tree status are computed from Node state.
-4. **Node status is one of:** `pending`, `running`, `completed`, `failed`, `blocked`, `cancelled`.
-5. **`ready` is not stored.** A Node is startable when its status is `pending`, `failed`, or `blocked`
-   and every id in `after` is `completed`.
-6. **Ids are opaque and globally unique.** They are not required to use `TASK-*` or `NODE-*`; those
-   prefixes are a readable convention, not a rule.
-7. **`contract` and `meta` are opaque objects, with exactly one interpreted key.** Ownership,
-   acceptance criteria, project requirements, and project metadata belong there, and the tool only
-   stores them. The single exception is `contract.commands` on a Node: it names the commands whose
-   execution produces that Node's completion evidence, so the tool has to read it. Commands declared
-   anywhere else — including a Task `contract` — are rejected rather than silently ignored.
-   Everything else the tool records as its own structured data — ids, titles, outcomes, roles,
-   executors, `after` references, notes, evidence, and history — must survive the privacy guard:
-   a secret, an absolute local path, or a network endpoint in any of them is refused with the exact
-   field and rule, and the batch or transition is not applied. `contract` and `meta` are the only
-   places opaque project data may sit.
-8. **Unknown structural fields are rejected.** Extension points are `contract` and `meta`.
-9. **A cycle is invalid.** The `after` graph must be acyclic.
-10. **Every write is atomic.** `tree-apply` validates the whole batch before committing.
-11. **Completion evidence records who produced it.** A Node that declares `contract.commands` is
-    completed only by `tree-verify`, which runs those commands itself and appends the receipts it
-    observed (`source: cli`). A Node without commands has nothing to run, so only a report can
-    complete it (`source: reported`), and `tree-status` lists reported completions separately so the
-    two kinds of green never look alike.
-12. **Every Node names the role that executes it.** `role` is required and is `designer`, `reviewer`,
-    or a worker slot. A worker name is a slot, not a person: write `worker`, or `worker-1`,
-    `worker-2`, … when a delivery splits work across several workers. There is no ceiling on how many
-    worker slots a delivery uses, and no second kind of worker. `role` is the design-time assignment —
-    who owes this outcome. `executor` is a different thing: the opaque identity of the session that
-    actually ran the Node, recorded when it starts. `tree-next` reports every ready Node with its
-    role, `tree-status` lists the Nodes each role owns, and changing a role on a Node that already
-    started requires `reset: true`, exactly like any other definition change.
-13. **One designer opens the graph, one reviewer closes it, workers fill the middle.** Authoring stays
-    free: a half-built Tree is valid data and writes normally. The shape is checked when work starts.
-    `tree-next` reports what is missing, `tree-transition … start` refuses until the shape is complete,
-    and `tree-validate --json` reports `runnable` and `shape_issues` separately from data errors, so
-    "not finished designing yet" never looks like "corrupt file".
-14. **A Node declares who may run it, in order.** `executors` is an optional ordered list of
-    executor names — whatever your host can run: a provider and model pair, a named profile, an
-    account. The tool keeps no registry and checks no quota. It stores the order, records which
-    candidate each attempt used, and names the next one, so a spent account is one retry away from
-    continuing. An empty or absent list means "any executor". Appending a fallback to a Node that
-    already started is the one edit that needs no reset, because adding a place to run does not
-    redefine the work; replacing the list, like any other definition change, requires `reset: true`.
-    A Node that declared no chain has no fallback to append to, so pinning one for the first time is
-    a replacement and needs the reset too.
-    `tree-next` prints the executor to use next, what is behind it, and what is already spent;
-    `tree-transition … fail` reports the next candidate after a spent one.
-
-15. **A Node declares what it contends on.** `resources` is an optional list of opaque names — a
-    file tree, a build or artifact directory, a toolchain cache, a version-control index, a test
-    store, a port, a device. The tool never resolves, reserves, or locks one. It reports every
-    resource that two Nodes declare together **without an ordering path between them**: that is the
-    design question principle 10 asks the Designer to answer, and `tree-validate` and `tree` state
-    the answer instead of leaving an unordered collision to be discovered at runtime. A shared
-    resource is never an error — two Nodes may read the same input, and a deliberate serialization
-    is just `after`. Ordering the Nodes, or narrowing the resource names until they no longer
-    collide, is the whole repair.
-
-16. **The Tree may be replaced, never silently.** `tree-init --replace --reason "<why>"` re-authors a
-    delivery in place: the new Tree keeps the old identity, `created_at`, and the complete `history`,
-    continues the generation, and appends one `replace` entry recording the reason, the replaced
-    graph's generation, Task and Node counts, and a `sha256` of its canonical bytes. Without
-    `--reason` the command refuses, and deleting `Tree.json` by hand is never the supported path.
-
-## Direct authoring operations
-
-The Designer writes Tree operations through `tree-apply`.  A batch is one JSON object:
+`tasks/TASK-001.json`:
 
 ```json
 {
-  "batch_id": "designer-1",
-  "actor": "designer/any",
-  "base_revision": 3,
-  "operations": [
-    {
-      "op": "task.add",
-      "id": "TASK-001",
-      "title": "deliver",
-      "outcome": "The delivery is directly visible in the Tree."
-    },
-    {
-      "op": "node.add",
-      "task": "TASK-001",
-      "id": "NODE-001",
-      "title": "build",
-      "outcome": "Build the result."
-    },
-    {
-      "op": "node.add",
-      "task": "TASK-001",
-      "id": "NODE-002",
-      "title": "verify",
-      "outcome": "Verify the result."
-    },
-    {
-      "op": "after.add",
-      "node": "NODE-002",
-      "after": "NODE-001"
-    }
-  ]
-}
-```
-
-| Operation | Required fields | Effect |
-| --- | --- | --- |
-| `tree.update` | one or more of `title`, `meta` | Update tree-level context. |
-| `task.add` | `id`; optional `title`, `outcome`, `contract`, `nodes` | Add a Task together with its Nodes. |
-| `task.update` | `id`, `set` | Replace `title`, `outcome`, or `contract`. |
-| `task.remove` | `id`; `force` for non-pending Nodes | Remove a Task and its Nodes. Edges pointing at removed Nodes are detached. |
-| `node.add` | `task`, `id`, `role`; optional `title`, `outcome`, `executors`, `resources`, `after`, `contract` | Add an executable Node to a Task. `title` and `outcome` default to the id. |
-| `node.update` | `id`, `set` | Replace `title`, `outcome`, `role`, `executors`, `resources`, `after`, or `contract`. Active Nodes require `reset: true`, which resets the Node and its downstream Nodes. |
-| `node.move` | `id`, `task` | Move a Node to another Task. |
-| `node.remove` | `id`; `force` for active Nodes or downstream Nodes | Remove a Node and detach edges pointing at it. |
-| `after.add` | `node`, `after` | Add a dependency. Non-pending Nodes require `reset: true`. |
-| `after.remove` | `node`, `after` | Remove a dependency. Non-pending Nodes require `reset: true`. |
-
-`task.add` takes the whole Task in one operation: give it `nodes` and every entry is added as that
-Task's Node, in order, with the Task already named. One operation per Task is the ordinary
-authoring shape; a generator script that expands flat operations is not needed and is not a second
-dialect.
-
-```json
-{
-  "op": "task.add",
   "id": "TASK-001",
-  "title": "deliver",
-  "outcome": "The delivery is directly visible in the Tree.",
-  "nodes": [
-    {"id": "NODE-001", "title": "design", "outcome": "The approach is fixed.", "role": "designer"},
-    {
-      "id": "NODE-002",
-      "title": "build",
-      "outcome": "The artifact builds.",
-      "role": "worker-1",
-      "after": ["NODE-001"],
-      "resources": ["build/"],
-      "contract": {"commands": ["npm run build"]}
-    },
-    {"id": "NODE-003", "title": "review", "outcome": "The delivery is audited.", "role": "reviewer", "after": ["NODE-002"]}
-  ]
+  "title": "Grouped outcome",
+  "outcome": "What this group delivers",
+  "requirements": ["Requirement for this Task"],
+  "draft_pr": null,
+  "integration_owner": "task-integrator",
+  "delivery": {"result": null, "review": []},
+  "checks": []
 }
 ```
 
-`tree-apply --dry-run` evaluates the whole batch and returns the resulting ready set without changing
-the Tree. One invalid operation rejects the whole batch. A batch may also be a bare array of
-operations; the object form additionally carries `batch_id`, `actor`, and `base_revision`, and a
-`batch_id` already present in the history is reported as `idempotent` instead of applied twice.
+`nodes/NODE-001.json`:
 
-## Execution commands
-
-```sh
-python3 scripts/manifest_tool.py --version
-python3 scripts/manifest_tool.py schema
-python3 scripts/manifest_tool.py schema programme
-python3 scripts/manifest_tool.py tree-init <root> --id TREE-001 --title "..."
-python3 scripts/manifest_tool.py tree-init <root> --replace --reason "..."
-python3 scripts/manifest_tool.py tree-apply  <root> --input batch.json --dry-run
-python3 scripts/manifest_tool.py tree-apply  <root> --input batch.json
-python3 scripts/manifest_tool.py tree-apply  <root> --input - --json
-python3 scripts/manifest_tool.py tree-next   <root> --explain --json
-python3 scripts/manifest_tool.py tree-next   <root> --limit 2
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 start --executor "<opaque-id>"
-python3 scripts/manifest_tool.py tree-verify <root> NODE-001 --executor "<opaque-id>"
-python3 scripts/manifest_tool.py tree-verify <root> NODE-001 --cwd <project-root>
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 fail --note "..."
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 block --note "..."
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 complete --evidence '{"exit": 0}'
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 reset
-python3 scripts/manifest_tool.py tree-transition <root> NODE-001 cancel
-python3 scripts/manifest_tool.py tree-status   <root> --json
-python3 scripts/manifest_tool.py tree-validate <root> --quiet
-python3 scripts/manifest_tool.py tree         <root> --details
-python3 scripts/manifest_tool.py tree         <root> --json
+```json
+{
+  "id": "NODE-001",
+  "task": "TASK-001",
+  "title": "Executable work",
+  "outcome": "What completion produces",
+  "after": [],
+  "status": "pending",
+  "role": "worker",
+  "executors": [],
+  "resources": [],
+  "contract": {"scope": "Node-specific facts only"},
+  "review": [],
+  "result": null,
+  "commit": null,
+  "checks": []
+}
 ```
 
-`tree --json` is the read-only projection a host renders from: the stored Tree plus everything the
-tool derives — Tree and Task status, the ready set, the role map, reported completions, and
-contention. A renderer never has to re-implement derivation, and never parses a rendered view back.
+A Task is an independently deliverable group of Nodes and corresponds to one Draft
+PR containing those Nodes' commits. A Node is one scoped change and corresponds to
+one commit. Ready Nodes inside a Task may execute in parallel; actual ordering is
+stored in their dependencies. `draft_pr` and `commit` hold the current reference only; they are not Git
+event ledgers. Every delivered Task and its Draft PR must leave the client buildable
+and runnable. This mapping is a Better Plan convention.
 
-Every command takes either a workspace root or a direct `Tree.json` path. Only `tree-init` creates a
-workspace: every other command refuses a directory that holds no Tree and leaves nothing behind. A
-command that finds one takes the workspace's `.better-plan.lock` — created beside the Tree it
-protects — so two commands never write at once, and `tree-verify` releases that lock before it runs
-the declared commands.
+`integration_owner` identifies the Agent responsibility for Task integration, not a
+model or temporary session. Assign it before dispatch. When all Nodes finish,
+`ready_for_integration` informs this owner to assemble commits, resolve conflicts,
+verify the Task and maintain its Draft PR. The final Worker does not inherit ownership.
 
-`tree-verify` runs the Node's declared `contract.commands` in the Tree's directory (or `--cwd`)
-outside the workspace lock, then re-reads the Tree and completes the Node only when nothing moved
-while the commands ran. A pending Node with nothing left to wait for is started first, so the common
-path is one command instead of two. A failing command fails the Node and exits non-zero; either way
-the tool's own receipts are what the Tree records. Completion by hand is refused for a Node that
-declares commands.
+`delivery_policy` is optional current Tree policy. Default delivery ends at
+engineering completion with PRs Draft. Ready, merge, installation and live acceptance
+are separately authorized project work; recording delivery performs none of them.
 
-Execution transitions are:
+## Delivery results
 
-| Action | From | To | Notes |
-| --- | --- | --- | --- |
-| `start` | pending, failed, blocked | running | Requires every `after` Node to be completed and the delivery shape to be complete. Increments `attempts`. |
-| `complete` | running, or pending/failed/blocked that may start | completed | Appends evidence and starts the Node first when it can, so judged work is one command. Refused when the Node declares `contract.commands`: use `tree-verify`. |
-| `fail` | running | failed | Appends evidence and note. |
-| `block` | any non-completed, non-cancelled | blocked | Appends evidence and note. |
-| `reset` | any | pending | Resets the Node and every downstream Node; clears executor. |
-| `cancel` | any non-completed | cancelled | Cancels the Node and every downstream Node. |
+Task integration owners use `task finish <root> <id> --summary TEXT` or `--result FILE`.
+The main Agent uses `tree finish <root>` with the same result options after overall
+review and verification. `--result` is a JSON object (or `-` for stdin); use `summary`
+and `exceptions` for the conclusion and any exceptions. Commands record declarations
+without approval, Git or test gates. They replace only the owner's current result
+and clear only that owner's delivery reviews. Generic Tree/Task updates do not edit
+`delivery`; use finish for confirmation.
 
-## What the status views show
+Derived delivery states are `unrecorded` (no result), `recorded` (result with no
+pending review), and `needs_review` (preserved result with pending review). Tree
+validity also depends on every current Task being recorded; Tree finish cannot hide
+an unrecorded or stale Task. Checks and Node reviews remain separate visible facts.
+A successful check or cleared Node review never reconfirms delivery automatically.
 
-```sh
-python3 scripts/manifest_tool.py tree-next <root>            # ready Nodes, each with its role
-python3 scripts/manifest_tool.py tree-status <root>          # who owns which Nodes
-python3 scripts/manifest_tool.py tree-validate <root>        # data errors, then shape gaps
+Delivery invalidation applies only when a previous result exists. Before initial
+confirmation the delivery is already unrecorded, so redundant review markers are
+not accumulated. Current review sources are deduplicated by kind and id:
+
+| Change | Delivery affected |
+| --- | --- |
+| Node scope, dependencies or commit | Owning and affected downstream Tasks, plus Tree |
+| Node result | Owning and downstream Tasks, plus Tree; downstream Node reviews and covered checks also change |
+| Node execution status | Owning Task and Tree |
+| Node addition, removal or Task move | Old/new owners and affected downstream Tasks, plus Tree |
+| Task goal or requirements | Task and downstream Tasks, plus Tree; includes empty Tasks |
+| Tree goal, requirements or success criteria | All Tasks and Tree |
+| Check commands/coverage added, removed or changed | Union of old/new covered Tasks and Tree |
+| New failed check result or explicit interrupted-run recovery | Covered Tasks and Tree |
+| Task delivery recorded or Task added/removed | Tree |
+| Display title, integration owner, role/executor label or PR reference | No code review or delivery invalidation |
+
+Identical value updates do not propagate. Source kind `check` uses the compound id
+`<owner-kind>:<owner-id>:<check-id>`, so checks with the same id at different owners
+remain distinct. No content hash, whole-tree revision, or background file watching is
+used. Manually edited files cannot acquire missed notifications through refresh.
+
+The maintained status vocabulary is `pending`, `running`, `completed`, `failed`,
+`blocked`, and `cancelled`. `node start` writes `running`; `node finish` writes
+`completed`. Status does not restrict either command.
+
+Task membership and `after` dependencies are stored only on the Node. Task execution progress,
+reverse dependencies, readiness, blockers, role groupings, contention, and report
+views are derived. Unknown metadata may be retained; the tool does not turn schema
+shape into a workflow gate. IDs must be filename-safe because they name files.
+
+## Pending review
+
+A review item is current state:
+
+```json
+{
+  "source": {"kind": "node", "id": "NODE-001"},
+  "reason": "content_changed"
+}
 ```
 
-`tree-status` prints one line per role — `worker-1: NODE-002, NODE-005` — because the useful question
-is which work a role owns, not how many Nodes it got. `tree-status --json` exposes the same map as
-`role_nodes`, plus `reported_completions` for Nodes whose completion was asserted rather than run.
+Sources are `tree`, `task`, or `node`. Reasons are
+`content_changed`, `dependency_changed`, `requirements_changed`, or
+`manual_refresh`. The same source occupies one item. A changed Node and its
+downstream Nodes receive the item; Task changes start at that Task's Nodes; Tree
+content changes cover the Tree. The traversal builds adjacency once and uses a
+queue plus a visited set, so branches, joins, and cycles terminate.
 
-## Designer workflow
+Review does not reset status or result. `node review-done` clears all review items or
+the selected source after an Agent handles them.
 
-1. `tree-init` creates the empty Tree.
-2. The Designer composes one or more `tree-apply` batches directly with Tasks, Nodes,
-   `after` edges, and contracts. Give the graph its outside first — one `designer` Node with no
-   `after`, one `reviewer` Node that nothing waits for — then fill the middle with worker Nodes.
-   A Node that a machine can check declares its commands in `contract.commands`; a Node only a
-   person can judge declares none.
-3. `tree-apply --dry-run` previews the ready frontier.
-4. The commit batch writes the Tree atomically.
-5. Workers call `tree-next --explain`, execute ready Nodes, and report with `tree-transition`.
-   A Node that declares `contract.commands` is finished with `tree-verify`, which runs them and
-   records what it observed. Both finishing commands start the Node first when its dependencies are
-   already done, so the ordinary path is one call per Node.
+## Check definition and state
 
-A Designer batch is the design. The Tree is not a projection of a Plan, and there is no second
-authoring dialect to keep in sync.
+```json
+{
+  "id": "CHECK-001",
+  "title": "Focused behavior",
+  "commands": ["project-test-command"],
+  "coverage": {"kind": "task"},
+  "pending": true,
+  "running": false,
+  "run_id": null,
+  "dirty": false,
+  "result": null
+}
+```
+
+Coverage forms:
+
+| Kind | Meaning |
+| --- | --- |
+| `node` | the owning Node |
+| `task` | the owning Task's current Nodes |
+| `tree` | the Tree's current Nodes |
+| `nodes` | exactly `coverage.nodes` |
+
+Place the definition at the lowest owner common to its coverage. A stable ID is
+unique within that owner. Commands are not compared or deduplicated by text.
+
+Changing covered work sets `pending`. If the check is running, it also sets `dirty`.
+When a run returns, its result is recorded; `pending` remains true when dirty. An
+external result may be recorded only when no execution is active or unresolved;
+it clears dirty and pending. Readiness in an export
+means all currently covered Nodes are completed, but `checks run` and `checks record`
+do not enforce readiness and do not gate Node completion.
+
+Each `<owner, check-id>` has one independent nonblocking OS lock held through
+command execution and result publication. The short workspace lock is released
+while commands execute. Duplicate runs, external result writes and recovery return
+an active-execution error immediately; they never queue or cancel existing work.
+A temporary `run_id` associates a return with the current check object. Removing and
+recreating that object cannot accept an older run's result. Definition edits preserve
+runtime fields and make an active run dirty.
+
+Read snapshots report `interrupted: true` when an unresolved execution marker has
+no live executor lock. Its commands may still be running; the result is unknown and
+the previous result is preserved. Confirm leftover commands have ended, then invoke:
+
+```sh
+python3 scripts/manifest_tool.py checks recover <root> CHECK-001 --owner task:TASK-001
+```
+
+Recovery explicitly clears the unresolved marker and leaves the check pending. It
+never kills processes or reports a passed result. Running or recording without
+recovery reports the unresolved execution. No elapsed-time limit terminates work.
+Lock files under `.better-plan-checks/` are stable synchronization artifacts, not
+execution history, and must not be removed while the workspace is in use.
+
+## Local structural operations
+
+- `node add --between A B` replaces edge `A -> B` with `A -> new -> B` and keeps
+  every other dependency declared for the new Node.
+- `node remove` reconnects each direct successor to the removed Node's predecessors.
+  `--disconnect` removes the edges without reconnecting.
+- `node update` recursively merges objects; arrays and scalar values replace.
+- `node edit --editor COMMAND` snapshots one Node, runs the editor outside the lock,
+  and overlays only the actual edits onto the latest Node when the editor returns.
+- `edge add/remove` changes one named edge and propagates from its successor.
+- `subtree` accepts a primary entry, repeated `--entry`, and repeated `--exit`.
+  Default traversal stops before a join with a predecessor outside the selected
+  branch. A named exit is included and traversal stops after it.
+- `subtree attach` adds `--after` predecessors to the entries and may add selected
+  exits to `--before` successors. `subtree move` replaces either boundary only when
+  that option is present; unrelated successor dependencies remain.
+- Subtree removal reconnects each external successor only to external predecessors
+  reachable through that successor's removed paths. Disconnected groups do not gain
+  false cross-dependencies.
+
+Local operations inspect their named targets. Unrelated dangling references, cycles,
+roles, statuses, or metadata do not block a write. `tree refresh` recomputes the view
+after manual edits without inventing missed notifications.
+
+## Worker context
+
+`node show`, `node start`, and `node finish` return the Tree identity, title, goal and
+success criteria; the Task identity, title, outcome and requirements; shared
+requirements; the Node contract; necessary dependencies; and pending reviews. They
+do not load unrelated branches or history. Start and finish both print requirements;
+finish also asks for compliance and exception reporting without requiring an answer
+to record completion. Finish accepts `--commit` for the Node's current commit. It
+prints an advisory commit reminder and, when every Node in the Task is completed,
+`ready_for_integration`, `integration_owner` and an integration handoff reminder.
+The Task result remains unrecorded until its owner explicitly records delivery; a
+project may open the Draft PR earlier.
+
+## Export
+
+`tree export` assembles the split files for read-only consumers:
+
+```json
+{
+  "tree": {"tasks": [{"nodes": []}]},
+  "derived": {
+    "status": "running",
+    "delivery_status": "unrecorded",
+    "task_delivery_status": {},
+    "unconfirmed_tasks": [],
+    "ready": [],
+    "node_counts": {},
+    "task_status": {},
+    "role_nodes": {},
+    "contention": [],
+    "review_nodes": [],
+    "task_review_nodes": {},
+    "blockers": {}
+  },
+  "checks": []
+}
+```
+
+Each flattened check contains its owner, resolved covered Node ids, state, readiness,
+commands, and latest result. Export never reads `history/`.
+
+## History
+
+`history archive` accepts caller-supplied transcript or summary content. Optional
+attachments are stored byte-for-byte as base64 with their relative display path.
+Archives cannot be replaced or edited. `history search` explicitly reads archive
+content and decodes UTF-8 attachments for search; binary attachments are skipped.
+`history show --attachment PATH` restores one attachment's original bytes.
+
+History has no influence on current status, review, checks, or reports.
+
+## Persistence and concurrency
+
+Individual current files use temporary-file replacement under one short workspace
+lock. A multi-file operation is serialized, not a crash-atomic transaction.
+Only changed Tree, Task, and Node files are written. Editors and check commands run
+without the lock. Read projections take one locked multi-file snapshot and release
+the lock before rendering. A running check uses its local `dirty` bit to observe
+relevant concurrent changes and its temporary `run_id` to reject obsolete returns;
+there is no whole-tree revision, generation, hash, or version comparison.

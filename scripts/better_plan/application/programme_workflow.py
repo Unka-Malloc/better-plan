@@ -1,263 +1,154 @@
-"""CLI workflow for the programme index.
-
-A programme answers one question a single Tree cannot: which deliveries exist,
-which of them a delivery waits for, and what is actually runnable now. The index
-stores order only; every status this module prints is read from the Trees.
-"""
+"""CLI workflow for the order-only programme index."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 import json
 import sys
 
+from ..domain.checkpoints_tree import export_payload
+from ..domain.models import ToolError
 from ..domain.programme import (
     PROGRAMME_NAME,
-    apply_operations,
-    delivery_order,
+    PROGRAMME_SCHEMA,
+    delivery_index,
     new_programme,
+    normalize_delivery,
     programme_report,
-    render_programme,
-    validate_programme,
 )
-from ..domain.checkpoints_tree import validate_tree
-from ..domain.models import ToolError
-from ..infrastructure.workspace import read_json, workspace_lock, write_json
+from ..infrastructure.workspace import CurrentWorkspace, read_json, workspace_lock, write_json
 
 
-def programme_path(root: Path) -> Path:
-    root = root.expanduser()
-    if root.is_file() and root.name == PROGRAMME_NAME:
-        return root.resolve()
-    return (root / PROGRAMME_NAME).resolve()
-
-
-def programme_root(value: Any) -> Path:
-    """Resolve a directory or a direct Programme.json path."""
-
-    path = Path(str(value or ".")).expanduser()
+def _root(args: Any) -> Path:
+    path = Path(str(getattr(args, "root", "."))).expanduser()
     if path.is_file() and path.name == PROGRAMME_NAME:
         return path.resolve().parent
     return path.resolve()
 
 
-def load_programme(root: Path) -> dict[str, Any]:
-    path = programme_path(root)
+def _path(root: Path) -> Path:
+    return root / PROGRAMME_NAME
+
+
+def _load(root: Path) -> dict[str, Any]:
+    path = _path(root)
     if not path.is_file():
-        raise ToolError("no programme at %s" % PROGRAMME_NAME)
+        raise ToolError("no programme at %s" % path)
     value = read_json(path)
-    if not isinstance(value, dict):
-        raise ToolError("%s must be an object" % PROGRAMME_NAME)
-    issues = validate_programme(value)
-    if issues:
-        raise ToolError("invalid programme: %s" % "; ".join(issues[:6]))
+    if not isinstance(value, dict) or value.get("schema") != PROGRAMME_SCHEMA:
+        raise ToolError("Programme.json is not a current programme")
+    values = [normalize_delivery(item) for item in value.get("deliveries") or []]
+    if len({item["id"] for item in values}) != len(values):
+        raise ToolError("programme has duplicate delivery ids")
+    value["deliveries"] = values
     return value
 
 
-def require_programme(root: Path) -> None:
-    """Refuse a directory that holds no programme before taking its lock."""
-
-    if not programme_path(root).is_file():
-        raise ToolError("no programme at %s" % PROGRAMME_NAME)
-
-
-def save_programme(root: Path, programme: dict[str, Any]) -> None:
-    issues = validate_programme(programme)
-    if issues:
-        raise ToolError("refusing to write an invalid programme: %s" % "; ".join(issues[:6]))
-    write_json(programme_path(root), programme)
-
-
-def _read_batch_text(value: str, root: Path) -> str:
+def _input(value: str, root: Path) -> dict[str, Any]:
     if value == "-":
-        return sys.stdin.read()
-    path = Path(value).expanduser()
-    if not path.is_absolute() and not path.is_file():
-        path = root / path
-    if not path.is_file():
-        raise ToolError("batch input is missing at %s" % path.name)
-    return path.read_text(encoding="utf-8")
-
-
-def _batch_payload(value: Any) -> tuple[list[Any], str | None, str | None, int | None]:
-    if isinstance(value, list):
-        return value, None, None, None
-    if not isinstance(value, dict):
-        raise ToolError("batch input must be a JSON array or object")
-    allowed = {"operations", "batch_id", "actor", "base_revision"}
-    unknown = sorted(set(value) - allowed)
-    if unknown:
-        raise ToolError("unknown batch field(s): %s" % ", ".join(unknown))
-    operations = value.get("operations")
-    if not isinstance(operations, list):
-        raise ToolError("batch.operations must be an array")
-    batch_id = value.get("batch_id")
-    actor = value.get("actor")
-    base_revision = value.get("base_revision")
-    if batch_id is not None and not isinstance(batch_id, str):
-        raise ToolError("batch.batch_id must be a string")
-    if actor is not None and not isinstance(actor, str):
-        raise ToolError("batch.actor must be a string")
-    if base_revision is not None and type(base_revision) is not int:
-        raise ToolError("batch.base_revision must be an integer")
-    return operations, batch_id, actor, base_revision
-
-
-def _read_trees(root: Path, programme: Mapping[str, Any]) -> dict[str, Any]:
-    """Read every referenced Tree; a missing or unreadable one stays None."""
-
-    trees: dict[str, Any] = {}
-    for delivery in programme.get("deliveries") or []:
-        if not isinstance(delivery, Mapping):
-            continue
-        code = delivery.get("id")
-        reference = delivery.get("tree")
-        if not isinstance(code, str) or not isinstance(reference, str):
-            continue
-        path = root / reference
-        try:
-            trees[code] = read_json(path) if path.is_file() else None
-        except ToolError:
-            trees[code] = None
-    return trees
+        text = sys.stdin.read()
+    else:
+        path = Path(value).expanduser()
+        if not path.is_absolute() and not path.is_file():
+            path = root / path
+        if not path.is_file():
+            raise ToolError("input is missing at %s" % path)
+        text = path.read_text(encoding="utf-8")
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ToolError("input is not valid JSON: %s" % exc.msg)
+    if not isinstance(result, dict):
+        raise ToolError("input must contain an object")
+    return result
 
 
 def init_programme(args: Any) -> int:
-    root = programme_root(args.root)
-    path = programme_path(root)
-    if path.exists():
-        raise ToolError("%s already exists; apply a batch to it instead" % PROGRAMME_NAME)
+    root = _root(args)
     with workspace_lock(root, create=True):
-        if path.exists():
-            raise ToolError("%s already exists; apply a batch to it instead" % PROGRAMME_NAME)
-        programme = new_programme(args.id, args.title)
-        save_programme(root, programme)
-    print(json.dumps({"created": True, "path": str(path), "id": programme["id"]}, sort_keys=True))
+        if _path(root).exists():
+            raise ToolError("Programme.json already exists")
+        value = new_programme(args.id or "PROGRAMME-001", args.title)
+        write_json(_path(root), value)
+    print(json.dumps({"created": value["id"], "path": str(_path(root))}))
     return 0
 
 
-def apply_programme_batch(args: Any) -> int:
-    root = programme_root(args.root)
-    try:
-        payload = json.loads(_read_batch_text(args.input, root))
-    except json.JSONDecodeError as exc:
-        raise ToolError("batch input is not valid JSON: %s" % exc.msg)
-    operations, batch_id, actor, base_revision = _batch_payload(payload)
-    require_programme(root)
-    with workspace_lock(root, create=False):
-        programme = load_programme(root)
-        receipt = apply_operations(
-            programme,
-            operations,
-            actor=actor,
-            batch_id=batch_id,
-            base_revision=base_revision,
-            dry_run=getattr(args, "dry_run", False),
-        )
-        if not getattr(args, "dry_run", False):
-            save_programme(root, programme)
-    if getattr(args, "json", False):
-        print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
-    elif receipt.get("dry_run"):
-        print(
-            "dry-run ok: %(operations)s operations, next revision %(next_revision)s, %(deliveries)s"
-            % receipt
-        )
-    elif receipt.get("idempotent"):
-        print("batch already applied: %s" % receipt.get("batch_id"))
-    else:
-        print(
-            "applied %(operations)s operations, revision %(revision)s, %(deliveries)s"
-            % receipt
-        )
-    return 0
-
-
-def programme_status(args: Any) -> int:
-    root = programme_root(args.root)
-    require_programme(root)
-    with workspace_lock(root, create=False):
-        programme = load_programme(root)
-        trees = _read_trees(root, programme)
-    report = programme_report(programme, trees)
-    if getattr(args, "json", False):
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-        return 0
-    print(
-        "%(id)s %(title)s [%(counts)s] ready=%(ready)s"
-        % {
-            "id": report["id"],
-            "title": report["title"],
-            "counts": ", ".join(
-                "%s=%d" % (state, count) for state, count in sorted(report["counts"].items())
-            )
-            or "no deliveries",
-            "ready": ", ".join(report["ready"]) or "none",
-        }
-    )
-    for state in report["deliveries"]:
-        blocked = " blocked_by=%s" % ", ".join(state["blocked_by"]) if state["blocked_by"] else ""
-        print(
-            "  %s [%s]%s nodes=%d ready_nodes=%s"
-            % (
-                state["id"],
-                state["state"],
-                blocked,
-                state["nodes"],
-                ", ".join(state["ready_nodes"]) or "none",
-            )
-        )
-    for issue in report["issues"]:
-        print("programme issue: %s" % issue)
-    for item in report["contention"]:
-        print(
-            "contention: %s shared by %s; unordered: %s"
-            % (
-                item["resource"],
-                ", ".join(item["owners"]),
-                "; ".join("%s <-> %s" % (first, second) for first, second in item["unordered"]),
-            )
-        )
+def update_programme(args: Any) -> int:
+    root = _root(args)
+    patch = _input(args.input, root)
+    with workspace_lock(root):
+        value = _load(root)
+        if "id" in patch or "schema" in patch:
+            raise ToolError("programme identity is not an update field")
+        operations = patch.pop("operations", None)
+        value.update(patch)
+        if "deliveries" in value:
+            value["deliveries"] = [normalize_delivery(item) for item in value["deliveries"]]
+        if operations is not None:
+            if not isinstance(operations, list):
+                raise ToolError("operations must be an array")
+            index = delivery_index(value)
+            for operation in operations:
+                if not isinstance(operation, dict):
+                    raise ToolError("programme operation must be an object")
+                action = operation.get("op")
+                code = operation.get("id")
+                if action == "add":
+                    delivery = normalize_delivery({key: item for key, item in operation.items() if key != "op"})
+                    if delivery["id"] in index:
+                        raise ToolError("delivery %s already exists" % delivery["id"])
+                    value["deliveries"].append(delivery)
+                    index[delivery["id"]] = delivery
+                elif action == "update" and code in index:
+                    index[code].update({key: item for key, item in operation.items() if key not in ("op", "id")})
+                    normalized = normalize_delivery(index[code])
+                    index[code].clear()
+                    index[code].update(normalized)
+                elif action == "remove" and code in index:
+                    value["deliveries"] = [item for item in value["deliveries"] if item["id"] != code]
+                    for item in value["deliveries"]:
+                        item["requires"] = [required for required in item["requires"] if required != code]
+                    index.pop(code)
+                else:
+                    raise ToolError("unknown programme operation or delivery")
+        write_json(_path(root), value)
+    print(json.dumps({"updated": value["id"], "deliveries": [item["id"] for item in value["deliveries"]]}))
     return 0
 
 
 def show_programme(args: Any) -> int:
-    root = programme_root(args.root)
-    require_programme(root)
-    with workspace_lock(root, create=False):
-        programme = load_programme(root)
-    print(render_programme(programme))
+    value = _load(_root(args))
+    print(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
 
-def programme_validate_command(args: Any) -> int:
-    root = programme_root(args.root)
-    path = programme_path(root)
-    if not path.is_file():
-        message = "no programme at %s" % PROGRAMME_NAME
-        if getattr(args, "json", False):
-            print(json.dumps({"valid": False, "issues": [message]}))
-        else:
-            print("error: %s" % message)
-        return 1
-    try:
-        programme = read_json(path)
-        issues = validate_programme(programme)
-        trees = _read_trees(root, programme) if isinstance(programme, Mapping) else {}
-        contention = programme_report(programme, trees)["contention"] if not issues else []
-    except ToolError as exc:
-        issues, contention = [str(exc)], []
+def _exports(root: Path, programme: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    result, errors = {}, {}
+    for delivery in programme.get("deliveries") or []:
+        reference = Path(delivery["tree"]).expanduser()
+        tree_path = reference if reference.is_absolute() else root / reference
+        workspace = CurrentWorkspace(tree_path.parent)
+        try:
+            with workspace_lock(workspace.root):
+                tree, tasks, nodes = workspace.load()
+            result[delivery["id"]] = export_payload(tree, tasks, nodes)
+        except ToolError as exc:
+            result[delivery["id"]] = None
+            errors[delivery["id"]] = str(exc)
+    return result, errors
+
+
+def programme_status(args: Any) -> int:
+    root = _root(args)
+    value = _load(root)
+    exports, errors = _exports(root, value)
+    report = programme_report(value, exports, errors)
     if getattr(args, "json", False):
-        print(json.dumps({"valid": not issues, "issues": issues, "contention": contention}))
-    elif issues:
-        for issue in issues:
-            print("error: %s" % issue)
+        print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
     else:
-        for item in contention:
-            print(
-                "contention: %s shared by %s" % (item["resource"], ", ".join(item["owners"]))
-            )
-        if not getattr(args, "quiet", False):
-            print("OK: programme is valid")
-    return 0 if not issues else 1
+        print("%s ready=%s" % (report["title"], ",".join(report["ready"]) or "none"))
+        for delivery in report["deliveries"]:
+            print("  %s [delivery=%s execution=%s] blocked_by=%s" % (delivery["id"], delivery["state"], delivery["execution_status"], ",".join(delivery["blocked_by"]) or "none"))
+    return 0

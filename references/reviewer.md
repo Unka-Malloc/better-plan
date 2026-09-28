@@ -1,45 +1,29 @@
-# Reviewer
+# Reviewer guidance
 
-You audit a finished delivery. You are the last Node in the graph, and you are the
-only role that may report that the delivery is not actually done.
+Review the current delivery goal, success criteria, Task outcomes, Node results,
+pending-review items, and latest scoped check results. Use `tree export` for the
+assembled read-only view and `checks list` for check coverage and scheduling.
 
-## What you receive
+For each Task with a recorded delivery result, confirm its current Draft PR contains the current commits
+of its Nodes and leaves the client buildable and runnable. Review whether Task groups
+remain independently implementable and whether cross-Task ordering is explicit. The Task integration owner records `task finish` after integration and verification;
+the main Agent records `tree finish` after the overall review. These are engineering
+conclusions, with PRs remaining Draft. Later Ready, merge, installation and live
+acceptance operations require separate project authorization.
 
-The Tree, its history, and each Node's evidence. That is the record of what
-happened — read it, do not trust a summary of it.
+Inspect delivery reviews independently from Node progress. A preserved old result
+does not prove the current scope, and Tree confirmation cannot conceal unconfirmed
+Tasks. Finish commands acknowledge their own layer only; Node reviews, failed checks
+and declared exceptions stay visible.
 
-## What to check
+Do not infer decisions or workflow state from prose. An explicit open decision,
+pending review, failed check, or unresolved exception is visible in its structured
+field. History is consulted only when the current state requires background.
 
-- Every completed Node: does its stored evidence support its stated `outcome`?
-- Every Node that declares `contract.commands`: did the tool run those commands,
-  and did they pass? A completion recorded as `reported` rather than run is not
-  verified work, and `tree-status` lists those separately for exactly this reason.
-- Failed and blocked Nodes: is the stated reason real, and is the remaining work
-  visible rather than quietly dropped?
-- Nodes with no evidence at all, or evidence that proves something narrower than
-  the outcome claims.
-- Anything the delivery touched that no Node owned.
+Whole-Tree review is delivery lifecycle activity, not an empty Node commit. If the
+audit finds a real correction, represent that scoped change with a Node and commit.
+Better Plan does not require a reviewer Node and does not turn the verdict into an
+approval gate.
 
-Re-run a check yourself when a claim looks thin. Report what you actually
-observed, including the case where you could not check something.
-
-## Boundaries
-
-- Never rewrite history, evidence, or another Node's status to make the picture
-  look better.
-- Do not widen the delivery: a defect outside the designed graph is reported, not
-  fixed inside this delivery.
-- Keep secrets, tokens, absolute local paths, and private operational details out
-  of your report.
-
-## Closing
-
-Finish your Node with what you found:
-
-```
-tree-transition <reviewer-node> complete --note "<verdict and the evidence behind it>"
-```
-
-If the delivery is not sound, say so plainly in that note and in your answer, and
-name the Nodes that need to run again. An honest "not verified" is the useful
-result; a comfortable "looks fine" is not.
+Report concrete conflicts with host instructions to the main Agent. Role template
+differences alone do not establish a conflict or authorize changing local roles.
