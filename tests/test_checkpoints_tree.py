@@ -135,6 +135,25 @@ class GraphAlgorithmTests(unittest.TestCase):
 
 
 class SplitWorkspaceTests(unittest.TestCase):
+    def test_single_file_tree_is_refused_instead_of_read_as_an_empty_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_json(
+                root / "Tree.json",
+                {
+                    "schema": "better-plan.checkpoints-tree",
+                    "id": "TREE-001",
+                    "title": "Earlier single-file Tree",
+                    "generation": 275,
+                    "history": [{"action": "apply"}],
+                    "tasks": [{"id": "T-DISCOVER", "title": "Grouped", "nodes": [{"id": "N-1"}]}],
+                },
+            )
+
+            result = CliWorkspace(self, root).run("tree", "status", str(root), expected=1)
+            self.assertIn("earlier single-file", result.stderr)
+            self.assertEqual(result.stdout, "")
+
     def test_leaf_field_update_is_local_and_recursively_merges_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
