@@ -1,18 +1,32 @@
 """Shared primitives for the Checkpoints Tree tool.
 
 Everything here is Tree-neutral: the error type, the privacy guard used on stored
-summaries and diagnostics, and the shell-command normalizer. Delivery semantics live
-in `checkpoints_tree.py`.
+summaries and diagnostics, the recursive object merge patch, and the shell-command
+normalizer. Delivery semantics live in `checkpoints_tree.py`.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 import re
 
 
 class ToolError(RuntimeError):
     """A caller-fixable condition: report it, never a traceback."""
+
+
+def deep_patch(value: Any, patch: Any) -> Any:
+    """Apply an object merge patch; arrays and scalar values replace atomically."""
+
+    if not isinstance(value, Mapping) or not isinstance(patch, Mapping):
+        return patch
+    result = dict(value)
+    for key, item in patch.items():
+        if isinstance(item, Mapping) and isinstance(result.get(key), Mapping):
+            result[key] = deep_patch(result[key], item)
+        else:
+            result[key] = item
+    return result
 
 
 # Privacy guard. A value that looks like a secret, an absolute local path, a UNC

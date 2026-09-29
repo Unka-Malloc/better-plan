@@ -57,6 +57,7 @@ CURRENT_SKILL_FILES = (
     "scripts/better_plan/domain/models.py",
     "scripts/better_plan/domain/checkpoints_tree.py",
     "scripts/better_plan/domain/programme.py",
+    "scripts/better_plan/domain/requirements.py",
     "scripts/better_plan/domain/model_catalog.json",
     "scripts/better_plan/domain/model_routing.py",
     "scripts/better_plan/infrastructure/__init__.py",

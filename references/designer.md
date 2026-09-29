@@ -7,6 +7,15 @@ the client buildable and runnable. Design each Node as one coherent scoped commi
 that PR, assign a Task `integration_owner` before dispatch, then add explicit dependency edges for real ordering between Tasks and
 Nodes.
 
+At programme scale, design in a rolling wave. Keep far milestones as planned
+outlines in `Programme.json` -- `goal`, `success`, `requirements`, and
+`open_decisions` with the shapes they will later take in a Tree -- and elaborate a
+milestone only after its own investigation is complete. Never create placeholder
+Nodes or empty Trees to represent future work, and do not fully decompose a
+milestone whose requirements are not yet understood. Reference catalogue
+requirement ids from delivery outlines, Tree requirements, and Task requirements
+through `source_ids`; `Requirements.json` owns requirement status.
+
 Before changing an existing plan, archive the relevant conversation available to
 you with `history archive`. This is guidance, not a precondition enforced by the
 tool. Rewrite current facts as current facts; do not preserve revision stories in

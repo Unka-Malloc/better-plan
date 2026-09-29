@@ -24,8 +24,9 @@ Each Task has a designated integration owner. Task and Tree delivery results are
 recorded explicitly, separately from Node execution progress.
 History never participates in ordinary reads or writes.
 
-One optional `Programme.json` indexes several delivery workspaces and their order.
-It stores no copied execution state.
+One optional `Programme.json` indexes several delivery workspaces and their order,
+may outline far-term deliveries that have no Tree yet, and pairs with a
+`Requirements.json` catalogue. It stores no copied execution state.
 
 ## Quick start
 
@@ -64,7 +65,8 @@ The single CLI groups commands by the object they affect:
 | `subtree` | `show`, `attach`, `move`, `remove` |
 | `history` | `archive`, `list`, `search`, `show` |
 | `checks` | `list`, `run`, `record`, `recover` |
-| `programme` | `init`, `update`, `show`, `status` |
+| `programme` | `init`, `update`, `show`, `status`, `elaborate`, `export` |
+| `requirements` | `list`, `add`, `update`, `remove`, `coverage` |
 
 Node changes propagate a source-keyed review item through the affected downstream
 graph. Completed Nodes keep their results. Unrelated branches are untouched. Node
@@ -97,6 +99,12 @@ The tool writes only changed current-state files with atomic replacement under a
 short workspace lock. Editors and check commands run outside the lock. It has no
 whole-tree revision, generation comparison, lifecycle validator, role cardinality
 rule, or approval state machine.
+
+`programme export` is the read-only projection for reports: the stored programme,
+the derived report including `ready_to_design`, each delivery as a Tree export,
+planned outline, or per-delivery error, the requirement catalogue with coverage, and
+numeric metrics recorded in check results. A delivery without a Tree stays an
+outline until `programme elaborate` transfers it into a real Tree workspace.
 
 ## Development
 

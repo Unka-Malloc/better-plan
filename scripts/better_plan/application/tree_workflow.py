@@ -36,7 +36,7 @@ from ..domain.checkpoints_tree import (
     safe_id,
     task_nodes,
 )
-from ..domain.models import ToolError
+from ..domain.models import ToolError, deep_patch
 from ..infrastructure.command_runner import run_commands_with_diagnostics
 from ..infrastructure.workspace import (
     CurrentWorkspace,
@@ -101,20 +101,6 @@ def _merge_checks(old: Iterable[Mapping[str, Any]], new: Iterable[Mapping[str, A
                     item["running"] = True
                     item["dirty"] = True
         result.append(item)
-    return result
-
-
-def _deep_patch(value: Any, patch: Any) -> Any:
-    """Apply an object merge patch; arrays and scalar values replace atomically."""
-
-    if not isinstance(value, Mapping) or not isinstance(patch, Mapping):
-        return patch
-    result = dict(value)
-    for key, item in patch.items():
-        if isinstance(item, Mapping) and isinstance(result.get(key), Mapping):
-            result[key] = _deep_patch(result[key], item)
-        else:
-            result[key] = item
     return result
 
 
@@ -223,17 +209,32 @@ def _mark_change(
     return changed
 
 
-def init_tree(args: Any) -> int:
-    root = _root(args)
+def create_tree_workspace(
+    root: Path,
+    tree_id: str,
+    title: str,
+    goal: str = "",
+    fields: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create one Tree workspace exactly as `tree init` does, under its own lock."""
+
     workspace = CurrentWorkspace(root)
     with workspace_lock(root, create=True):
         if workspace.tree_path.exists():
             raise ToolError("Tree.json already exists")
-        tree = new_tree(args.id or "TREE-001", args.title, args.goal or "")
+        tree = new_tree(tree_id, title, goal)
+        if fields:
+            tree.update(fields)
         workspace.write_tree(tree)
         workspace.tasks_path.mkdir(parents=True, exist_ok=True)
         workspace.nodes_path.mkdir(parents=True, exist_ok=True)
         workspace.history_path.mkdir(parents=True, exist_ok=True)
+    return tree
+
+
+def init_tree(args: Any) -> int:
+    root = _root(args)
+    tree = create_tree_workspace(root, args.id or "TREE-001", args.title, args.goal or "")
     print(json.dumps({"created": True, "root": str(root), "tree": tree}, ensure_ascii=False))
     return 0
 
@@ -339,7 +340,7 @@ def update_tree(args: Any) -> int:
             raise ToolError("tree identity, assembled tasks and delivery are not update fields; use tree finish for delivery")
         before_tree = deepcopy(tree)
         old_checks = deepcopy(tree.get("checks") or [])
-        tree = _deep_patch(tree, patch)
+        tree = deep_patch(tree, patch)
         if "checks" in patch:
             tree["checks"] = _merge_checks(old_checks, patch["checks"], "tree")
         else:
@@ -396,7 +397,7 @@ def update_task(args: Any) -> int:
             raise ToolError("task identity, derived nodes and delivery are not update fields; use task finish for delivery")
         before_task = deepcopy(tasks[task_id])
         old_checks = deepcopy(tasks[task_id].get("checks") or [])
-        tasks[task_id] = _deep_patch(tasks[task_id], patch)
+        tasks[task_id] = deep_patch(tasks[task_id], patch)
         if "checks" in patch:
             tasks[task_id]["checks"] = _merge_checks(old_checks, patch["checks"], "task")
         else:
@@ -561,7 +562,7 @@ def _update_node(
         else:
             if "id" in patch:
                 raise ToolError("node identity is not an update field")
-            node = _deep_patch(before, patch)
+            node = deep_patch(before, patch)
             if "checks" in patch:
                 node["checks"] = _merge_checks(before.get("checks") or [], patch["checks"], "node")
             node = _prepare_node(node)

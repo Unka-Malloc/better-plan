@@ -63,6 +63,13 @@ stored in their dependencies. `draft_pr` and `commit` hold the current reference
 event ledgers. Every delivered Task and its Draft PR must leave the client buildable
 and runnable. This mapping is a Better Plan convention.
 
+A Tree or Task `requirements` entry may be a plain string or an object carrying a
+`statement` and `source_ids`. `source_ids` reference ids from the programme's
+`Requirements.json` catalogue; the catalogue owns requirement identity and status,
+so Trees and Tasks reference it instead of duplicating status. Text values may be
+plain strings or bilingual objects such as `{"en": "...", "zh": "..."}` and are
+treated as opaque.
+
 `integration_owner` identifies the Agent responsibility for Task integration, not a
 model or temporary session. Assign it before dispatch. When all Nodes finish,
 `ready_for_integration` informs this owner to assemble commits, resolve conflicts,
@@ -182,6 +189,12 @@ an active-execution error immediately; they never queue or cancel existing work.
 A temporary `run_id` associates a return with the current check object. Removing and
 recreating that object cannot accept an older run's result. Definition edits preserve
 runtime fields and make an active run dirty.
+
+A check result is free-form JSON. A result object containing a `metrics` object whose
+values are numbers is collected by `programme export`; metrics never gate completion
+or delivery. For example, `checks record <root> CHECK-001 --owner tree --result
+metrics.json` with `{"status": "passed", "summary": "Measured", "metrics":
+{"native_loc": 367511}}` contributes one `native_loc` measurement.
 
 Read snapshots report `interrupted: true` when an unresolved execution marker has
 no live executor lock. Its commands may still be running; the result is unknown and
