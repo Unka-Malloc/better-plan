@@ -126,6 +126,12 @@ reverse dependencies, readiness, blockers, role groupings, contention, and repor
 views are derived. Unknown metadata may be retained; the tool does not turn schema
 shape into a workflow gate. IDs must be filename-safe because they name files.
 
+`Tree.json` stores no assembled `tasks` or `nodes`; those live in `tasks/` and
+`nodes/`. An earlier single-file Checkpoints Tree reused this schema string while
+keeping its Tasks and Nodes inside `Tree.json`, so a shape check refuses that file
+instead of reporting an empty plan. Migrate such a workspace into the split layout
+or read it with the matching earlier tool version.
+
 ## Pending review
 
 A review item is current state:

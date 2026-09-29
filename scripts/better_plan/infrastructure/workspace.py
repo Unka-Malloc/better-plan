@@ -195,6 +195,13 @@ class CurrentWorkspace:
         tree = read_json(self.tree_path)
         if not isinstance(tree, dict) or tree.get("schema") != TREE_SCHEMA:
             raise ToolError("Tree.json is not a current Checkpoints Tree")
+        if isinstance(tree.get("tasks"), list):
+            raise ToolError(
+                "Tree.json holds assembled tasks and nodes from an earlier single-file "
+                "Checkpoints Tree and cannot be read as a split workspace; this tool would "
+                "otherwise report an empty plan. Open it with the matching earlier tool "
+                "version, or migrate it into Tree.json plus tasks/ and nodes/ first."
+            )
         tree.setdefault("goal", "")
         tree.setdefault("success", [])
         tree.setdefault("architecture", None)
