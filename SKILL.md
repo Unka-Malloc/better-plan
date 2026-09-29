@@ -203,13 +203,29 @@ check pending; it does not kill processes. No elapsed-time rule terminates work.
 
 ## Programmes and reports
 
-`Programme.json` stores delivery identities, Tree paths, and `requires` edges only.
-It has no history or duplicated execution state. `programme status` derives current
-state by reading each split Tree workspace. A dependency is satisfied only when its
-Tree delivery is currently `recorded`, including confirmed Task deliveries.
+`Programme.json` stores delivery identities, Tree paths, `requires` edges, and
+outline fields (`goal`, `success`, `requirements`, `open_decisions`) for far-term
+deliveries that have no Tree yet. A delivery without a Tree reports `state` and
+`execution_status` `planned`; a Tree with zero Nodes is also `planned` at execution.
+Neither appears in `ready`; both appear in `ready_to_design` when unblocked. The
+programme itself may carry descriptive `goal` and `success`. A dependency is
+satisfied only when its Tree delivery is currently `recorded`, including confirmed
+Task deliveries; a dangling `requires` id keeps blocking.
 
-Reports consume `tree export`. The export assembles Tasks and Nodes for presentation
-and includes derived readiness, status, review, contention, blockers, and flattened
+`programme elaborate` moves one planned delivery's outline into a new Tree workspace,
+so a milestone is turned into a Tree only after its own investigation is complete.
+Design future milestones as outlines, never as placeholder Nodes or empty Trees.
+`Requirements.json` next to `Programme.json` owns programme-wide requirement identity
+and status; delivery outlines, Trees, and Tasks reference catalogue ids through
+`source_ids`, and `requirements coverage` derives uncovered, excluded, and unknown
+references without storing them.
+
+Reports consume `programme export` or `tree export`. The programme export is
+read-only and includes the stored programme, the derived report with
+`ready_to_design`, one entry per delivery (`tree`, `planned`, or `error` without
+failing the whole export), the requirement catalogue with coverage, and numeric
+metrics recorded in check results. It assembles Tasks and Nodes for presentation and
+includes derived readiness, status, review, contention, blockers, and flattened
 checks. Reports do not parse prose or read history.
 
 Read [references/checkpoints-tree.md](references/checkpoints-tree.md) for the exact
