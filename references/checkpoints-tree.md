@@ -71,9 +71,11 @@ plain strings or bilingual objects such as `{"en": "...", "zh": "..."}` and are
 treated as opaque.
 
 `integration_owner` identifies the Agent responsibility for Task integration, not a
-model or temporary session. Assign it before dispatch, normally to the Reviewer.
-When all Nodes finish, `ready_for_integration` informs this owner to assemble commits, resolve conflicts,
-repair defects, verify the Task and maintain its Draft PR. The final Worker does not
+model or temporary session. Assign it to the delivery's Reviewer before dispatch.
+When a Task's Nodes finish, `ready_for_integration` reports its implementation
+readiness; it is not a dispatch instruction. The single Reviewer starts convergence
+after all other writers finish, reviews and repairs the delivery, then integrates
+and verifies the Tasks and maintains their Draft PRs. The final Worker does not
 inherit ownership. This is guidance, not a role restriction enforced by the tool.
 
 `delivery_policy` is optional current Tree policy. Default delivery ends at
@@ -82,11 +84,9 @@ are separately authorized project work; recording delivery performs none of them
 
 ## Delivery results
 
-Task integration owners use `task finish <root> <id> --summary TEXT` or `--result FILE`.
-The Reviewer assigned whole-Tree convergence uses `tree finish <root>` with the same
-result options after overall review, repair, and verification. Main may mechanically
-publish that conclusion or perform convergence when the Reviewer is unavailable or
-the user explicitly assigns main. `--result` is a JSON object (or `-` for stdin); use
+The Reviewer uses `task finish <root> <id> --summary TEXT` or `--result FILE`,
+then `tree finish <root>` with the same result options after independent review,
+repair, integration, and verification. Main conveys the resulting conclusion to the user. `--result` is a JSON object (or `-` for stdin); use
 `summary` and `exceptions` for the conclusion and any exceptions. Commands record declarations
 without approval, Git or test gates. They replace only the owner's current result
 and clear only that owner's delivery reviews. Generic Tree/Task updates do not edit
@@ -246,13 +246,16 @@ after manual edits without inventing missed notifications.
 ## Worker context
 
 `node show`, `node start`, and `node finish` return the Tree identity, title, goal and
-success criteria; the Task identity, title, outcome and requirements; shared
+success criteria, architecture, and open decisions; the Task identity, title, outcome and requirements; shared
 requirements; the Node contract; necessary dependencies; and pending reviews. They
 do not load unrelated branches or history. Start and finish both print requirements;
 finish also asks for compliance and exception reporting without requiring an answer
 to record completion. Finish accepts `--commit` for the Node's current commit. It
 prints an advisory commit reminder and, when every Node in the Task is completed,
 `ready_for_integration`, `integration_owner` and an integration handoff reminder.
+This Task-local readiness does not start convergence while other work is unfinished.
+Even when all Nodes are completed, main confirms through the host that other writers
+have ended before resuming or starting the single Reviewer.
 The Task result remains unrecorded until its owner explicitly records delivery; a
 project may open the Draft PR earlier.
 

@@ -90,6 +90,15 @@ class InstallTests(unittest.TestCase):
         for role in ROLES:
             with self.subTest(role=role):
                 self.assertEqual(receipt["assignments"][role].model, CODEX_DEFAULT_MATRIX[role][1])
+                prompt = (self.paths.codex_home / "agents" / ("%s.toml" % role)).read_text(
+                    encoding="utf-8"
+                )
+                instructions = prompt.split('developer_instructions = """', 1)[1].split(
+                    '\n"""', 1
+                )[0]
+                self.assertNotIn("assignment:", instructions.lower())
+                self.assertNotIn("reasoning_effort", instructions)
+                self.assertNotIn("model=", instructions)
 
     def test_a_local_role_without_a_prompt_structure_is_left_untouched(self) -> None:
         agents = self.paths.codex_home / "agents"
@@ -114,8 +123,11 @@ class InstallTests(unittest.TestCase):
                     text = (
                         install_targets._native_role_directory(self.paths, host) / ("%s.md" % role)
                     ).read_text(encoding="utf-8")
-                    self.assertIn("source=host-inheritance", text)
+                    self.assertNotIn("assignment:", text)
+                    self.assertNotIn("Pinned identity", text)
+                    self.assertNotIn("host-inherited", text)
                     self.assertNotIn("model =", text)
+                    self.assertNotIn("reasoning_effort", text)
 
     def test_deepseek_harness_installs_the_skill_only(self) -> None:
         messages = install_service.install_agents(self.paths, ["dsh"], dry_run=False)
@@ -127,9 +139,17 @@ class InstallTests(unittest.TestCase):
         install_service.install_agents(self.paths, ["kilo"], dry_run=False)
         agents = self.paths.kilo_agents
         self.assertTrue((agents / "better-plan.md").is_file())
+        primary = (agents / "better-plan.md").read_text(encoding="utf-8")
+        self.assertIn("understand the user's requested outcome", primary.lower())
+        self.assertNotIn("assignment:", primary)
         for role in ROLES:
             with self.subTest(role=role):
-                self.assertTrue((agents / ("better-plan-%s.md" % role)).is_file())
+                path = agents / ("better-plan-%s.md" % role)
+                self.assertTrue(path.is_file())
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("assignment:", text)
+                self.assertNotIn("model=", text)
+                self.assertNotIn("reasoning_effort=", text)
 
     def test_doctor_reports_only_a_real_duplicate_native_skill(self) -> None:
         self.install_all()
@@ -217,21 +237,28 @@ class InstallTests(unittest.TestCase):
 
         worker = paths.codex_home / "agents" / "worker.toml"
         worker.write_text(
-            worker.read_text(encoding="utf-8").replace(
-                'model = "gpt-6-luna"', 'model = "local-choice"'
-            ),
+            worker.read_text(encoding="utf-8")
+            .replace('model = "gpt-6-luna"', 'model = "local-choice"')
+            .replace('model_reasoning_effort = "max"', 'model_reasoning_effort = "medium"')
+            .replace('sandbox_mode = "workspace-write"', 'sandbox_mode = "local-sandbox"')
+            + 'model_provider = "local-provider"\ncustom_local = "keep-me"\n',
             encoding="utf-8",
         )
         claude = paths.claude_home / "agents" / "designer.md"
         claude.write_text(
             claude.read_text(encoding="utf-8").replace(
                 "  bash: allow", "  bash: allow\n  custom: keep"
+            ).replace(
+                "tools: Read, Edit, Write, Glob, Grep, Bash",
+                "tools: Read, Write, Bash, LocalTool",
             ),
             encoding="utf-8",
         )
         kilo = paths.kilo_agents / "better-plan-reviewer.md"
         kilo.write_text(
-            kilo.read_text(encoding="utf-8").replace("  edit: allow", "  edit: deny"),
+            kilo.read_text(encoding="utf-8")
+            .replace("  edit: allow", "  edit: deny\n  local_permission: keep")
+            .replace("temperature: 0.1", "temperature: 0.7"),
             encoding="utf-8",
         )
 
@@ -252,12 +279,19 @@ class InstallTests(unittest.TestCase):
 
         worker_text = worker.read_text(encoding="utf-8")
         self.assertIn('model = "local-choice"', worker_text)
+        self.assertIn('model_reasoning_effort = "medium"', worker_text)
+        self.assertIn('sandbox_mode = "local-sandbox"', worker_text)
+        self.assertIn('model_provider = "local-provider"', worker_text)
+        self.assertIn('custom_local = "keep-me"', worker_text)
         self.assertIn("Updated prompt: You are the", worker_text)
         claude_text = claude.read_text(encoding="utf-8")
         self.assertIn("custom: keep", claude_text)
+        self.assertIn("tools: Read, Write, Bash, LocalTool", claude_text)
         self.assertIn("Updated prompt: You are the", claude_text)
         kilo_text = kilo.read_text(encoding="utf-8")
         self.assertIn("edit: deny", kilo_text)
+        self.assertIn("local_permission: keep", kilo_text)
+        self.assertIn("temperature: 0.7", kilo_text)
         self.assertIn("Updated prompt: You are the", kilo_text)
 
         checks = {item.target: item for item in install_doctor.doctor(paths, ["codex", "kilo"])}

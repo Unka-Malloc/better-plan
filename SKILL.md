@@ -1,264 +1,99 @@
 ---
 name: better-plan
-description: Maintain a long-lived delivery plan as Tasks and dependency Nodes. Use tree operations for local edits, handoffs, scoped checks, current-state reports, and immutable on-demand history.
+description: "Coordinate long-lived work through a shared plan: one Designer, parallel Workers, and one independent Reviewer. Tree tools maintain requirements, dependencies, results, checks, and retrievable history."
 ---
 
 # Better Plan
 
-Use Better Plan when delivery must survive context changes or contains several
-independently executable pieces. The tool is a tree-aware planning assistant. It
-does not approve work, validate a plan as a gate, restrict roles, or decide whether
-an Agent may start or finish.
+Better Plan is a shared blackboard for long-term work. Agents read the same user
+requirements, plan, repository documents, and evidence directly. Its tools assist
+collaboration; they do not grant permission or police Agent judgment.
 
-Maintaining the Better Plan source repository itself uses the ordinary repository
-workflow. Do not create a Better Plan workspace merely to edit this package.
+## Workflow
 
-## Current state and history
+**Main understands and faithfully conveys user needs, keeps work moving, and answers
+to the user for their execution.** It connects one Designer, parallel Workers, and
+one Reviewer. It relays questions and decisions, resumes interrupted work, starts
+the next ready work, and promptly points out observed deviations. It does not
+reinterpret repository materials for specialists or prescribe their technical
+approach. See [main guidance](references/main.md).
 
-An Agent normally reads and writes current state only:
+**One Designer designs what the user's long-term goal needs.** Architecture, code,
+documentation, workflows, scripts, and tools are all available means. The Designer
+chooses the approach and decomposition, using the repository and shared evidence.
+See [Designer guidance](references/designer.md).
+
+**Workers execute ready Nodes autonomously and in parallel.** Give each Worker the
+repository, plan, and Node reference; the shared materials supply the work. Design
+real dependencies and ownership to maximize useful parallelism, not repeated main
+instructions. See [Worker guidance](references/worker.md).
+
+**One Reviewer independently brings the delivery to completion.** After the other
+writers have finished, it examines user needs, industry best practices, repository
+rules, and whether the plan and its execution actually serve the original intent.
+It directly repairs what it discovers, including defects in the design or plan,
+then integrates and verifies the result. Neither main's checklist nor the plan
+limits its investigation or repairs. Keep the same Reviewer through corrections;
+there is no separate integration Agent and no concurrent writer during convergence.
+See [Reviewer guidance](references/reviewer.md).
+
+Every role exercises its own judgment under the user's requirements, repository
+rules, and actual host permissions. A main brief adds no further authority boundary.
+Agents raise material uncertainty through main to the user; pause work that depends
+on the answer rather than inventing requirements. Main's in-process correction and
+the Reviewer's independent final judgment protect the outcome without per-step
+approval. Model capability and parent-child topology do not establish technical
+superiority.
+
+## Shared information
 
 ```text
-Tree.json           goal, requirements, decisions, checks, overall delivery result
-tasks/<id>.json     Task outcome, integration owner, requirements, checks, delivery result
-nodes/<id>.json     one executable Node and its current result
-history/<id>.json   immutable, explicitly archived context
+Tree.json          goal, success, architecture, requirements, open decisions, delivery
+ tasks/<id>.json   Task outcome, requirements, checks, Draft PR, delivery
+ nodes/<id>.json   Node work, dependencies, progress, result, commit
+ history/<id>.json immutable source material, retrieved when needed
 ```
 
-Before changing a plan, archive the relevant conversation material that is
-available to you. This is working guidance, not a tool gate:
+Keep shared requirements once at Tree level, Task requirements once at Task level,
+and Node-specific facts in the Node. Record unanswered questions in `open_decisions`;
+after clarification, update the current requirements and decisions for all Agents.
+Before revising the plan, archive relevant available conversation with `history
+archive`; retain source meaning without requiring Agents to replay the conversation.
+History is read on demand, not injected into every assignment.
 
-```sh
-python3 scripts/manifest_tool.py history archive <root> \
-  --input conversation.md --kind transcript --source current-chat
-```
+A Task is one independently deliverable Draft PR containing its Nodes' commits.
+A Node is one coherent change and one commit. The Reviewer owns integration;
+`integration_owner` records that responsibility, not an additional Agent. Task PRs
+leave the project buildable and runnable after their declared prerequisites.
+Longer programmes keep future milestones as outlines until their requirements are
+understood; see [programme guidance](references/programme.md).
 
-The archive command stores only supplied content and explicitly named attachments.
-History is append-only and read only when `history list`, `history search`, or
-`history show` is called. A summary is a new archive with kind `summary`; it never
-replaces source material.
+## Tools when needed
 
-## Model
+Use `python3 scripts/manifest_tool.py` from the installed skill:
 
-A Task is an independently deliverable group of Nodes and maps to one Draft Pull
-Request. Its Draft PR contains the commits produced by its Nodes. A Node is one
-scoped change and maps to one commit. Nodes contain the work, dependency edges,
-current status, current result, optional current commit reference, and pending
-upstream reviews. A Task may store one optional current Draft PR reference.
+| Need | Command |
+| --- | --- |
+| See ready work and dependencies | `tree next <plan> --json` |
+| Read or begin a Node with shared context | `node show/start <plan> <node>` |
+| Record implemented work | `node finish <plan> <node> --summary TEXT --commit REF` |
+| Read the whole current delivery | `tree export <plan>` |
+| Change the plan | `tree/task/node update`, `edge`, `subtree` |
+| Verify affected work | `checks list/run/record/recover` |
+| Record reviewed and integrated results | `task finish`, then `tree finish` |
+| Recover source context | `history list/search/show` |
 
-Every delivered Task and its Draft PR must produce a buildable, runnable client.
-Assign each Task an `integration_owner` before dispatch. Ownership identifies a
-responsibility, not a model or temporary Agent session. The owner integrates Node
-commits, resolves conflicts, verifies the Task and maintains its Draft PR.
-Design Task groups so their ready Nodes can run in parallel and the group can be
-implemented and reviewed independently after declared prerequisites; represent real
-ordering within and between Tasks with explicit dependencies. This Task/PR and Node/commit
-mapping is a Better Plan project convention, not an assertion that every engineering
-organization uses the same terminology.
+Read [the tree contract](references/checkpoints-tree.md) for command syntax, state,
+and recovery details. Results and checks record evidence, not approval. Relevant
+changes preserve earlier results and mark affected work for review; reconfirm the
+actual outcome. Default engineering delivery leaves PRs Draft. Later publication,
+merge, installation, and live acceptance follow the user's project authorization.
 
-Shared requirements live once in `Tree.json`. Task requirements live once in their
-Task. Do not copy either into every Node. A Node's `contract` contains only facts
-specific to that work.
+Host-native tools carry Agent messages, questions, completion, and resumption;
+Better Plan does not duplicate the host scheduler. Read [host configuration](references/host-configuration.md)
+only for host integration or installation questions. Existing role model, tools,
+permissions, and sandbox settings belong to the user; prompt updates preserve them.
 
-Pending review and completion are independent facts. When work or dependencies
-change, the tool walks only the affected downstream graph and adds a source-keyed
-review item. It keeps existing status and result. Repeated changes from the same
-source replace that pending item instead of building a revision story.
-
-## Roles and convergence
-
-The Reviewer is the normal convergence owner: identify and directly repair problems,
-integrate changes, verify the outcome, and close the current plan and delivery results
-within the approved scope. The main Agent has the same artifact authority, but should
-normally assign a launchable Reviewer the complete convergence outcome, not a
-read-only findings handoff or a loop returning ordinary fixes to Workers or main.
-Main coordinates scheduling and may mechanically publish the Reviewer's conclusion;
-main performs convergence when the Reviewer is unavailable or the user explicitly
-assigns main.
-
-Workers retain initial Node implementation, start, checks, and finish. One continuous
-Reviewer closes one unit — a Task, a Tree, or a programme milestone — including all of
-its defects; do not dispatch several Reviewers for the same unit. Independent units
-may run in parallel with shared writers and real dependencies coordinated. This is a
-responsibility default, not a required role count, second review, or approval gate.
-Artifact authority does not override host permissions or authorize new scope or
-protected effects. See [references/reviewer.md](references/reviewer.md) for
-remediation and closure details.
-
-## Worker flow
-
-Start through the tool:
-
-```sh
-python3 scripts/manifest_tool.py node start <root> NODE-001
-```
-
-The response prints shared requirements, Task requirements, Node context, and
-pending reviews. Do the work and report the result, then finish:
-
-```sh
-python3 scripts/manifest_tool.py node finish <root> NODE-001 \
-  --summary "Implemented and checked the scoped behavior." --commit <ref>
-```
-
-The requirements are printed again with a prompt to report compliance and
-exceptions. Record the Node's scoped commit. When all Nodes finish, the response
-reports `ready_for_integration` and the designated `integration_owner`; finishing
-last never assigns that responsibility to the Worker.
-
-The Reviewer normally owns Task integration and records the Task result after
-integration and verification. The Reviewer assigned whole-delivery convergence
-records the overall Tree result after review, repair, and verification:
-
-```sh
-python3 scripts/manifest_tool.py task finish <root> TASK-001 --summary "Integrated and verified; PR remains Draft."
-python3 scripts/manifest_tool.py tree finish <root> --result delivery-result.json
-```
-
-Both commands accept `--summary` or `--result` (a JSON object containing the current
-conclusion and any `exceptions`). They record declarations only: no Git action,
-test execution or approval gate. Default delivery ends at engineering completion
-with PRs Draft. Ready, merge, installation and live acceptance follow separately
-authorized project work.
-
-Node execution progress and delivery validity are separate. Task and Tree `delivery`
-hold the latest `result` and source-keyed `review` items. Reports derive `unrecorded`,
-`recorded`, or `needs_review`. Relevant changes preserve the result while requiring
-reconfirmation. A finish command confirms only its own layer; it never clears Node
-reviews, failed checks or Task delivery concerns. A Tree cannot appear currently
-confirmed while any Task is unrecorded or needs review. Successful checks and
-`node review-done` never reconfirm delivery automatically.
-
-## Refactoring slices
-
-Design refactors as small, behavior-preserving steps that keep the system working,
-following the incremental principle described by [Refactoring](https://refactoring.com/).
-Each Node commit owns one coherent scoped change. Each Task/Draft PR is an
-independently implementable integration slice whose final state builds and runs.
-[Google's engineering guidance on small changes](https://google.github.io/eng-practices/review/developer/small-cls.html)
-likewise recommends self-contained changes that include their related consumers and
-tests and leave the system working; Better Plan applies the dependency principle,
-without imposing a line-count or universal test-count gate.
-
-Update affected producers, consumers, tests, and documentation in the same Task.
-When correcting unpublished project-owned work, remove the superseded path instead
-of adding compatibility layers merely to preserve the obsolete implementation.
-State cross-Task dependencies explicitly; do not hide an incomplete dependency in
-a nominally parallel Draft PR.
-
-Nodes represent real scoped code, documentation, or configuration changes. Do not
-invent design-only, status-only, or audit-only Nodes that would require empty
-commits. A Tree-level final audit is delivery lifecycle activity; create a Node only
-when that audit discovers a real correction to implement.
-
-Task and Tree finish leave PRs Draft. Their result is an engineering handoff, not
-authorization to make PRs Ready, merge, install or run live acceptance. A project's
-explicit delivery policy may describe those later operations; every acting Agent
-must follow the actual authorization. Dependent Task PRs may be stacked on their
-declared dependencies. Do not label them independent merely to maximize parallel work.
-
-Parallelize source changes and isolated builds when their declared resources do not
-conflict. Treat a shared runtime, installed client, or real user-data location as a
-coordinated resource and serialize only operations that actually contend on it. Use
-the project's fixed acceptance scope; do not invent alternate backends, fake
-directories, or broader scenarios as substitutes for the required real workflow.
-
-## Tree operations
-
-Use `scripts/manifest_tool.py` as the single entry point:
-
-```sh
-python3 scripts/manifest_tool.py tree init <root> --title "Delivery" --goal "Outcome"
-python3 scripts/manifest_tool.py task add <root> --input task.json
-python3 scripts/manifest_tool.py node add <root> --input node.json
-python3 scripts/manifest_tool.py edge add <root> NODE-001 NODE-002
-python3 scripts/manifest_tool.py tree next <root> --json
-python3 scripts/manifest_tool.py tree export <root>
-```
-
-`node update` recursively merges object fields, so changing `contract.scope` does
-not replace the rest of the contract. `node edit --editor <command>` opens a
-temporary copy outside the workspace lock and merges only the actual edits into the
-latest Node. `node add --between A B` inserts a Node into an edge. Removing a Node
-reconnects its predecessors to its direct successors unless `--disconnect` is used.
-
-`subtree show`, `attach`, `move`, and `remove` operate on a branch. A downstream join
-that also has a predecessor outside the branch remains an external boundary.
-
-Each file write is atomic and current-state operations hold one short workspace lock. Commands and editors run
-outside the lock. Local operations do not validate or rewrite unrelated branches.
-`tree refresh` simply rebuilds the current derived view after manual edits; it cannot
-reconstruct notifications bypassed by those edits.
-
-## Checks
-
-Define each check once at the lowest common owner:
-
-- Node check: covers one Node.
-- Task check: covers the Task's current Nodes.
-- Tree check: covers the current Tree.
-- Explicit `nodes` coverage: covers only the listed Node ids.
-
-Every check has a stable id, commands, coverage, pending/running/dirty state, and its
-latest result. A relevant plan change marks only checks whose coverage intersects
-the affected graph. If a relevant change occurs while a check runs, the result is
-kept and the check remains pending. Unrelated changes do not invalidate it.
-
-```sh
-python3 scripts/manifest_tool.py checks list <root>
-python3 scripts/manifest_tool.py checks run <root> CHECK-001 --owner task:TASK-001
-python3 scripts/manifest_tool.py checks record <root> CHECK-002 \
-  --owner node:NODE-003 --status passed --summary "Observed externally"
-```
-
-Running or recording checks is optional convenience and never controls whether a
-Node may finish. Each check has one nonblocking process lock; duplicate runs and
-external result writes report an active execution without cancelling or queueing.
-Different checks remain parallel. A temporary run identity prevents a removed and
-recreated check from accepting an old execution's result.
-
-An interrupted executor leaves an unknown result, not a failure or success. Confirm
-that leftover commands have ended, then run
-`checks recover <root> CHECK-001 --owner task:TASK-001` before retrying. Recovery preserves the previous result and leaves the
-check pending; it does not kill processes. No elapsed-time rule terminates work.
-
-## Programmes and reports
-
-`Programme.json` stores delivery identities, Tree paths, `requires` edges, and
-outline fields (`goal`, `success`, `requirements`, `open_decisions`) for far-term
-deliveries that have no Tree yet. A delivery without a Tree reports `state` and
-`execution_status` `planned`; a Tree with zero Nodes is also `planned` at execution.
-Neither appears in `ready`; both appear in `ready_to_design` when unblocked. The
-programme itself may carry descriptive `goal` and `success`. A dependency is
-satisfied only when its Tree delivery is currently `recorded`, including confirmed
-Task deliveries; a dangling `requires` id keeps blocking.
-
-`programme elaborate` moves one planned delivery's outline into a new Tree workspace,
-so a milestone is turned into a Tree only after its own investigation is complete.
-Design future milestones as outlines, never as placeholder Nodes or empty Trees.
-`Requirements.json` next to `Programme.json` owns programme-wide requirement identity
-and status; delivery outlines, Trees, and Tasks reference catalogue ids through
-`source_ids`, and `requirements coverage` derives uncovered, excluded, and unknown
-references without storing them.
-
-Reports consume `programme export` or `tree export`. The programme export is
-read-only and includes the stored programme, the derived report with
-`ready_to_design`, one entry per delivery (`tree`, `planned`, or `error` without
-failing the whole export), the requirement catalogue with coverage, and numeric
-metrics recorded in check results. It assembles Tasks and Nodes for presentation and
-includes derived readiness, status, review, contention, blockers, and flattened
-checks. Reports do not parse prose or read history.
-
-Read [references/checkpoints-tree.md](references/checkpoints-tree.md) for the exact
-file and command contract, [references/programme.md](references/programme.md) for
-multi-delivery indexing, and the role references for concise authoring and execution
-guidance. Host-owned role fields remain existing user configuration; install and
-update refresh role prompt content as described in the host reference.
-
-## Host role boundaries
-
-Load the current skill and role reference for each assignment. Role model, tool,
-permission, and sandbox fields remain user configuration; install and update refresh
-role prompt content from the current reference while preserving those fields. Report
-a concrete host/skill constraint conflict to the main Agent. Doctor reports source
-consistency, receipt integrity and template differences separately; template drift
-alone is not evidence of a semantic conflict.
+Maintaining Better Plan itself uses the ordinary repository workflow, without
+creating a Better Plan workspace. [Design principles](references/design-principles.md)
+explain the maintained product decisions.

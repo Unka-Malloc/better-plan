@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 from scripts.better_plan.installation.assignments import CODEX_DEFAULT_MATRIX
@@ -53,7 +54,6 @@ class PackagedRoleTests(unittest.TestCase):
                     text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
                     role = Path(filename).stem
                     self.assertIn("references/%s.md" % role, text)
-                    self.assertIn("ASSIGNMENT_PLACEHOLDER", text)
 
     def test_host_prompts_delegate_workflow_to_current_skill(self) -> None:
         for host in (*ROLE_FILES, "kilo"):
@@ -63,40 +63,25 @@ class PackagedRoleTests(unittest.TestCase):
                     text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
                     self.assertIn("SKILL.md", text)
                     self.assertIn("references/%s.md" % role, text)
-                    self.assertIn("host permissions", text)
-                    self.assertIn("concrete conflict", text)
 
     def test_codex_is_the_only_host_with_presets(self) -> None:
         self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
 
-    def test_skill_assigns_reviewer_first_convergence_with_main_fallback(self) -> None:
-        text = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").split())
-        # Guard the dispatch policy once at its owner, not every prose summary.
-        self.assertIn("normally assign a launchable Reviewer the complete convergence outcome", text)
-        self.assertIn("main Agent has the same artifact authority", text)
-        self.assertIn("Reviewer is unavailable or the user explicitly assigns", text)
-        self.assertIn("do not dispatch several Reviewers for the same unit", text)
-
-    def test_reviewer_guidance_owns_repairs_and_delivery_conclusions(self) -> None:
-        text = " ".join((ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").split())
-        self.assertIn("identify and directly repair problems", text)
-        self.assertIn("not a read-only findings handoff", text)
-        self.assertIn("the current plan, checks, and results", text)
-        self.assertIn("single Reviewer is enough to close every defect", text)
-        self.assertIn("Use `task finish`", text)
-        self.assertIn("Use `tree finish`", text)
-
-    def test_reviewer_role_identity_declares_convergence_ownership(self) -> None:
-        for host, filenames in ROLE_FILES.items():
-            for filename in filenames:
-                if Path(filename).stem != "reviewer":
+    def test_installed_guidance_links_resolve_inside_the_payload(self) -> None:
+        # Progressive disclosure works only if every linked guide ships with the skill.
+        payload = set(CURRENT_SKILL_FILES)
+        for relative in CURRENT_SKILL_FILES:
+            if not relative.endswith(".md"):
+                continue
+            path = ROOT / relative
+            for target in re.findall(r"\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
+                if "://" in target or target.startswith("#"):
                     continue
-                with self.subTest(host=host):
-                    text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
-                    self.assertIn("owns convergence, repair, and delivery closure", text)
-        kilo = (ROOT / "agents" / "kilo" / "better-plan-reviewer.md").read_text(encoding="utf-8")
-        self.assertIn("owns convergence, repair, and delivery closure", kilo)
+                target_path = (path.parent / target.split("#", 1)[0]).resolve()
+                with self.subTest(source=relative, target=target):
+                    self.assertIn(target_path.relative_to(ROOT).as_posix(), payload)
+                    self.assertTrue(target_path.is_file())
 
     def test_unpinned_role_files_declare_no_selector(self) -> None:
         for host in ("claude-code", "cursor"):

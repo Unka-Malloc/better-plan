@@ -400,16 +400,69 @@ class WorkerAndHistoryTests(unittest.TestCase):
             root = Path(temporary)
             cli = CliWorkspace(self, root)
             cli.init()
-            cli.run("tree", "update", str(root), "--input", cli.input({"requirements": ["shared"]}))
+            architecture = {"overview": "Shared implementation shape"}
+            open_decisions = [{"id": "D1", "question": "Which boundary?", "status": "open"}]
+            cli.run(
+                "tree",
+                "update",
+                str(root),
+                "--input",
+                cli.input(
+                    {
+                        "requirements": ["shared"],
+                        "architecture": architecture,
+                        "open_decisions": open_decisions,
+                    }
+                ),
+            )
             cli.task("T", requirements=["task rule"])
             cli.node("A", "T", checks=[check("C", {"kind": "node"}, pending=True)])
+            shown = json.loads(cli.run("node", "show", str(root), "A").stdout)
             started = json.loads(cli.run("node", "start", str(root), "A").stdout)
+            for context in (shown, started):
+                self.assertEqual(context["tree"]["architecture"], architecture)
+                self.assertEqual(context["tree"]["open_decisions"], open_decisions)
             self.assertEqual(started["tree"]["goal"], "Ship it")
             self.assertEqual(started["task"]["outcome"], "Outcome for T")
             self.assertEqual(started["requirements"], {"tree": ["shared"], "task": ["task rule"]})
             finished = json.loads(cli.run("node", "finish", str(root), "A", "--summary", "done").stdout)
+            self.assertEqual(finished["tree"]["architecture"], architecture)
+            self.assertEqual(finished["tree"]["open_decisions"], open_decisions)
             self.assertIn("does not gate", finished["confirmation_prompt"])
             self.assertEqual(read_json(root / "nodes" / "A.json")["status"], "completed")
+
+    def test_task_readiness_waits_for_other_tree_writers_and_host_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cli = CliWorkspace(self, root)
+            cli.init()
+            for task in ("T1", "T2"):
+                cli.task(task)
+                cli.run(
+                    "task",
+                    "update",
+                    str(root),
+                    task,
+                    "--input",
+                    cli.input({"integration_owner": "reviewer"}),
+                )
+            cli.node("A", "T1")
+            cli.node("B", "T2")
+            cli.run("node", "start", str(root), "B")
+
+            first = json.loads(cli.run("node", "finish", str(root), "A", "--summary", "done").stdout)
+            self.assertTrue(first["ready_for_integration"])
+            self.assertIn("Unfinished Tree Nodes: 1", first["integration_reminder"])
+            self.assertIn("Task-local readiness", first["integration_reminder"])
+            self.assertIn("Wait for all other Writers to finish", first["integration_reminder"])
+            self.assertIn("host completion signals", first["integration_reminder"])
+            self.assertNotIn("All Tree Nodes are recorded complete", first["integration_reminder"])
+
+            last = json.loads(cli.run("node", "finish", str(root), "B", "--summary", "done").stdout)
+            self.assertTrue(last["ready_for_integration"])
+            self.assertIn("All Tree Nodes are recorded complete", last["integration_reminder"])
+            self.assertIn("does not prove that host Agents", last["integration_reminder"])
+            self.assertIn("host completion signals", last["integration_reminder"])
 
     def test_node_commit_and_task_draft_pr_are_current_references_with_advisory_reminders(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -455,9 +508,8 @@ class WorkerAndHistoryTests(unittest.TestCase):
             self.assertTrue(last["ready_for_integration"])
             self.assertEqual(last["integration_owner"], "task-lead")
             self.assertEqual(last["task"]["draft_pr"], "https://example.invalid/pr/7")
-            self.assertIn("designated integration owner", last["integration_reminder"])
             self.assertEqual(last["tree"]["delivery_policy"]["pull_requests"], "draft_until_tree_review")
-            self.assertIn("separate authorization", last["integration_reminder"])
+            self.assertIn("Keep PRs Draft unless further action is authorized", last["integration_reminder"])
             self.assertEqual(read_json(root / "nodes" / "A.json")["commit"], "updated-ref")
             self.assertEqual(read_json(root / "tasks" / "T.json")["draft_pr"], "https://example.invalid/pr/7")
 
@@ -478,7 +530,7 @@ class WorkerAndHistoryTests(unittest.TestCase):
             cli.node("C", "T2")
             missing = json.loads(cli.run("node", "finish", str(root), "C", "--summary", "done").stdout)
             self.assertIn("one scoped commit", missing["commit_reminder"])
-            self.assertIn("Hand off", missing["integration_reminder"])
+            self.assertIn("host completion signals", missing["integration_reminder"])
 
     def test_history_is_append_only_searchable_and_attachment_is_byte_exact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
