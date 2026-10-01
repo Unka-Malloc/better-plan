@@ -133,5 +133,6 @@ python3 scripts/run_tests.py
 
 See [SKILL.md](SKILL.md), [references/checkpoints-tree.md](references/checkpoints-tree.md),
 and [references/programme.md](references/programme.md) for the maintained contract.
-Host role configuration and receipts are user-owned and immutable after their first
-creation; installer operations update the surrounding skill payload only.
+Host role model, tool, permission, and sandbox configuration is user-owned and
+preserved on every update; install and update refresh role prompt content and the
+surrounding skill payload.

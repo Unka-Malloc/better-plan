@@ -31,7 +31,7 @@ to approved requirements, contracts, or risk boundaries, missing protected-effec
 authority, and actual host constraints through main. Ordinary corrections within
 existing authorization need no new approval. If a leaf host denies delegation or
 clarification tools, use the coordinator for that operation without transferring
-convergence ownership. Never bypass or rewrite host permissions or immutable roles.
+convergence ownership. Never bypass or rewrite host permissions or host-owned role fields.
 
 ## Review and repair
 

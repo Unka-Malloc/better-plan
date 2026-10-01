@@ -42,10 +42,11 @@ skill. The native main forwards the dispatch's brief; the role reads that refere
 so a skill update can maintain detailed workflow and reporting instructions without changing the
 host role file.
 
-Existing local roles, including older inline workflow instructions, remain immutable. A shared
-reference or dispatch brief cannot override their host constraints. Report a concrete conflict to
-the native main when it affects authorized work; neither recommendation drift nor an update itself
-creates a new approval question. Only future first installations use the smaller templates. Before dispatch, report a concrete
+Existing local roles, including older inline workflow instructions, keep their host-owned fields;
+install and update refresh their prompt content from the current template. A shared reference or
+dispatch brief cannot override host constraints. Report a concrete conflict to the native main when
+it affects authorized work; neither recommendation drift nor an update itself creates a new approval
+question. Only future first installations use the smaller templates. Before dispatch, report a concrete
 conflict to the main Agent with the conflicting instruction and affected operation. Do not treat
 a template difference alone as a conflict or as authority to replace local roles.
 
@@ -53,7 +54,7 @@ a template difference alone as a conflict or as authority to replace local roles
 
 | Target | Roles installed as | Selector |
 |---|---|---|
-| Codex | `$CODEX_HOME/agents/{designer,worker,reviewer}.toml` | packaged, written once |
+| Codex | `$CODEX_HOME/agents/{designer,worker,reviewer}.toml` | packaged; selectors preserved on update |
 | Claude Code | `~/.claude/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
 | Cursor | `~/.cursor/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
 | Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
@@ -86,13 +87,15 @@ records each file digest plus the assignment it was rendered from; Kilo's record
 Claude Code and Cursor keep no receipt: their roles are verified by comparing the installed files
 with the rendered templates.
 
-A receipt is an integrity record, never an authority. It is read, never rewritten, and a mismatch is
-a report-only Doctor warning. Nothing in Better Plan turns current bytes into a fresh receipt, and a
-receipt that disagrees with local files never causes a role file to be replaced.
+A receipt is an integrity record, never an authority. A prompt refresh rewrites the digests of the
+files it maintained and keeps the recorded assignment provenance; a mismatch outside that refresh is
+a report-only Doctor warning. Doctor never turns current bytes into a fresh receipt, and a receipt
+that disagrees with local files never causes a role file to be replaced.
 
 ## Codex presets
 
-Codex writes its three selectors once at first installation and never rewrites them afterwards.
+Codex writes its three selectors once at first installation and never rewrites them afterwards; role
+prompt content is refreshed by install and update.
 Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
 selects. The packaged catalog records those rows at 52 for `designer` and `reviewer` and 37 for
 `worker`, each with the task cost the same table publishes (`gpt-6-astra-xhigh` $2.31, `gpt-6-luna`
@@ -110,15 +113,17 @@ or adopt a selector, and no command prints an installed-versus-recommended compa
 role exists, the host uses it; if none exists, the host decides what to run, and the packaged
 presets above are only what a first installation writes.
 
-## Native role immutability
+## Native role configuration and prompt refresh
 
-An existing native role file or role receipt is immutable local host configuration. Better Plan may
-install its matrix only when no same-name role configuration or receipt exists. After that first
-installation, every install, update, uninstall, migration, repair, and Doctor operation must leave
-all role files and receipts byte-identical while updating only skills, plugins, and adapters.
+An existing native role file is split by ownership. Model, provider, variant, reasoning effort,
+tool, permission, and sandbox fields are host configuration: install, update, uninstall, migration,
+repair, and Doctor leave them byte-identical. Description and instruction text are skill-owned:
+install and update refresh them from the current packaged template, preserve every host-owned field,
+and refresh the receipt digests to match. A role file without a recognizable prompt structure is
+left untouched, and Better Plan never adds or removes role files after first installation.
 
-Neither a receipt mismatch nor an explicit replacement request authorizes Better Plan to edit,
-remove, adopt, re-sign, or regenerate local roles. Doctor reports the integrity finding as a warning
+Neither a receipt mismatch nor an explicit replacement request authorizes changing host-owned fields
+or rewriting prompts outside install and update. Doctor reports the integrity finding as a warning
 without a repair proposal. If the user wants different native roles, that remains a manual
 host-configuration operation outside the Better Plan installer; never describe a local override as a
 recommendation change. Uninstall removes the selected skills, plugins, and adapters while preserving
@@ -137,9 +142,9 @@ when the host format supports a non-destructive merge. A receipt covers only art
 Better Plan created and never converts a pre-existing file into a managed file. Uninstall removes
 only owned artifacts. On a collision or replacement requirement, fail closed and leave the original
 untouched. Only an explicit request naming the exact existing file and mutation can authorize it.
-Existing native role files and receipts are always governed by the stricter immutability rule above,
+Existing native role files and receipts are always governed by the stricter native-role rule above,
 including Better Plan-created roles; neither this update authorization nor the explicit-file
-exception permits changing them.
+exception permits changing host-owned fields or rewriting prompts outside install and update.
 
 ## Skill layout
 
@@ -169,7 +174,7 @@ Doctor is read-only and reports each selected target separately:
 | Kilo | Agent matrix against the packaged sources, installed skill structure, `kilo agent list` when the CLI is present |
 | DeepSeek Harness | installed skill structure |
 
-Source comparison checks the shared payload once per selected install; it excludes immutable host
+Source comparison checks the shared payload once per selected install; it excludes native host
 role files and receipts, so a successful skill comparison never means those were updated. Run Doctor
 from the intended source checkout, or pass that checkout with `--source`. An installed tree compared
 with itself cannot prove that an update occurred, and Doctor reports that limitation. A `FAIL` exits
@@ -179,5 +184,6 @@ installed — does not.
 Role receipt integrity and current template consistency are independent Doctor results.
 An old unmodified role can match its original receipt while differing from current
 templates. A user-edited role can match current instructions while differing from the
-original receipt. Neither result causes replacement or re-signing. Codex template
-comparison uses native role names and instruction fields, not model selectors.
+original receipt. Neither result causes replacement; only an install or update prompt
+refresh rewrites receipt digests. Codex template comparison uses native role names and
+instruction fields, not model selectors.
