@@ -68,6 +68,9 @@ leave the project buildable and runnable after their declared prerequisites.
 Longer programmes keep future milestones as outlines until their requirements are
 understood; see [programme guidance](references/programme.md).
 
+Optional [engineering references](references/engineering.md) cover architecture,
+work slicing, tests, and acceptance; consult the relevant topic when useful.
+
 ## Tools when needed
 
 Use `python3 scripts/manifest_tool.py` from the installed skill:

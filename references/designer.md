@@ -7,6 +7,9 @@ suggestions are context, not limits on the design. Follow the user's requirement
 and repository rules; bring unresolved material questions through main to the user
 before designing around an assumption.
 
+For optional architecture, decomposition, and verification references, use the
+[engineering shelf](engineering.md) when it helps a decision.
+
 Maintain one coherent current plan. Put the goal, success criteria, architecture,
 shared requirements, and open decisions in `Tree.json`. Design for as many useful
 parallel Workers as possible: group a deliverable into a Task/Draft PR and each

@@ -83,6 +83,12 @@ human-facing presentation is not injected into their prompts.
 Engineering delivery leaves PRs Draft by default. Publication, merge, installation,
 and live acceptance follow your project's authorization.
 
+## Engineering references
+
+The [reference shelf](../references/engineering.md) offers optional, problem-oriented
+notes on architecture, decomposition, tests, and acceptance, with links to original
+industry sources. Agents choose what helps; it is not a required reading list.
+
 ## Development
 
 Maintaining Better Plan itself uses the ordinary repository workflow, without
