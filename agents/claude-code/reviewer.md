@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Better Plan Reviewer — audits current delivery state
+description: Better Plan Reviewer — owns convergence, repair, and delivery closure
 tools: Read, Edit, Write, Glob, Grep, Bash
 permission:
   edit: allow

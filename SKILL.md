@@ -64,6 +64,26 @@ change, the tool walks only the affected downstream graph and adds a source-keye
 review item. It keeps existing status and result. Repeated changes from the same
 source replace that pending item instead of building a revision story.
 
+## Roles and convergence
+
+The Reviewer is the normal convergence owner: identify and directly repair problems,
+integrate changes, verify the outcome, and close the current plan and delivery results
+within the approved scope. The main Agent has the same artifact authority, but should
+normally assign a launchable Reviewer the complete convergence outcome, not a
+read-only findings handoff or a loop returning ordinary fixes to Workers or main.
+Main coordinates scheduling and may mechanically publish the Reviewer's conclusion;
+main performs convergence when the Reviewer is unavailable or the user explicitly
+assigns main.
+
+Workers retain initial Node implementation, start, checks, and finish. One continuous
+Reviewer closes one unit — a Task, a Tree, or a programme milestone — including all of
+its defects; do not dispatch several Reviewers for the same unit. Independent units
+may run in parallel with shared writers and real dependencies coordinated. This is a
+responsibility default, not a required role count, second review, or approval gate.
+Artifact authority does not override host permissions or authorize new scope or
+protected effects. See [references/reviewer.md](references/reviewer.md) for
+remediation and closure details.
+
 ## Worker flow
 
 Start through the tool:
@@ -85,9 +105,9 @@ exceptions. Record the Node's scoped commit. When all Nodes finish, the response
 reports `ready_for_integration` and the designated `integration_owner`; finishing
 last never assigns that responsibility to the Worker.
 
-The integration owner records the Task result after integrating and verifying it.
-The main Agent records the overall Tree result after whole-delivery review and
-verification:
+The Reviewer normally owns Task integration and records the Task result after
+integration and verification. The Reviewer assigned whole-delivery convergence
+records the overall Tree result after review, repair, and verification:
 
 ```sh
 python3 scripts/manifest_tool.py task finish <root> TASK-001 --summary "Integrated and verified; PR remains Draft."
@@ -132,9 +152,9 @@ when that audit discovers a real correction to implement.
 
 Task and Tree finish leave PRs Draft. Their result is an engineering handoff, not
 authorization to make PRs Ready, merge, install or run live acceptance. A project's
-explicit delivery policy may describe those later operations; the main Agent must
-follow the actual authorization. Dependent Task PRs may be stacked on their declared
-dependencies. Do not label them independent merely to maximize parallel work.
+explicit delivery policy may describe those later operations; every acting Agent
+must follow the actual authorization. Dependent Task PRs may be stacked on their
+declared dependencies. Do not label them independent merely to maximize parallel work.
 
 Parallelize source changes and isolated builds when their declared resources do not
 conflict. Treat a shared runtime, installed client, or real user-data location as a

@@ -1,5 +1,5 @@
 ---
-description: Better Plan Reviewer — audits current delivery state
+description: Better Plan Reviewer — owns convergence, repair, and delivery closure
 mode: subagent
 temperature: 0.1
 permission:

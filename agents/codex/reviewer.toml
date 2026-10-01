@@ -1,5 +1,5 @@
 name = "reviewer"
-description = "Better Plan Reviewer — audits current delivery state"
+description = "Better Plan Reviewer — owns convergence, repair, and delivery closure"
 sandbox_mode = "workspace-write"
 
 developer_instructions = """

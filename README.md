@@ -28,6 +28,20 @@ One optional `Programme.json` indexes several delivery workspaces and their orde
 may outline far-term deliveries that have no Tree yet, and pairs with a
 `Requirements.json` catalogue. It stores no copied execution state.
 
+## Roles and convergence
+
+Workers implement and finish initial Nodes. The Reviewer normally owns convergence:
+find and directly fix problems across the approved artifacts, integrate Node commits,
+verify the result, and record Task and whole-Tree conclusions. One Reviewer closes one
+milestone, Task, or plan, including all of its defects; do not dispatch several
+Reviewers for the same unit. Main has the same artifact authority but normally
+delegates this complete outcome to a launchable Reviewer and coordinates scheduling,
+rather than assigning read-only review and taking routine repairs back. Main may
+publish the Reviewer's conclusion or perform convergence when the Reviewer is
+unavailable or the user explicitly assigns main. This default adds no role-count rule,
+second-review requirement, or approval gate; host permissions and protected-effect
+authorization still apply.
+
 ## Quick start
 
 ```sh
@@ -74,10 +88,11 @@ removal reconnects its direct predecessors and successors by default; subtree
 operations preserve external joins and accept explicit entry and exit boundaries.
 
 Finishing a Node prints an advisory scoped-commit reminder. When all Nodes finish,
-the designated Task integration owner assembles commits, verifies the integrated
-outcome and maintains its Draft PR before recording `task finish`. The main Agent
-records `tree finish` after overall review. Finish records a conclusion and any
-exceptions, without executing Git or tests. PRs remain Draft; subsequent Ready,
+the designated Task integration owner, normally the Reviewer, assembles commits,
+repairs defects, verifies the integrated outcome and maintains its Draft PR before
+recording `task finish`. The Reviewer assigned whole-Tree convergence records
+`tree finish` after overall review, repair and verification. Finish records a
+conclusion and any exceptions, without executing Git or tests. PRs remain Draft; subsequent Ready,
 merge, installation and live acceptance require separate authorization.
 
 Task and Tree delivery states are `unrecorded`, `recorded` or `needs_review`.
