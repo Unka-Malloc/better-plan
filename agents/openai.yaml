@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
-  short_description: "Long-lived delivery plans with local tree operations"
-  default_prompt: "Use the native workflow when maintaining the Better Plan source repository. Elsewhere, use $better-plan for large, high-risk, migration, or multi-part delivery: archive relevant conversation context, maintain Task Draft PR groups and their dependency Nodes as scoped commits through the tree tools, let graph operations propagate reviews and scoped check scheduling, assign each Task an integration owner, record Task and Tree engineering delivery separately with PRs Draft, and hand each Worker the compact context printed by node start and node finish."
+  short_description: "Shared plans for autonomous, long-lived collaboration"
+  default_prompt: "Use $better-plan as the shared plan: main conveys user needs and keeps the flow moving; one Designer designs, Workers execute in parallel, and one independent Reviewer repairs and integrates after other writers finish. Use the ordinary repository workflow when maintaining Better Plan itself."

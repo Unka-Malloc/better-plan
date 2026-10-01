@@ -66,21 +66,8 @@ def _native_source_directory(paths: _InstallPaths, target: str) -> Path:
     return paths.repo_root / "agents" / _NATIVE_SOURCE_TARGET.get(target, target)
 
 
-def _unpinned_assignment_line(agent_name: str) -> str:
-    """Return the static identity line for a host that packages no selector.
-
-    Every worker slot a delivery uses is dispatched to this one installed worker
-    role, so the identity line names the agent, not a slot.
-    """
-
-    return (
-        f"assignment: agent={agent_name} | role={agent_name} | "
-        "model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance"
-    )
-
-
 def unpinned_role_payload(paths: _InstallPaths, target: str) -> dict[str, bytes]:
-    """Return each unpinned role file with its identity line substituted."""
+    """Return assignment-neutral prompt files for a host-owned selector."""
 
     filenames = NATIVE_ROLE_FILES.get(target)
     if filenames is None or target not in UNPINNED_HOSTS:
@@ -90,12 +77,13 @@ def unpinned_role_payload(paths: _InstallPaths, target: str) -> dict[str, bytes]
     try:
         for filename in filenames:
             text = (source / filename).read_text(encoding="utf-8")
-            if not text.strip() or not text.startswith("---\n") or "ASSIGNMENT_PLACEHOLDER" not in text:
+            if (
+                not text.strip()
+                or not text.startswith("---\n")
+                or "\n---\n" not in text[4:]
+            ):
                 raise ValueError
-            line = _unpinned_assignment_line(posixpath.splitext(filename)[0])
-            rendered = text.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
-            rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
-            payload[filename] = rendered.encode("utf-8")
+            payload[filename] = text.encode("utf-8")
     except (OSError, UnicodeError, ValueError):
         raise _InstallError("%s role template source is missing or malformed" % target)
     return payload
@@ -145,17 +133,15 @@ def _validate_kilo_sources(paths: _InstallPaths) -> dict[str, bytes]:
                     "mode: primary",
                     '"*": allow',
                     "better-plan: allow",
-                    "Handle simple tasks directly",
+                    "Read the installed `better-plan` SKILL.md",
                 )
             else:
-                # Every Subagent is a leaf: the native main owns Task dispatch and joins,
-                # so a Worker never receives the Task tool and nesting cannot recurse.
+                # These equal host permissions keep all packaged Subagents at the host's leaf boundary.
                 required = (
                     "mode: subagent",
                     "task: deny",
                     "question: deny",
-                    "model=parent-inherited",
-                    "reasoning_effort=host-default",
+                    "Read the installed `better-plan` SKILL.md",
                 )
             if any(value not in text for value in required):
                 raise ValueError
@@ -430,7 +416,7 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
     try:
         for filename in filenames:
             text = (source / filename).read_text(encoding="utf-8")
-            if not text.strip() or "ASSIGNMENT_PLACEHOLDER" not in text:
+            if not text.strip():
                 raise ValueError
             if not text.startswith("name = ") or "developer_instructions =" not in text:
                 raise ValueError
@@ -440,28 +426,10 @@ def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str
     return payload
 
 
-def _role_identity(agent_name: str, role: str) -> str:
-    return (
-        f"Role identity: agent={agent_name} | role={role}\n"
-        "Report model and reasoning_effort from host-provided runtime metadata when available, "
-        "with source=host-runtime. Otherwise echo the dispatch's assignment_line unchanged; "
-        "its source identifies configured selection, not confirmed runtime identity. "
-        "If neither is available, report model=unknown | reasoning_effort=unknown | source=unavailable. "
-        "Never guess your model, repeat an installation-time selector, or report benchmark scores "
-        "as runtime identity."
-    )
-
-
 def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
-    """Render one packaged Codex role with its identity block and pinned selector.
+    """Render one assignment-neutral role prompt with its configured TOML selectors."""
 
-    The installed prompt never repeats the installation-time benchmark receipt:
-    Codex reports runtime identity, so the selector lives only in the TOML fields.
-    """
-
-    line = _role_identity(assignment.agent_name, assignment.role)
-    rendered = source.replace("Pinned identity: ASSIGNMENT_PLACEHOLDER", line)
-    rendered = rendered.replace("ASSIGNMENT_PLACEHOLDER", line)
+    rendered = source
     marker = "sandbox_mode = "
     position = rendered.find(marker)
     if position < 0:
@@ -626,19 +594,7 @@ def _refresh_role_prompts(
         expected: dict[str, str] = {}
         for role, source in _validate_native_sources(paths, "codex").items():
             path = destination / f"{role}.toml"
-            agent_name = role
-            if path.is_file() and not path.is_symlink():
-                try:
-                    match = re.search(
-                        r'(?m)^name = "([^"]+)"', path.read_text(encoding="utf-8")
-                    )
-                except (OSError, UnicodeError):
-                    match = None
-                if match is not None:
-                    agent_name = match.group(1)
-            expected[path.name] = source.replace(
-                "ASSIGNMENT_PLACEHOLDER", _role_identity(agent_name, agent_name)
-            )
+            expected[path.name] = source
         changed, digests, complete = _refresh_prompt_files(
             destination, expected, format="codex", dry_run=dry_run
         )
@@ -875,14 +831,14 @@ def codex_template_status(paths: _InstallPaths) -> tuple[bool, str]:
                 local.setdefault(document["name"], []).append(document)
         different = []
         for role, source in sources.items():
-            expected = tomllib.loads(source.replace("ASSIGNMENT_PLACEHOLDER", _role_identity(role, role)))
+            expected = tomllib.loads(source)
             documents = local.get(role, [])
             if len(documents) != 1 or any(documents[0].get(key) != expected.get(key)
-                                          for key in ("description", "sandbox_mode", "developer_instructions")):
+                                          for key in ("description", "developer_instructions")):
                 different.append(role)
         if different:
             return False, "role template differs or is unavailable: %s; difference alone does not establish a workflow conflict" % ", ".join(sorted(different))
-        return True, "role instructions match current templates; local model selectors were not compared"
+        return True, "role instructions match current templates; host-owned fields were not compared"
     except (OSError, ValueError, _InstallError):
         return False, "role template comparison unavailable; report only"
 

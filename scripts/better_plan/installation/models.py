@@ -28,14 +28,18 @@ DESCRIPTION = (
     "Long-lived delivery planning with split current state, local tree operations, "
     "scoped checks, and immutable on-demand history."
 )
-# This is the minimum executable payload, not a compatibility inventory. Removed
-# top-level implementations must never reappear here.
+# Canonical distribution: tools, Agent guidance, and human-facing documentation.
 CURRENT_SKILL_FILES = (
     "README.md",
+    "LICENSE",
+    "docs/guide.md",
+    "docs/images/workflow.svg",
+    "docs/presentations/better-plan-workflow.html",
     "SKILL.md",
     "agents/openai.yaml",
     "references/design-principles.md",
     "references/host-configuration.md",
+    "references/main.md",
     "references/designer.md",
     "references/checkpoints-tree.md",
     "references/programme.md",

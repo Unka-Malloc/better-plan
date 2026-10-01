@@ -679,7 +679,10 @@ def show_node(args: Any) -> int:
     node = dict(nodes[node_id])
     task = tasks.get(str(node.get("task")))
     payload = {
-        "tree": {key: tree.get(key) for key in ("id", "title", "goal", "success", "delivery_policy")},
+        "tree": {
+            key: tree.get(key)
+            for key in ("id", "title", "goal", "success", "architecture", "open_decisions", "delivery_policy")
+        },
         "requirements": {"tree": tree.get("requirements") or [], "task": (task or {}).get("requirements") or []},
         "task": {key: (task or {}).get(key) for key in ("id", "title", "outcome", "requirements", "draft_pr", "integration_owner", "delivery")},
         "node": node,
@@ -698,7 +701,10 @@ def _worker_context(
 ) -> dict[str, Any]:
     result = {
         "phase": phase,
-        "tree": {key: tree.get(key) for key in ("id", "title", "goal", "success", "delivery_policy")},
+        "tree": {
+            key: tree.get(key)
+            for key in ("id", "title", "goal", "success", "architecture", "open_decisions", "delivery_policy")
+        },
         "task": {key: task.get(key) for key in ("id", "title", "outcome", "requirements", "draft_pr", "integration_owner", "delivery")},
         "requirements": {"tree": tree.get("requirements") or [], "task": task.get("requirements") or []},
         "node": {"id": node.get("id"), "title": node.get("title"), "outcome": node.get("outcome"), "contract": node.get("contract") or {}, "commit": node.get("commit")},
@@ -770,12 +776,19 @@ def finish_node(args: Any) -> int:
         payload["ready_for_integration"] = ready_for_integration
         payload["integration_owner"] = task.get("integration_owner")
         if ready_for_integration:
-            payload["integration_reminder"] = (
-                "All Node execution is complete. Hand off to the Task's designated integration owner "
-                "to assemble commits, verify the integrated outcome, maintain the Draft PR and record "
-                "task finish. Completion order does not assign ownership. Keep the PR Draft; Ready, "
-                "merge, installation and live acceptance require the project's separate authorization."
-            )
+            unfinished = sum(item.get("status") != "completed" for item in nodes.values())
+            if unfinished:
+                payload["integration_reminder"] = (
+                    "Task-local readiness only. Unfinished Tree Nodes: %s. Wait for all other Writers "
+                    "to finish. Main confirms host completion signals before resuming the single Reviewer."
+                    % unfinished
+                )
+            else:
+                payload["integration_reminder"] = (
+                    "All Tree Nodes are recorded complete; this does not prove that host Agents stopped writing. "
+                    "Main confirms host completion signals before resuming or starting the single Reviewer. "
+                    "Keep PRs Draft unless further action is authorized."
+                )
     print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 

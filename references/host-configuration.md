@@ -1,6 +1,6 @@
 # Host Configuration and Role Visibility
 
-Read this reference only before the first Better Plan role dispatch in a conversation, native role
+Read this reference for native role
 configuration changes, installation/update/Doctor work, or host integration. Ordinary planning and
 delivery turns do not load it.
 
@@ -15,8 +15,8 @@ host's session state.
 
 ## Optional packaged roles
 
-Better Plan offers three role profiles for hosts that want them. They are advisory
-helpers, not a workflow cardinality rule:
+Better Plan offers three native role profiles. The workflow uses one Designer,
+parallel Workers, and one Reviewer; native profiles are optional ways to load them:
 
 | Role | Purpose | Codex preset selector |
 |---|---|---|
@@ -28,42 +28,35 @@ A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a stre
 worker profile handles any Node assigned to it. A Task is a group of Node commits delivered in one
 Draft PR, so work that needs independent commits is split into Nodes with explicit dependencies.
 
-Main normally assigns a launchable Reviewer the complete convergence outcome, not
-read-only review followed by routine repairs in main or a Worker. One Reviewer is
-sufficient for one Task, Tree, or programme milestone; do not dispatch several
-Reviewers for the same unit. See `references/reviewer.md` for ownership, fallback, and
-closure. This is a responsibility default, not a requirement to launch a particular
-number of native roles.
+Main conveys user requirements and work references. Agents load the shared skill
+and their role reference directly. One Reviewer retains convergence responsibility
+after all other writers finish; use native resumption for omissions or interruptions.
+See `references/main.md` for continuity and question relay.
 
-New first-install role templates contain stable identity and permission boundaries plus a reference to
-the installed SKILL.md and a reference
-to `references/designer.md`, `references/worker.md`, or `references/reviewer.md` in the installed
-skill. The native main forwards the dispatch's brief; the role reads that reference before acting,
-so a skill update can maintain detailed workflow and reporting instructions without changing the
-host role file.
+Role prompt content identifies the role and loads its maintained guidance. It does
+not repeat model, effort, provenance, repository rules, or workflow instructions.
+Host configuration and receipts retain configuration facts outside the prompt.
 
 Existing local roles, including older inline workflow instructions, keep their host-owned fields;
 install and update refresh their prompt content from the current template. A shared reference or
 dispatch brief cannot override host constraints. Report a concrete conflict to the native main when
 it affects authorized work; neither recommendation drift nor an update itself creates a new approval
-question. Only future first installations use the smaller templates. Before dispatch, report a concrete
-conflict to the main Agent with the conflicting instruction and affected operation. Do not treat
-a template difference alone as a conflict or as authority to replace local roles.
+question. Report the conflicting instruction and affected operation before dependent
+work. Do not treat a template difference alone as a conflict or as authority to replace
+local roles.
 
 ## Role matrix per target
 
 | Target | Roles installed as | Selector |
 |---|---|---|
 | Codex | `$CODEX_HOME/agents/{designer,worker,reviewer}.toml` | packaged; selectors preserved on update |
-| Claude Code | `~/.claude/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
-| Cursor | `~/.cursor/agents/{designer,worker,reviewer}.md` | `source=host-inheritance` |
+| Claude Code | `~/.claude/agents/{designer,worker,reviewer}.md` | host-inherited |
+| Cursor | `~/.cursor/agents/{designer,worker,reviewer}.md` | host-inherited |
 | Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
 | DeepSeek Harness | no role file at all; roles are prompts | none |
 
-Claude Code and Cursor receive one static
-`assignment: agent=<role> | role=<role> | model=host-inherited | reasoning_effort=host-inherited | source=host-inheritance`
-line, because the host and the user's own configuration own that choice. Never synthesize a model or
-effort for them.
+Claude Code and Cursor inherit model and effort from host configuration; no identity
+or selector metadata is injected into the working prompt.
 
 Every Kilo Subagent is a leaf: the packaged files deny the Task and question tools, so a worker
 cannot dispatch its own Nodes and nesting cannot recurse. Kilo pins no model, no variant, and no
