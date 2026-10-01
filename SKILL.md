@@ -251,13 +251,14 @@ checks. Reports do not parse prose or read history.
 Read [references/checkpoints-tree.md](references/checkpoints-tree.md) for the exact
 file and command contract, [references/programme.md](references/programme.md) for
 multi-delivery indexing, and the role references for concise authoring and execution
-guidance. Host role files and receipts are existing user configuration; installation
-operations never rewrite or re-sign them.
+guidance. Host-owned role fields remain existing user configuration; install and
+update refresh role prompt content as described in the host reference.
 
 ## Host role boundaries
 
-Load the current skill and role reference for each assignment. Existing native role
-files and receipts remain user configuration; skill updates cannot override their
-instructions. Report a concrete host/skill constraint conflict to the main Agent.
-Doctor reports source consistency, receipt integrity and template differences
-separately; template drift alone is not evidence of a semantic conflict.
+Load the current skill and role reference for each assignment. Role model, tool,
+permission, and sandbox fields remain user configuration; install and update refresh
+role prompt content from the current reference while preserving those fields. Report
+a concrete host/skill constraint conflict to the main Agent. Doctor reports source
+consistency, receipt integrity and template differences separately; template drift
+alone is not evidence of a semantic conflict.

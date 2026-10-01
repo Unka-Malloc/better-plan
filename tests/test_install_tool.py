@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,10 +23,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROLES = ("designer", "worker", "reviewer")
 
 
-def make_paths(root: Path) -> install_models.InstallPaths:
+def make_paths(root: Path, repo_root: Path = REPO_ROOT) -> install_models.InstallPaths:
     home = root / "home"
     return install_models.InstallPaths(
-        repo_root=REPO_ROOT,
+        repo_root=repo_root,
         codex_home=home / ".codex",
         shared_home=home / ".agents",
         claude_home=home / ".claude",
@@ -90,7 +91,7 @@ class InstallTests(unittest.TestCase):
             with self.subTest(role=role):
                 self.assertEqual(receipt["assignments"][role].model, CODEX_DEFAULT_MATRIX[role][1])
 
-    def test_a_local_role_file_is_never_overwritten(self) -> None:
+    def test_a_local_role_without_a_prompt_structure_is_left_untouched(self) -> None:
         agents = self.paths.codex_home / "agents"
         agents.mkdir(parents=True)
         local = agents / "worker.toml"
@@ -206,7 +207,65 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.paths.shared_skill.exists())
         self.assertEqual(role.read_bytes(), before)
 
-    def test_every_non_initial_installation_keeps_roles_and_receipts_byte_identical(self) -> None:
+    def test_an_update_refreshes_role_prompts_and_preserves_local_configuration(self) -> None:
+        source = Path(self.temporary.name) / "source"
+        shutil.copytree(
+            REPO_ROOT, source, ignore=shutil.ignore_patterns(".git", "__pycache__", ".kilo")
+        )
+        paths = make_paths(Path(self.temporary.name), repo_root=source)
+        install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
+
+        worker = paths.codex_home / "agents" / "worker.toml"
+        worker.write_text(
+            worker.read_text(encoding="utf-8").replace(
+                'model = "gpt-6-luna"', 'model = "local-choice"'
+            ),
+            encoding="utf-8",
+        )
+        claude = paths.claude_home / "agents" / "designer.md"
+        claude.write_text(
+            claude.read_text(encoding="utf-8").replace(
+                "  bash: allow", "  bash: allow\n  custom: keep"
+            ),
+            encoding="utf-8",
+        )
+        kilo = paths.kilo_agents / "better-plan-reviewer.md"
+        kilo.write_text(
+            kilo.read_text(encoding="utf-8").replace("  edit: allow", "  edit: deny"),
+            encoding="utf-8",
+        )
+
+        for relative in (
+            "agents/codex/worker.toml",
+            "agents/claude-code/designer.md",
+            "agents/kilo/better-plan-reviewer.md",
+        ):
+            template = source / relative
+            template.write_text(
+                template.read_text(encoding="utf-8").replace(
+                    "You are the", "Updated prompt: You are the"
+                ),
+                encoding="utf-8",
+            )
+
+        install_service.install_agents(paths, list(install_models.AGENTS), dry_run=False)
+
+        worker_text = worker.read_text(encoding="utf-8")
+        self.assertIn('model = "local-choice"', worker_text)
+        self.assertIn("Updated prompt: You are the", worker_text)
+        claude_text = claude.read_text(encoding="utf-8")
+        self.assertIn("custom: keep", claude_text)
+        self.assertIn("Updated prompt: You are the", claude_text)
+        kilo_text = kilo.read_text(encoding="utf-8")
+        self.assertIn("edit: deny", kilo_text)
+        self.assertIn("Updated prompt: You are the", kilo_text)
+
+        checks = {item.target: item for item in install_doctor.doctor(paths, ["codex", "kilo"])}
+        self.assertEqual(checks["codex role templates"].status, "OK")
+        self.assertEqual(checks["codex role receipt"].status, "OK")
+        self.assertEqual(checks["kilo role receipt"].status, "OK")
+
+    def test_a_repeated_install_keeps_current_prompts_and_receipts_byte_identical(self) -> None:
         self.install_all()
         protected = self.protected_role_state()
         before = {path: path.read_bytes() for path in protected}

@@ -36,14 +36,18 @@
   Preserve this explicit requirement; do not infer permission to repair or rerun from the general
   autonomy rule. Continue only work independent of that decision while it is pending.
 
-## Native role immutability
+## Native role configuration and prompt refresh
 
-- Treat every existing local native role file and role receipt as immutable host configuration.
-  Better Plan may create its role matrix only when no same-name role configuration or receipt exists.
-- Install, update, uninstall, Doctor, migration, repair, and explicit replacement requests never authorize
-  Better Plan to edit, remove, adopt, re-sign, or regenerate an existing local role matrix or its
-  receipt. Update only skills, plugins, and adapters around it.
+- Treat every host-owned role field as user configuration: model, provider, variant, reasoning
+  effort, tools, permissions, sandbox, and any local key. Better Plan may create its role matrix
+  only when no same-name role configuration or receipt exists.
+- Role prompt content — description and instruction body — is maintained by the skill. Install and
+  update refresh it from the current packaged template, preserve every host-owned field, and refresh
+  the receipt digests to match. A role file without a recognizable prompt structure stays untouched.
+- Install, update, uninstall, Doctor, migration, repair, and explicit replacement requests never
+  authorize changing host-owned fields, adding or removing role files, or rewriting prompts outside
+  that refresh. Update skills, plugins, and adapters around them.
 - A receipt mismatch is a report-only Doctor warning. Never recommend replacement as its repair,
-  never convert the current bytes into a fresh receipt, and never displace unrelated local agents.
-- Verify that role files and receipts remain byte-identical across every non-initial installation
-  operation, then report the separate skill, plugin, and adapter Doctor results.
+  never regenerate a receipt outside a prompt refresh, and never displace unrelated local agents.
+- Verify host-owned fields remain byte-identical across every non-initial installation operation,
+  then report the separate skill, plugin, and adapter Doctor results.

@@ -38,7 +38,7 @@ def check_skill_tree(target: str, root) -> _Check:
 
 
 def check_skill_source(target: str, root: Path, source: Path) -> _Check:
-    """Compare the packaged payload, excluding immutable host role files."""
+    """Compare the packaged payload, excluding native host role files and receipts."""
 
     label = f"{target} skill source"
     if root.resolve() == source.resolve():
@@ -162,7 +162,7 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
 
 
 def check_native_roles(paths: _InstallPaths, target: str) -> _Check:
-    """Report the immutable local role matrix without proposing replacement."""
+    """Report the local role matrix and prompt drift without proposing replacement."""
 
     ok, message = _targets.native_role_status(paths, target)
     if ok:

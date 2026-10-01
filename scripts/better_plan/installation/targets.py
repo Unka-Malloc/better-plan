@@ -209,6 +209,19 @@ def _write_kilo_receipt(path: Path, payload: dict[str, bytes]) -> None:
         raise _InstallError("could not write Kilo Agent receipt") from exc
 
 
+def _replace_kilo_receipt(path: Path, files: dict[str, str]) -> None:
+    """Refresh Kilo receipt digests after a prompt-only update.
+
+    Kilo pins no model, so only the digests of the maintained prompt files change.
+    """
+
+    value = {"schema_version": 1, "target": "kilo", "files": files}
+    try:
+        path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise _InstallError("could not write Kilo Agent receipt") from exc
+
+
 def _create_native_role(path: Path, content: bytes) -> None:
     try:
         with path.open("xb") as stream:
@@ -222,7 +235,9 @@ def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[st
 
     payload = _validate_kilo_sources(paths)
     if kilo_agent_configuration_exists(paths):
-        return ["native: preserved kilo Agent matrix"]
+        messages = ["native: preserved kilo Agent matrix"]
+        messages.extend(_refresh_kilo_prompts(paths, dry_run=dry_run))
+        return messages
     destination = paths.kilo_agents
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise _InstallError("Kilo Agent destination is not a managed directory")
@@ -290,9 +305,10 @@ def _assignment_value(value: object) -> _RoleAssignment:
         "role", "agent_name", "model", "reasoning_effort", "benchmark_id",
         "index_score", "cost_per_task_usd", "source",
     }
-    # A receipt is immutable and is never regenerated, so the shapes written by earlier versions
-    # must stay readable: `index_basis` is accepted and ignored, because evaluation now always uses
-    # the single standard Intelligence Index.
+    # A receipt is written once at first installation and later refreshed only by a prompt
+    # update, so the shapes written by earlier versions must stay readable: `index_basis`
+    # is accepted and ignored, because evaluation now always uses the single standard
+    # Intelligence Index.
     if not isinstance(value, dict) or set(value) not in (required, required | {"index_basis"}):
         raise _InstallError("native role template receipt is invalid")
     strings = ("role", "agent_name", "model", "benchmark_id", "source")
@@ -379,6 +395,32 @@ def _write_native_receipt(path: Path, target: str, payload: list[tuple[str, byte
         raise _InstallError("could not write native role template receipt") from exc
 
 
+def _replace_native_receipt(
+    path: Path,
+    assignments: dict[str, _RoleAssignment],
+    digests: dict[str, str],
+) -> None:
+    """Refresh Codex receipt digests after a prompt-only update.
+
+    Assignment provenance stays as originally selected: host-owned selector fields
+    are never rewritten by a prompt refresh.
+    """
+
+    value = {
+        "schema_version": 3,
+        "target": "codex",
+        "files": digests,
+        "assignments": {
+            f"{assignment.agent_name}.toml": _assignment_payload(assignment)
+            for assignment in assignments.values()
+        },
+    }
+    try:
+        path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise _InstallError("could not write native role template receipt") from exc
+
+
 def _validate_native_sources(paths: _InstallPaths, target: str) -> dict[str, str]:
     filenames = NATIVE_ROLE_FILES.get(target)
     if filenames is None:
@@ -431,6 +473,222 @@ def _render_native_source(source: str, assignment: _RoleAssignment) -> bytes:
     return rendered.encode("utf-8")
 
 
+def _merge_markdown_prompt(existing: str, expected: str) -> str | None:
+    """Replace description and body, preserving host-owned frontmatter keys.
+
+    ``name``, ``tools``, ``permission``, ``mode``, ``temperature`` and any local key
+    stay byte-identical. A file without a recognizable frontmatter block is left
+    untouched by returning ``None``.
+    """
+
+    def split(text: str) -> tuple[list[str], str] | None:
+        if not text.startswith("---\n"):
+            return None
+        end = text.find("\n---\n", 4)
+        if end < 0:
+            return None
+        return text[4:end].splitlines(), text[end + 5:]
+
+    current = split(existing)
+    target = split(expected)
+    if current is None or target is None:
+        return None
+    front, _ = current
+    target_front, target_body = target
+    description = next(
+        (line for line in target_front if line.startswith("description:")), None
+    )
+    merged: list[str] = []
+    replaced = False
+    for line in front:
+        if line.startswith("description:"):
+            replaced = True
+            if description is not None:
+                merged.append(description)
+            continue
+        merged.append(line)
+    if not replaced and description is not None:
+        index = next(
+            (
+                position
+                for position, line in enumerate(target_front)
+                if line.startswith("description:")
+            ),
+            len(merged),
+        )
+        merged.insert(min(index, len(merged)), description)
+    return "---\n" + "\n".join(merged) + "\n---\n" + target_body
+
+
+def _merge_codex_prompt(existing: str, rendered: str) -> str | None:
+    """Replace description and developer_instructions, preserving selector lines.
+
+    ``model``, ``model_reasoning_effort``, ``sandbox_mode`` and any local key stay
+    byte-identical. A file without a recognizable prompt block is left untouched.
+    """
+
+    def locate(text: str) -> tuple[list[str], str, int, int] | None:
+        lines = text.splitlines(keepends=True)
+        description: str | None = None
+        start = end = None
+        for index, line in enumerate(lines):
+            if description is None and line.startswith("description = "):
+                description = line
+            if start is None and line.startswith("developer_instructions = "):
+                start = index
+                for close in range(index + 1, len(lines)):
+                    if lines[close].rstrip("\n") == '"""':
+                        end = close
+                        break
+                break
+        if description is None or start is None or end is None:
+            return None
+        return lines, description, start, end
+
+    current = locate(existing)
+    target = locate(rendered)
+    if current is None or target is None:
+        return None
+    lines, _, start, end = current
+    target_lines, target_description, target_start, target_end = target
+    merged = [
+        *lines[:start],
+        *target_lines[target_start:target_end + 1],
+        *lines[end + 1:],
+    ]
+    result: list[str] = []
+    replaced = False
+    for line in merged:
+        if line.startswith("description = ") and not replaced:
+            result.append(target_description)
+            replaced = True
+            continue
+        result.append(line)
+    return "".join(result)
+
+
+def _refresh_prompt_files(
+    destination: Path,
+    expected: dict[str, str],
+    *,
+    format: str,
+    dry_run: bool,
+) -> tuple[list[str], dict[str, str], bool]:
+    """Rewrite only skill-owned prompt content; host-owned fields stay untouched."""
+
+    changed: list[str] = []
+    digests: dict[str, str] = {}
+    complete = True
+    for filename, expected_text in sorted(expected.items()):
+        path = destination / filename
+        if path.is_symlink() or not path.is_file():
+            complete = False
+            continue
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            complete = False
+            continue
+        digests[filename] = _content_digest(existing.encode("utf-8"))
+        if format == "codex":
+            merged = _merge_codex_prompt(existing, expected_text)
+        else:
+            merged = _merge_markdown_prompt(existing, expected_text)
+        if merged is None or merged == existing:
+            continue
+        if not dry_run:
+            try:
+                path.write_text(merged, encoding="utf-8")
+            except OSError as exc:
+                raise _InstallError("could not refresh native role prompt") from exc
+        digests[filename] = _content_digest(merged.encode("utf-8"))
+        changed.append(filename)
+    return changed, digests, complete
+
+
+def _refresh_message(target: str, changed: list[str], *, dry_run: bool) -> list[str]:
+    if not changed:
+        return [f"native: {target} role prompts current"]
+    verb = "would refresh" if dry_run else "refreshed"
+    return [f"native: {verb} {target} role prompt(s): {', '.join(changed)}"]
+
+
+def _refresh_role_prompts(
+    paths: _InstallPaths,
+    target: str,
+    *,
+    dry_run: bool,
+) -> list[str]:
+    """Refresh skill-owned prompt content while preserving host-owned configuration."""
+
+    if target == "codex":
+        destination = _native_role_directory(paths, "codex")
+        expected: dict[str, str] = {}
+        for role, source in _validate_native_sources(paths, "codex").items():
+            path = destination / f"{role}.toml"
+            agent_name = role
+            if path.is_file() and not path.is_symlink():
+                try:
+                    match = re.search(
+                        r'(?m)^name = "([^"]+)"', path.read_text(encoding="utf-8")
+                    )
+                except (OSError, UnicodeError):
+                    match = None
+                if match is not None:
+                    agent_name = match.group(1)
+            expected[path.name] = source.replace(
+                "ASSIGNMENT_PLACEHOLDER", _role_identity(agent_name, agent_name)
+            )
+        changed, digests, complete = _refresh_prompt_files(
+            destination, expected, format="codex", dry_run=dry_run
+        )
+        if not dry_run and changed and complete:
+            receipt_path = _native_receipt_path(destination)
+            try:
+                receipt = _load_native_receipt(receipt_path, "codex")
+            except _InstallError:
+                receipt = None
+            if receipt is not None:
+                _replace_native_receipt(receipt_path, receipt["assignments"], digests)
+        return _refresh_message("codex", changed, dry_run=dry_run)
+
+    if target in UNPINNED_HOSTS:
+        expected = {
+            filename: content.decode("utf-8")
+            for filename, content in unpinned_role_payload(paths, target).items()
+        }
+        changed, _, _ = _refresh_prompt_files(
+            _native_role_directory(paths, target),
+            expected,
+            format="markdown",
+            dry_run=dry_run,
+        )
+        return _refresh_message(target, changed, dry_run=dry_run)
+
+    return []
+
+
+def _refresh_kilo_prompts(paths: _InstallPaths, *, dry_run: bool) -> list[str]:
+    """Refresh Kilo Agent prompts; the host owns mode, temperature, and permissions."""
+
+    expected = {
+        filename: content.decode("utf-8")
+        for filename, content in _validate_kilo_sources(paths).items()
+    }
+    changed, digests, complete = _refresh_prompt_files(
+        paths.kilo_agents, expected, format="markdown", dry_run=dry_run
+    )
+    if not dry_run and changed and complete:
+        receipt_path = _kilo_receipt_path(paths)
+        try:
+            receipt = _load_kilo_receipt(receipt_path)
+        except _InstallError:
+            receipt = None
+        if receipt is not None:
+            _replace_kilo_receipt(receipt_path, digests)
+    return _refresh_message("kilo", changed, dry_run=dry_run)
+
+
 def _native_payload(
     paths: _InstallPaths,
     target: str,
@@ -455,12 +713,14 @@ def install_role_templates(
     *,
     dry_run: bool,
 ) -> list[str]:
-    """Install a missing matrix once; never mutate existing native role state."""
+    """Install a missing matrix once; later runs refresh prompts without touching host fields."""
 
     if target in UNPINNED_HOSTS:
         return install_unpinned_role_templates(paths, target, dry_run=dry_run)
     if native_role_configuration_exists(paths, target):
-        return [f"native: preserved {target} role templates"]
+        messages = [f"native: preserved {target} role templates"]
+        messages.extend(_refresh_role_prompts(paths, target, dry_run=dry_run))
+        return messages
 
     destination = _native_role_directory(paths, target)
     receipt_path = _native_receipt_path(destination)
@@ -488,7 +748,9 @@ def install_unpinned_role_templates(
     """Install the three unpinned role files once, without a packaged selector."""
 
     if native_role_configuration_exists(paths, target):
-        return [f"native: preserved {target} role templates"]
+        messages = [f"native: preserved {target} role templates"]
+        messages.extend(_refresh_role_prompts(paths, target, dry_run=dry_run))
+        return messages
     destination = _native_role_directory(paths, target)
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise _InstallError("native role template destination is not a managed directory")
@@ -532,7 +794,7 @@ def unpinned_role_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
 
 def _assignment_message(target: str, payload: list[tuple[str, bytes, _RoleAssignment]]) -> str:
     values = "; ".join(_assignment_summary(assignment) for _, _, assignment in payload)
-    return f"native assignments ({target}, immutable after first installation): {values}"
+    return f"native assignments ({target}, model selectors preserved on update): {values}"
 
 
 def _assignment_summary(assignment: _RoleAssignment) -> str:
@@ -748,7 +1010,7 @@ def remove_target(
         if existed and not dry_run:
             _remove_path(plugin)
         return [
-            "claude: preserved immutable native role templates",
+            "claude: preserved native role templates",
             f"claude: {action} plugin" if existed else "claude: no plugin to remove",
         ]
     native = {
@@ -765,9 +1027,9 @@ def remove_target(
         dry_run=dry_run,
     )
     if target == "kilo":
-        messages.append("kilo: preserved immutable native Agent matrix")
+        messages.append("kilo: preserved native Agent matrix")
     elif target == "dsh":
         messages.append("dsh: no native role artifacts")
     else:
-        messages.append(f"{target}: preserved immutable native role templates")
+        messages.append(f"{target}: preserved native role templates")
     return messages
