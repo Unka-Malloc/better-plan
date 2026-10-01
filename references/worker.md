@@ -33,9 +33,14 @@ that responsibility.
 The integration owner assembles all Node commits, resolves conflicts, verifies the
 integrated outcome, maintains and records the Task Draft PR, then uses `task finish`
 to record its delivery conclusion and exceptions. Leave the client buildable and
-runnable and the PR Draft. The main Agent separately records `tree finish` after
-overall review and verification. Ready, merge, installation and live acceptance are
-outside the default engineering handoff.
+runnable and the PR Draft. The Reviewer normally owns this convergence and directly
+repairs ordinary defects after handoff, rather than sending every fix back to the
+Worker. Preserve the Worker's initial Node result and commit attribution; coordinate
+any continuing work so shared files have no competing writers. The Reviewer assigned
+whole-Tree convergence records `tree finish` after overall review, repair, and
+verification. Main may publish that conclusion or act as fallback when the Reviewer
+is unavailable or the user explicitly assigns main. Ready, merge, installation and
+live acceptance are outside the default engineering handoff.
 
 Delivery reviews preserve old results but require reconfirmation after relevant
 changes. Passing a check or clearing a Node review does not reconfirm delivery.

@@ -29,7 +29,7 @@
   "outcome": "What this group delivers",
   "requirements": ["Requirement for this Task"],
   "draft_pr": null,
-  "integration_owner": "task-integrator",
+  "integration_owner": "reviewer",
   "delivery": {"result": null, "review": []},
   "checks": []
 }
@@ -71,9 +71,10 @@ plain strings or bilingual objects such as `{"en": "...", "zh": "..."}` and are
 treated as opaque.
 
 `integration_owner` identifies the Agent responsibility for Task integration, not a
-model or temporary session. Assign it before dispatch. When all Nodes finish,
-`ready_for_integration` informs this owner to assemble commits, resolve conflicts,
-verify the Task and maintain its Draft PR. The final Worker does not inherit ownership.
+model or temporary session. Assign it before dispatch, normally to the Reviewer.
+When all Nodes finish, `ready_for_integration` informs this owner to assemble commits, resolve conflicts,
+repair defects, verify the Task and maintain its Draft PR. The final Worker does not
+inherit ownership. This is guidance, not a role restriction enforced by the tool.
 
 `delivery_policy` is optional current Tree policy. Default delivery ends at
 engineering completion with PRs Draft. Ready, merge, installation and live acceptance
@@ -82,9 +83,11 @@ are separately authorized project work; recording delivery performs none of them
 ## Delivery results
 
 Task integration owners use `task finish <root> <id> --summary TEXT` or `--result FILE`.
-The main Agent uses `tree finish <root>` with the same result options after overall
-review and verification. `--result` is a JSON object (or `-` for stdin); use `summary`
-and `exceptions` for the conclusion and any exceptions. Commands record declarations
+The Reviewer assigned whole-Tree convergence uses `tree finish <root>` with the same
+result options after overall review, repair, and verification. Main may mechanically
+publish that conclusion or perform convergence when the Reviewer is unavailable or
+the user explicitly assigns main. `--result` is a JSON object (or `-` for stdin); use
+`summary` and `exceptions` for the conclusion and any exceptions. Commands record declarations
 without approval, Git or test gates. They replace only the owner's current result
 and clear only that owner's delivery reviews. Generic Tree/Task updates do not edit
 `delivery`; use finish for confirmation.

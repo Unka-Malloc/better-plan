@@ -22,11 +22,18 @@ helpers, not a workflow cardinality rule:
 |---|---|---|
 | `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
 | `worker` | executes one Node and creates or records its scoped commit; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
-| `reviewer` | audits current outcomes, results, pending reviews, and scoped checks | `gpt-6-astra / xhigh` |
+| `reviewer` | owns review, direct repair, integration, verification, and Task/Tree conclusions within the approved scope | `gpt-6-astra / xhigh` |
 
 A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. The packaged
 worker profile handles any Node assigned to it. A Task is a group of Node commits delivered in one
 Draft PR, so work that needs independent commits is split into Nodes with explicit dependencies.
+
+Main normally assigns a launchable Reviewer the complete convergence outcome, not
+read-only review followed by routine repairs in main or a Worker. One Reviewer is
+sufficient for one Task, Tree, or programme milestone; do not dispatch several
+Reviewers for the same unit. See `references/reviewer.md` for ownership, fallback, and
+closure. This is a responsibility default, not a requirement to launch a particular
+number of native roles.
 
 New first-install role templates contain stable identity and permission boundaries plus a reference to
 the installed SKILL.md and a reference
@@ -62,6 +69,11 @@ cannot dispatch its own Nodes and nesting cannot recurse. Kilo pins no model, no
 reasoning effort, so each Subagent inherits the invoking primary Agent's model and the host's
 default reasoning behaviour. A user may pin a Kilo-supported model as their own local configuration;
 install, update, and Doctor never rewrite it.
+Do not add dispatch-time model, provider, variant, or effort overrides to implement
+Reviewer priority: Kilo uses the invoking host's current selection. Model capability,
+artifact authority, and tool permission are separate concerns. A Reviewer can repair
+directly within allowed tools; when delegation or clarification is genuinely needed,
+the coordinator performs that operation without taking over convergence ownership.
 
 DeepSeek Harness installs only the shared skill: it reads the shared scan directory and spawns
 subagents from a prompt, so there is no role file, no pin, and no receipt to manage.

@@ -1,4 +1,4 @@
-"""The packaged host templates carry exactly the three delivery roles."""
+"""Packaged role templates delegate to the maintained delivery guidance."""
 
 from __future__ import annotations
 
@@ -69,6 +69,34 @@ class PackagedRoleTests(unittest.TestCase):
     def test_codex_is_the_only_host_with_presets(self) -> None:
         self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
+
+    def test_skill_assigns_reviewer_first_convergence_with_main_fallback(self) -> None:
+        text = " ".join((ROOT / "SKILL.md").read_text(encoding="utf-8").split())
+        # Guard the dispatch policy once at its owner, not every prose summary.
+        self.assertIn("normally assign a launchable Reviewer the complete convergence outcome", text)
+        self.assertIn("main Agent has the same artifact authority", text)
+        self.assertIn("Reviewer is unavailable or the user explicitly assigns", text)
+        self.assertIn("do not dispatch several Reviewers for the same unit", text)
+
+    def test_reviewer_guidance_owns_repairs_and_delivery_conclusions(self) -> None:
+        text = " ".join((ROOT / "references" / "reviewer.md").read_text(encoding="utf-8").split())
+        self.assertIn("identify and directly repair problems", text)
+        self.assertIn("not a read-only findings handoff", text)
+        self.assertIn("the current plan, checks, and results", text)
+        self.assertIn("single Reviewer is enough to close every defect", text)
+        self.assertIn("Use `task finish`", text)
+        self.assertIn("Use `tree finish`", text)
+
+    def test_reviewer_role_identity_declares_convergence_ownership(self) -> None:
+        for host, filenames in ROLE_FILES.items():
+            for filename in filenames:
+                if Path(filename).stem != "reviewer":
+                    continue
+                with self.subTest(host=host):
+                    text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+                    self.assertIn("owns convergence, repair, and delivery closure", text)
+        kilo = (ROOT / "agents" / "kilo" / "better-plan-reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("owns convergence, repair, and delivery closure", kilo)
 
     def test_unpinned_role_files_declare_no_selector(self) -> None:
         for host in ("claude-code", "cursor"):

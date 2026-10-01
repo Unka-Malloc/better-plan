@@ -30,6 +30,11 @@
     fields drive reports. Prose is not parsed into workflow state.
 12. **Host configuration belongs to the user.** Existing native role files and
     receipts remain byte-identical through install, update, repair, and uninstall.
+13. **Convergence includes repair.** The Reviewer normally owns direct corrections,
+    integration, verification, and Task/Tree conclusions within the approved scope.
+    Main has the same artifact authority but normally delegates that complete outcome
+    to a launchable Reviewer, rather than splitting audit from ordinary remediation.
+    This responsibility does not expand host permissions or protected-effect authority.
 
 These principles reject generation histories in current state, whole-tree rewrites
 for local changes, duplicated command lists, role cardinality rules, inferred prose
