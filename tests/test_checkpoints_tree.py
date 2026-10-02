@@ -16,7 +16,16 @@ import unittest
 
 from scripts.better_plan.application import tree_workflow
 from scripts.better_plan.application.tree_workflow import _overlay_edits, _subtree_nodes
-from scripts.better_plan.domain.checkpoints_tree import adjacency, descendants, export_payload, new_tree, new_task, new_node, derived_state
+from scripts.better_plan.domain.checkpoints_tree import (
+    adjacency,
+    descendants,
+    derived_state,
+    export_payload,
+    iter_checks,
+    new_node,
+    new_task,
+    new_tree,
+)
 from scripts.better_plan.domain.models import ToolError
 from scripts.better_plan.infrastructure.workspace import check_lock
 from scripts.better_plan.infrastructure.workspace import CurrentWorkspace, read_json, write_json
@@ -426,12 +435,13 @@ class WorkerAndHistoryTests(unittest.TestCase):
             self.assertEqual(started["task"]["outcome"], "Outcome for T")
             self.assertEqual(started["requirements"], {"tree": ["shared"], "task": ["task rule"]})
             finished = json.loads(cli.run("node", "finish", str(root), "A", "--summary", "done").stdout)
-            self.assertEqual(finished["tree"]["architecture"], architecture)
-            self.assertEqual(finished["tree"]["open_decisions"], open_decisions)
-            self.assertIn("does not gate", finished["confirmation_prompt"])
+            self.assertEqual(finished["finished"]["result"], {"summary": "done"})
+            self.assertEqual(finished["finished"]["id"], "A")
+            self.assertNotIn("tree", finished)
+            self.assertNotIn("confirmation_prompt", finished)
             self.assertEqual(read_json(root / "nodes" / "A.json")["status"], "completed")
 
-    def test_task_readiness_waits_for_other_tree_writers_and_host_completion(self) -> None:
+    def test_task_readiness_is_local_while_other_tasks_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cli = CliWorkspace(self, root)
@@ -451,20 +461,15 @@ class WorkerAndHistoryTests(unittest.TestCase):
             cli.run("node", "start", str(root), "B")
 
             first = json.loads(cli.run("node", "finish", str(root), "A", "--summary", "done").stdout)
-            self.assertTrue(first["ready_for_integration"])
-            self.assertIn("Unfinished Tree Nodes: 1", first["integration_reminder"])
-            self.assertIn("Task-local readiness", first["integration_reminder"])
-            self.assertIn("Wait for all other Writers to finish", first["integration_reminder"])
-            self.assertIn("host completion signals", first["integration_reminder"])
-            self.assertNotIn("All Tree Nodes are recorded complete", first["integration_reminder"])
+            self.assertTrue(first["finished"]["ready_for_integration"])
+            self.assertEqual(first["finished"]["integration_owner"], "reviewer")
+            self.assertEqual(set(first), {"finished"})
 
             last = json.loads(cli.run("node", "finish", str(root), "B", "--summary", "done").stdout)
-            self.assertTrue(last["ready_for_integration"])
-            self.assertIn("All Tree Nodes are recorded complete", last["integration_reminder"])
-            self.assertIn("does not prove that host Agents", last["integration_reminder"])
-            self.assertIn("host completion signals", last["integration_reminder"])
+            self.assertTrue(last["finished"]["ready_for_integration"])
+            self.assertEqual(set(last), {"finished"})
 
-    def test_node_commit_and_task_draft_pr_are_current_references_with_advisory_reminders(self) -> None:
+    def test_node_result_and_task_draft_pr_are_current_references(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cli = CliWorkspace(self, root)
@@ -477,9 +482,8 @@ class WorkerAndHistoryTests(unittest.TestCase):
             first = json.loads(
                 cli.run("node", "finish", str(root), "A", "--summary", "done", "--commit", "abc123").stdout
             )
-            self.assertFalse(first["ready_for_integration"])
-            self.assertEqual(first["commit_reference"], "abc123")
-            self.assertNotIn("draft_pr_reminder", first)
+            self.assertFalse(first["finished"]["ready_for_integration"])
+            self.assertEqual(first["finished"]["commit_reference"], "abc123")
 
             cli.run(
                 "task",
@@ -496,6 +500,27 @@ class WorkerAndHistoryTests(unittest.TestCase):
             self.assertEqual(read_json(root / "nodes" / "A.json")["review"], [])
             self.assertEqual(read_json(root / "nodes" / "B.json")["review"], reviews_before)
             cli.run(
+                "node",
+                "update",
+                str(root),
+                "A",
+                "--input",
+                cli.input({"contract": {"scope": "repaired"}}),
+            )
+            repaired = json.loads(
+                cli.run("node", "finish", str(root), "A", "--summary", "repaired", "--commit", "repair-head").stdout
+            )
+            self.assertEqual(repaired["finished"]["result"], {"summary": "repaired"})
+            self.assertEqual(repaired["finished"]["commit_reference"], "repair-head")
+            self.assertTrue(repaired["finished"]["review"])
+            self.assertEqual(set(repaired), {"finished"})
+            repeated = json.loads(
+                cli.run("node", "finish", str(root), "A", "--summary", "repaired").stdout
+            )
+            self.assertEqual(repeated["finished"]["result"], {"summary": "repaired"})
+            self.assertEqual(repeated["finished"]["commit_reference"], "repair-head")
+            self.assertEqual(repeated["finished"]["review"], repaired["finished"]["review"])
+            cli.run(
                 "tree",
                 "update",
                 str(root),
@@ -505,17 +530,25 @@ class WorkerAndHistoryTests(unittest.TestCase):
             last = json.loads(
                 cli.run("node", "finish", str(root), "B", "--summary", "done", "--commit", "def456").stdout
             )
-            self.assertTrue(last["ready_for_integration"])
-            self.assertEqual(last["integration_owner"], "task-lead")
-            self.assertEqual(last["task"]["draft_pr"], "https://example.invalid/pr/7")
-            self.assertEqual(last["tree"]["delivery_policy"]["pull_requests"], "draft_until_tree_review")
-            self.assertIn("Keep PRs Draft unless further action is authorized", last["integration_reminder"])
-            self.assertEqual(read_json(root / "nodes" / "A.json")["commit"], "updated-ref")
+            self.assertTrue(last["finished"]["ready_for_integration"])
+            self.assertEqual(last["finished"]["integration_owner"], "task-lead")
+            self.assertEqual(set(last), {"finished"})
+            self.assertEqual(read_json(root / "nodes" / "A.json")["commit"], "repair-head")
             self.assertEqual(read_json(root / "tasks" / "T.json")["draft_pr"], "https://example.invalid/pr/7")
 
-            for command in (("task", "finish", str(root), "T", "--summary", "Integrated"),
-                            ("tree", "finish", str(root), "--summary", "Engineering reviewed")):
-                cli.run(*command)
+            task_result = json.loads(
+                cli.run("task", "finish", str(root), "T", "--summary", "Integrated").stdout
+            )
+            self.assertEqual(task_result["finished"]["kind"], "task")
+            self.assertEqual(task_result["finished"]["delivery_status"], "recorded")
+            self.assertEqual(task_result["tree_delivery_status"], "unrecorded")
+            self.assertNotIn("tree", task_result)
+            tree_result = json.loads(
+                cli.run("tree", "finish", str(root), "--summary", "Engineering reviewed").stdout
+            )
+            self.assertEqual(tree_result["finished"]["kind"], "tree")
+            self.assertEqual(tree_result["finished"]["delivery_status"], "recorded")
+            self.assertNotIn("tree", tree_result)
             confirmed = json.loads(cli.run("tree", "export", str(root)).stdout)
             self.assertEqual(confirmed["derived"]["delivery_status"], "recorded")
             cli.run("node", "update", str(root), "A", "--input", cli.input({"commit":"repair-ref"}))
@@ -527,10 +560,22 @@ class WorkerAndHistoryTests(unittest.TestCase):
             self.assertEqual(json.loads(cli.run("tree", "export", str(root)).stdout)["derived"]["delivery_status"], "recorded")
 
             cli.task("T2")
+            cli.run(
+                "task",
+                "update",
+                str(root),
+                "T2",
+                "--input",
+                cli.input({"draft_pr": "https://example.invalid/pr/7"}),
+            )
+            self.assertEqual(
+                read_json(root / "tasks" / "T2.json")["draft_pr"],
+                read_json(root / "tasks" / "T.json")["draft_pr"],
+            )
             cli.node("C", "T2")
-            missing = json.loads(cli.run("node", "finish", str(root), "C", "--summary", "done").stdout)
-            self.assertIn("one scoped commit", missing["commit_reminder"])
-            self.assertIn("host completion signals", missing["integration_reminder"])
+            second_task = json.loads(cli.run("node", "finish", str(root), "C", "--summary", "done").stdout)
+            self.assertIsNone(second_task["finished"]["commit_reference"])
+            self.assertTrue(second_task["finished"]["ready_for_integration"])
 
     def test_history_is_append_only_searchable_and_attachment_is_byte_exact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -641,6 +686,137 @@ class DeliveryAndCheckTests(unittest.TestCase):
         tree_workflow.update_task(self.args(id="T", input=str(patch_file)))
         self.assertEqual((self.root / "Tree.json").read_bytes(), before)
         self.assertEqual(derived_state(*self.ws.load())["delivery_status"], "recorded")
+
+    def test_progress_decision_and_admin_edits_preserve_passed_evidence(self):
+        tree, tasks, nodes = self.ws.load()
+        tree["checks"] = [check("TREE-CHECK", {"kind": "tree"})]
+        for task_id, node_id in (("T", "A"), ("U", "B"), ("X", "Z")):
+            tasks[task_id]["checks"] = [check("CHECK-" + task_id, {"kind": "task"})]
+        self.ws.write_tree(tree)
+        for task in tasks.values():
+            self.ws.write_task(task)
+        self.finish_all()
+
+        patch_file = self.root / "patch.json"
+        write_json(
+            patch_file,
+            {
+                "open_decisions": [{"id": "D1", "question": "Resolved", "status": "closed"}],
+                "progress": {"note": "review complete"},
+            },
+        )
+        tree_workflow.update_tree(self.args(input=str(patch_file)))
+        write_json(
+            patch_file,
+            {"title": "Renamed", "draft_pr": "shared-pr", "integration_owner": "owner", "progress": "done"},
+        )
+        tree_workflow.update_task(self.args(id="T", input=str(patch_file)))
+        tree_workflow._update_node(
+            self.root,
+            "A",
+            {"title": "Renamed", "role": "worker", "executors": ["agent"], "resources": ["cpu"], "progress": "done"},
+        )
+
+        tree, tasks, nodes = self.ws.load()
+        self.assertEqual(derived_state(tree, tasks, nodes)["delivery_status"], "recorded")
+        self.assertEqual(set(derived_state(tree, tasks, nodes)["task_delivery_status"].values()), {"recorded"})
+        self.assertEqual(tree["open_decisions"], [{"id": "D1", "question": "Resolved", "status": "closed"}])
+        self.assertEqual(tree["progress"], {"note": "review complete"})
+        self.assertEqual(tasks["T"]["progress"], "done")
+        self.assertEqual(nodes["A"]["progress"], "done")
+        self.assertFalse(any(check_item["pending"] for _, _, check_item in iter_checks(tree, tasks, nodes)))
+        self.assertTrue(all(not node.get("review") for node in nodes.values()))
+
+        write_json(patch_file, {"delivery_policy": {"pull_requests": "draft_until_tree_review"}})
+        tree_workflow.update_tree(self.args(input=str(patch_file)))
+        tree, tasks, nodes = self.ws.load()
+        self.assertEqual(
+            {code for code, state in derived_state(tree, tasks, nodes)["task_delivery_status"].items() if state == "needs_review"},
+            {"T", "U", "X", "EMPTY"},
+        )
+        self.assertFalse(any(check_item["pending"] for _, _, check_item in iter_checks(tree, tasks, nodes)))
+        self.assertTrue(all(not node.get("review") for node in nodes.values()))
+        self.finish_all()
+
+        tree_workflow._update_node(self.root, "A", {"contract": {"scope": "changed"}})
+        tree, tasks, nodes = self.ws.load()
+        needs_review = {
+            code
+            for code, state in derived_state(tree, tasks, nodes)["task_delivery_status"].items()
+            if state == "needs_review"
+        }
+        self.assertEqual(needs_review, {"T", "U"})
+        self.assertTrue(nodes["A"]["review"])
+        self.assertTrue(nodes["B"]["review"])
+        self.assertFalse(nodes["Z"].get("review"))
+        checks = {(kind, owner): item for kind, owner, item in iter_checks(tree, tasks, nodes)}
+        self.assertTrue(checks[("tree", "TREE")]["pending"])
+        self.assertTrue(checks[("task", "T")]["pending"])
+        self.assertTrue(checks[("task", "U")]["pending"])
+        self.assertFalse(checks[("task", "X")]["pending"])
+
+    def test_task_requirements_and_tree_architecture_invalidate_their_evidence_scope(self):
+        tree, tasks, nodes = self.ws.load()
+        tree["checks"] = [check("TREE-CHECK", {"kind": "tree"})]
+        for task_id in ("T", "U", "X"):
+            tasks[task_id]["checks"] = [check("CHECK-" + task_id, {"kind": "task"})]
+        self.ws.write_tree(tree)
+        for task in tasks.values():
+            self.ws.write_task(task)
+        self.finish_all()
+
+        patch_file = self.root / "patch.json"
+        write_json(patch_file, {"outcome": "Updated outcome", "requirements": ["Updated requirement"]})
+        tree_workflow.update_task(self.args(id="T", input=str(patch_file)))
+        tree, tasks, nodes = self.ws.load()
+        states = derived_state(tree, tasks, nodes)["task_delivery_status"]
+        self.assertEqual({code for code, state in states.items() if state == "needs_review"}, {"T", "U"})
+        checks = {(kind, owner): item for kind, owner, item in iter_checks(tree, tasks, nodes)}
+        self.assertTrue(checks[("tree", "TREE")]["pending"])
+        self.assertTrue(checks[("task", "T")]["pending"])
+        self.assertTrue(checks[("task", "U")]["pending"])
+        self.assertFalse(checks[("task", "X")]["pending"])
+        self.assertTrue(nodes["B"]["review"])
+        self.assertFalse(nodes["Z"].get("review"))
+
+        write_json(patch_file, {"architecture": {"overview": "Updated design"}})
+        tree_workflow.update_tree(self.args(input=str(patch_file)))
+        tree, tasks, nodes = self.ws.load()
+        states = derived_state(tree, tasks, nodes)["task_delivery_status"]
+        self.assertEqual(set(states.values()), {"needs_review"})
+        checks = {(kind, owner): item for kind, owner, item in iter_checks(tree, tasks, nodes)}
+        self.assertTrue(checks[("task", "X")]["pending"])
+        self.assertTrue(nodes["Z"]["review"])
+
+    def test_dependency_list_reordering_preserves_existing_evidence(self):
+        tree, tasks, nodes = self.ws.load()
+        tree["checks"] = [check("TREE-CHECK", {"kind": "tree"})]
+        nodes["B"]["after"] = ["A", "Z"]
+        self.ws.write_tree(tree)
+        self.ws.write_node(nodes["B"])
+        for task_id in ("T", "U", "X"):
+            tasks[task_id]["checks"] = [check("CHECK-" + task_id, {"kind": "task"})]
+        for task in tasks.values():
+            self.ws.write_task(task)
+        self.finish_all()
+
+        tree_workflow._update_node(self.root, "B", {"after": ["Z", "A"]})
+        tree, tasks, nodes = self.ws.load()
+        self.assertEqual(derived_state(tree, tasks, nodes)["delivery_status"], "recorded")
+        self.assertEqual(set(derived_state(tree, tasks, nodes)["task_delivery_status"].values()), {"recorded"})
+        self.assertFalse(any(item["pending"] for _, _, item in iter_checks(tree, tasks, nodes)))
+        self.assertTrue(all(not node.get("review") for node in nodes.values()))
+
+        tree_workflow._update_node(self.root, "B", {"after": ["Z"]})
+        tree, tasks, nodes = self.ws.load()
+        states = derived_state(tree, tasks, nodes)["task_delivery_status"]
+        self.assertEqual({code for code, state in states.items() if state == "needs_review"}, {"U"})
+        checks = {(kind, owner): item for kind, owner, item in iter_checks(tree, tasks, nodes)}
+        self.assertTrue(checks[("tree", "TREE")]["pending"])
+        self.assertTrue(checks[("task", "U")]["pending"])
+        self.assertFalse(checks[("task", "T")]["pending"])
+        self.assertFalse(checks[("task", "X")]["pending"])
+        self.assertTrue(nodes["B"]["review"])
 
     def test_membership_changes_cover_old_new_and_downstream_tasks(self):
         self.finish_all()

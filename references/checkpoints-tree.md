@@ -56,12 +56,13 @@
 }
 ```
 
-A Task is an independently deliverable group of Nodes and corresponds to one Draft
-PR containing those Nodes' commits. A Node is one scoped change and corresponds to
-one commit. Ready Nodes inside a Task may execute in parallel; actual ordering is
-stored in their dependencies. `draft_pr` and `commit` hold the current reference only; they are not Git
-event ledgers. Every delivered Task and its Draft PR must leave the client buildable
-and runnable. This mapping is a Better Plan convention.
+A Task is an independently deliverable group of Nodes. Multiple Tasks may share one
+Draft PR when that is the useful review and integration boundary. A Node describes
+one coherent outcome and may take several commits to complete. Its `commit` stores
+the resulting revision containing that outcome; `draft_pr` and `commit` are current
+references, not Git event ledgers. Every delivered Task and its associated Draft PR
+must leave the client buildable and runnable. These references do not enforce a
+one-Task-per-PR or one-commit-per-Node mapping.
 
 A Tree or Task `requirements` entry may be a plain string or an object carrying a
 `statement` and `source_ids`. `source_ids` reference ids from the programme's
@@ -70,13 +71,11 @@ so Trees and Tasks reference it instead of duplicating status. Text values may b
 plain strings or bilingual objects such as `{"en": "...", "zh": "..."}` and are
 treated as opaque.
 
-`integration_owner` identifies the Agent responsibility for Task integration, not a
-model or temporary session. Assign it to the delivery's Reviewer before dispatch.
-When a Task's Nodes finish, `ready_for_integration` reports its implementation
-readiness; it is not a dispatch instruction. The single Reviewer starts convergence
-after all other writers finish, reviews and repairs the delivery, then integrates
-and verifies the Tasks and maintains their Draft PRs. The final Worker does not
-inherit ownership. This is guidance, not a role restriction enforced by the tool.
+`integration_owner` identifies responsibility for Task integration, not a model or
+temporary session. When a Task's Nodes finish, `ready_for_integration` reports that
+Task's implementation readiness. One final Reviewer remains accountable for
+integration and can organize bounded Worker repairs with clear ownership. This is
+guidance, not a role restriction enforced by the tool.
 
 `delivery_policy` is optional current Tree policy. Default delivery ends at
 engineering completion with PRs Draft. Ready, merge, installation and live acceptance
@@ -104,21 +103,31 @@ not accumulated. Current review sources are deduplicated by kind and id:
 
 | Change | Delivery affected |
 | --- | --- |
-| Node scope, dependencies or commit | Owning and affected downstream Tasks, plus Tree |
+| Node outcome, contract, dependencies or resulting commit revision | Owning and affected downstream Tasks, plus Tree |
 | Node result | Owning and downstream Tasks, plus Tree; downstream Node reviews and covered checks also change |
 | Node execution status | Owning Task and Tree |
 | Node addition, removal or Task move | Old/new owners and affected downstream Tasks, plus Tree |
-| Task goal or requirements | Task and downstream Tasks, plus Tree; includes empty Tasks |
-| Tree goal, requirements or success criteria | All Tasks and Tree |
+| Task outcome or requirements | Task and downstream Tasks, plus Tree; includes empty Tasks |
+| Tree goal, requirements, architecture or success criteria | All Tasks and Tree |
+| Tree delivery policy | Tree and all Tasks; engineering checks and Node reviews remain unchanged |
 | Check commands/coverage added, removed or changed | Union of old/new covered Tasks and Tree |
 | New failed check result or explicit interrupted-run recovery | Covered Tasks and Tree |
 | Task delivery recorded or Task added/removed | Tree |
-| Display title, integration owner, role/executor label or PR reference | No code review or delivery invalidation |
+| Open decisions, progress, labels, assignments, unknown metadata or PR reference | None |
 
 Identical value updates do not propagate. Source kind `check` uses the compound id
 `<owner-kind>:<owner-id>:<check-id>`, so checks with the same id at different owners
 remain distinct. No content hash, whole-tree revision, or background file watching is
 used. Manually edited files cannot acquire missed notifications through refresh.
+
+Only changes to the listed work-defining fields invalidate evidence. Tree updates to
+`goal`, `requirements`, `architecture` or `success`, Task updates to `outcome` or
+`requirements`, and Node updates to `outcome`, `contract`, `after` or Task membership
+propagate to the affected graph and covered checks. Updates to progress, open-decision
+records, labels, ownership and unrecognized metadata are retained as plan state. When
+a decision changes actual work, express that change in the owning requirement,
+architecture, success criterion or contract; changing the decision record alone does
+not invalidate evidence.
 
 The maintained status vocabulary is `pending`, `running`, `completed`, `failed`,
 `blocked`, and `cancelled`. `node start` writes `running`; `node finish` writes
@@ -245,19 +254,18 @@ after manual edits without inventing missed notifications.
 
 ## Worker context
 
-`node show`, `node start`, and `node finish` return the Tree identity, title, goal and
+`node show` and `node start` return the Tree identity, title, goal and
 success criteria, architecture, and open decisions; the Task identity, title, outcome and requirements; shared
 requirements; the Node contract; necessary dependencies; and pending reviews. They
-do not load unrelated branches or history. Start and finish both print requirements;
-finish also asks for compliance and exception reporting without requiring an answer
-to record completion. Finish accepts `--commit` for the Node's current commit. It
-prints an advisory commit reminder and, when every Node in the Task is completed,
-`ready_for_integration`, `integration_owner` and an integration handoff reminder.
-This Task-local readiness does not start convergence while other work is unfinished.
-Even when all Nodes are completed, main confirms through the host that other writers
-have ended before resuming or starting the single Reviewer.
-The Task result remains unrecorded until its owner explicitly records delivery; a
-project may open the Draft PR earlier.
+do not load unrelated branches or history. `node finish` returns only the completed
+Node's result, current review markers and revision reference, plus its Task's readiness
+and integration owner. `--commit` records the resulting revision containing the
+coherent outcome; it may include multiple commits and is advisory. A Task result
+remains unrecorded until its owner explicitly records delivery; a project may open or
+share a Draft PR earlier.
+Task and Tree finish commands return the local delivery result and concise derived
+delivery status, not a full Tree export. Use `tree show` or `tree export` when the
+complete context is needed.
 
 ## Export
 

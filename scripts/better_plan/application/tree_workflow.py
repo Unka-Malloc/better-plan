@@ -49,6 +49,14 @@ from ..infrastructure.workspace import (
 )
 
 
+# Only fields that define the work invalidate engineering evidence. Progress,
+# display and administrative metadata remain useful plan state without making
+# completed work or its checks stale.
+_TREE_EVIDENCE_FIELDS = frozenset({"goal", "success", "architecture", "requirements"})
+_TASK_EVIDENCE_FIELDS = frozenset({"outcome", "requirements"})
+_TREE_DELIVERY_FIELDS = frozenset({"delivery_policy"})
+
+
 def _root(args: Any) -> Path:
     return resolve_root(getattr(args, "root", "."))
 
@@ -346,17 +354,18 @@ def update_tree(args: Any) -> int:
         else:
             _normalize_checks(tree, "tree")
         _check_unique(tree.get("checks") or [], "check")
-        propagation = any(
-            before_tree.get(key) != tree.get(key)
-            for key in set(before_tree).union(tree)
-            if key not in ("checks", "schema", "id", "title", "delivery")
+        evidence_changed = any(before_tree.get(key) != tree.get(key) for key in _TREE_EVIDENCE_FIELDS)
+        delivery_policy_changed = any(
+            before_tree.get(key) != tree.get(key) for key in _TREE_DELIVERY_FIELDS
         )
         changed: set[tuple[str, str]] = set()
         if tree != before_tree:
             changed.add(("tree", tree["id"]))
         changed.update(_changed_check_definitions(tree, tasks, nodes, "tree", tree["id"], old_checks, tree["checks"]))
-        if propagation:
+        if evidence_changed:
             changed.update(_mark_change(tree, tasks, nodes, nodes, "tree", tree["id"], "requirements_changed"))
+            changed.update(_mark_deliveries(tree, tasks, nodes, [], "tree", tree["id"], "requirements_changed", tasks))
+        elif delivery_policy_changed:
             changed.update(_mark_deliveries(tree, tasks, nodes, [], "tree", tree["id"], "requirements_changed", tasks))
         _write_changed(workspace, tree, tasks, nodes, changed)
     print(json.dumps({"updated": tree["id"], "affected": sorted(code for kind, code in changed if kind == "node")}, ensure_ascii=False))
@@ -403,16 +412,14 @@ def update_task(args: Any) -> int:
         else:
             _normalize_checks(tasks[task_id], "task")
         _check_unique(tasks[task_id].get("checks") or [], "check")
-        propagation = any(
-            before_task.get(key) != tasks[task_id].get(key)
-            for key in set(before_task).union(tasks[task_id])
-            if key not in ("checks", "id", "draft_pr", "integration_owner", "title", "delivery")
+        evidence_changed = any(
+            before_task.get(key) != tasks[task_id].get(key) for key in _TASK_EVIDENCE_FIELDS
         )
         changed: set[tuple[str, str]] = set()
         if tasks[task_id] != before_task:
             changed.add(("task", task_id))
         changed.update(_changed_check_definitions(tree, tasks, nodes, "task", task_id, old_checks, tasks[task_id]["checks"]))
-        if propagation:
+        if evidence_changed:
             changed.update(_mark_change(tree, tasks, nodes, task_nodes(nodes, task_id), "task", task_id, "requirements_changed"))
             changed.update(_mark_deliveries(tree, tasks, nodes, [], "task", task_id, "requirements_changed", [task_id]))
         _write_changed(workspace, tree, tasks, nodes, changed)
@@ -501,7 +508,7 @@ def add_node(args: Any) -> int:
     return 0
 
 
-_NODE_NON_PROPAGATING = frozenset({"status", "result", "review", "checks", "commit", "title", "role", "executors"})
+_NODE_EVIDENCE_FIELDS = frozenset({"task", "outcome", "contract"})
 
 
 def _apply_node_change(tree, tasks, nodes, node_id, before, node):
@@ -509,7 +516,11 @@ def _apply_node_change(tree, tasks, nodes, node_id, before, node):
     if not fields:
         return set()
     changed = {("node", node_id)}
-    structural = fields - _NODE_NON_PROPAGATING
+    dependency_changed = "after" in fields and set(before.get("after") or []) != set(
+        node.get("after") or []
+    )
+    structural_fields = fields.intersection(_NODE_EVIDENCE_FIELDS)
+    structural = bool(structural_fields or dependency_changed)
     evidence = fields.intersection({"commit", "result"})
     old_affected = descendants(nodes, [node_id]) if structural or evidence else []
     if structural or evidence:
@@ -526,7 +537,7 @@ def _apply_node_change(tree, tasks, nodes, node_id, before, node):
     changed.update(_changed_check_definitions(tree, tasks, nodes, "node", node_id,
                                              before.get("checks") or [], node.get("checks") or []))
     if structural:
-        reason = "dependency_changed" if "after" in fields else "content_changed"
+        reason = "dependency_changed" if dependency_changed else "content_changed"
         changed.update(_mark_change(tree, tasks, nodes, [node_id], "node", node_id, reason))
     elif evidence:
         affected = old_affected
@@ -714,8 +725,6 @@ def _worker_context(
         ],
         "review": node.get("review") or [],
     }
-    if phase == "finish":
-        result["confirmation_prompt"] = "Confirm how each shared and Task requirement was followed, and record any exception. This does not gate completion."
     return result
 
 
@@ -756,39 +765,23 @@ def finish_node(args: Any) -> int:
             node["commit"] = args.commit
         changed = _apply_node_change(tree, tasks, nodes, node_id, before, node)
         _write_changed(workspace, tree, tasks, nodes, changed)
-        task = tasks.get(str(nodes[node_id].get("task")), {"requirements": []})
-        dependencies = [nodes[code] for code in nodes[node_id].get("after") or [] if code in nodes]
-        payload = _worker_context(tree, task, nodes[node_id], dependencies, "finish")
-        payload["result"] = result
-        payload["commit_reference"] = nodes[node_id].get("commit")
-        if nodes[node_id].get("commit"):
-            payload["commit_reminder"] = (
-                "Scoped Node commit recorded as %s. Keep that commit limited to this Node's changes."
-                % nodes[node_id]["commit"]
-            )
-        else:
-            payload["commit_reminder"] = (
-                "Create one scoped commit containing this Node's changes, then record its current "
-                "reference with node update or node finish --commit. This reminder does not gate completion."
-            )
-        owned = task_nodes(nodes, str(nodes[node_id].get("task")))
+        task_id = str(nodes[node_id].get("task"))
+        task = tasks.get(task_id, {})
+        owned = task_nodes(nodes, task_id)
         ready_for_integration = bool(owned) and all(nodes[code].get("status") == "completed" for code in owned)
-        payload["ready_for_integration"] = ready_for_integration
-        payload["integration_owner"] = task.get("integration_owner")
-        if ready_for_integration:
-            unfinished = sum(item.get("status") != "completed" for item in nodes.values())
-            if unfinished:
-                payload["integration_reminder"] = (
-                    "Task-local readiness only. Unfinished Tree Nodes: %s. Wait for all other Writers "
-                    "to finish. Main confirms host completion signals before resuming the single Reviewer."
-                    % unfinished
-                )
-            else:
-                payload["integration_reminder"] = (
-                    "All Tree Nodes are recorded complete; this does not prove that host Agents stopped writing. "
-                    "Main confirms host completion signals before resuming or starting the single Reviewer. "
-                    "Keep PRs Draft unless further action is authorized."
-                )
+        payload = {
+            "finished": {
+                "kind": "node",
+                "id": node_id,
+                "task": task_id,
+                "status": nodes[node_id].get("status"),
+                "result": nodes[node_id].get("result"),
+                "commit_reference": nodes[node_id].get("commit"),
+                "review": nodes[node_id].get("review") or [],
+                "ready_for_integration": ready_for_integration,
+                "integration_owner": task.get("integration_owner"),
+            }
+        }
     print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
@@ -809,7 +802,20 @@ def finish_delivery(args: Any) -> int:
             changed.update(_mark_deliveries(tree, tasks, nodes, [], "task", task_id, "delivery_recorded"))
         _write_changed(workspace, tree, tasks, nodes, changed)
         annotate_check_runs(root, tree, tasks, nodes)
-        payload = export_payload(tree, tasks, nodes)
+        state = derived_state(tree, tasks, nodes)
+        payload = {
+            "finished": {
+                "kind": "task" if task_id is not None else "tree",
+                "id": task_id if task_id is not None else tree["id"],
+                "result": result,
+                "delivery_status": delivery_status(container) if task_id is not None else state["delivery_status"],
+            },
+        }
+        if task_id is not None:
+            payload["finished"]["draft_pr"] = container.get("draft_pr")
+            payload["tree_delivery_status"] = state["delivery_status"]
+        else:
+            payload["unconfirmed_tasks"] = state["unconfirmed_tasks"]
     print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
     return 0
 
