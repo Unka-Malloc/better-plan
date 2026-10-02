@@ -264,8 +264,10 @@ coherent outcome; it may include multiple commits and is advisory. A Task result
 remains unrecorded until its owner explicitly records delivery; a project may open or
 share a Draft PR earlier.
 Task and Tree finish commands return the local delivery result and concise derived
-delivery status, not a full Tree export. Use `tree show` or `tree export` when the
-complete context is needed.
+delivery status, not a full Tree export. Finish results include affected object IDs
+and pending check references in those changed containers so the next action does
+not require replaying shared context. Use `tree show` or `tree export` for a complete
+view, including previously outstanding checks.
 
 ## Export
 
