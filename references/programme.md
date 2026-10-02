@@ -3,6 +3,13 @@
 A Programme orders several delivery Trees without copying their execution state. It
 may also outline far-term deliveries that have no Tree yet.
 
+A delivery is one milestone: an independently deliverable unit. Independent
+deliverability is the only criterion. A feature or capability, a module's rework or
+refactor, a bounded group of defect repairs, a dependency or platform upgrade, or a
+documentation and tooling change can each be one milestone. A layer, a partial slice,
+or a shared mechanical step belongs inside a delivery as a Task or Node instead. The
+requirement applies when the delivery is first outlined, before its Tree exists.
+
 ```json
 {
   "schema": "better-plan.programme",

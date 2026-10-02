@@ -72,7 +72,8 @@ forcing a one-to-one mapping. The Reviewer owns integration; `integration_owner`
 records that responsibility, not an additional Agent. Deliveries leave the project
 buildable and runnable after their declared prerequisites.
 Longer programmes keep future milestones as outlines until their requirements are
-understood; see [programme guidance](references/programme.md).
+understood; each milestone is one independently deliverable unit rather than a layer
+or partial slice. See [programme guidance](references/programme.md).
 
 Optional [engineering references](references/engineering.md) cover architecture,
 work slicing, tests, and acceptance; consult the relevant topic when useful.

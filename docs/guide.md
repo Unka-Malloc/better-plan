@@ -70,7 +70,9 @@ A Task describes a deliverable outcome; a Node describes a coherent contribution
 A Draft PR marks a reviewable delivery boundary and may cover related Tasks. A Node's
 resulting revision may contain multiple commits. Keep these relationships explicit
 and useful for review rather than forcing one-to-one mappings. Longer programmes
-keep future work as outlines until it is ready to design in detail.
+keep future work as outlines until it is ready to design in detail. A milestone is
+one independently deliverable unit: a feature or a module's rework, not a layer or a
+partial slice.
 
 For inspection from the command line, replace `<plan>` with the plan directory:
 
