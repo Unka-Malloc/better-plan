@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Shared plans for autonomous, long-lived collaboration"
-  default_prompt: "Use $better-plan as the shared plan: main conveys user needs and keeps the flow moving; one Designer designs, Workers execute in parallel, and one independent Reviewer repairs and integrates after other writers finish. Use the ordinary repository workflow when maintaining Better Plan itself."
+  default_prompt: "Use $better-plan to keep the user's goal moving through ready parallel work, accountable review, and integrated verification."

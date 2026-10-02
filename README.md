@@ -4,9 +4,9 @@
 
 Better Plan gives your coding agents a shared plan they can understand, update, and
 carry across sessions. One Designer shapes the work, Workers make progress in
-parallel, and one independent Reviewer repairs and brings the result together.
+parallel, and one independent Reviewer organizes repairs and integrates the result.
 
-![One Designer shapes the plan, parallel Workers implement it, and one Reviewer independently reviews, repairs, and integrates. Main carries user needs and keeps the workflow moving.](docs/images/workflow.svg)
+![One Designer shapes the plan, Workers implement in parallel, and one Reviewer organizes repairs, reviews source, and integrates. Main carries user needs, tracks blockers, and starts ready work.](docs/images/workflow.svg)
 
 **[Explore the workflow](docs/guide.md#how-it-works)** ·
 **[Get the interactive presentation](docs/presentations/better-plan-workflow.html)**
@@ -19,9 +19,11 @@ It shows the workflow and the actual role prompts, with no setup or internet req
 - **Keep the goal in view.** Requirements, decisions, and results live in a shared
   plan instead of being repeatedly reinterpreted in handoffs.
 - **Make useful work parallel.** Workers read the same context and use their own
-  judgment. Real dependencies determine what can run together.
-- **Finish with an independent view.** The Reviewer checks the result—and the
-  plan itself—against your needs, repairs problems, and integrates the work.
+  judgment. Real dependencies determine what can run together, including independent
+  repairs discovered during review.
+- **Keep one Reviewer accountable.** The Reviewer checks the result—and the plan
+  itself—against your needs, organizes repairs, reviews their source, and integrates
+  the delivery. Independent work can continue outside the candidate being verified.
 
 Use it for multi-part features, migrations, and projects that span many sessions.
 Small tasks can stay small.

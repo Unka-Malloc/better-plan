@@ -32,9 +32,11 @@
   exceeds existing authorization. Complete authorized preparation first, present the concrete
   decision or action, and continue independent work while its answer is pending. Silence and
   declared defaults never grant approval.
-- Problems found by the complete repository regression still go to the developer for a decision.
-  Preserve this explicit requirement; do not infer permission to repair or rerun from the general
-  autonomy rule. Continue only work independent of that decision while it is pending.
+- Problems found by the complete repository regression are repaired directly when they remain
+  within the approved outcome, scope, published contracts, and risk boundary; run the focused checks
+  needed to verify those repairs. Ask the developer only when the failure requires a decision that
+  changes one of those boundaries. Continue independent authorized work while that decision is
+  pending.
 
 ## Native role configuration and prompt refresh
 

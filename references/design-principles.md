@@ -3,10 +3,12 @@
 1. **Shared information replaces repeated briefing.** Agents read requirements,
    current plans, repository documents, and evidence directly. Main understands and
    conveys the user's needs and keeps the process continuous.
-2. **One design, parallel execution, one convergence.** One Designer plans the work;
-   Workers maximize useful parallelism; one Reviewer independently repairs and
-   integrates after all other writers finish. This avoids a permanent integration
-   Agent and competing changes during closure.
+2. **One design, parallel execution, one accountable Reviewer.** One Designer plans
+   the work; Workers maximize useful parallelism. One Reviewer owns independent
+   review, repair coordination, source review, integration, and verification. It can
+   organize bounded repairs in parallel. Only the exact candidate undergoing a
+   stability-sensitive verification needs to be frozen; independent work can continue
+   outside it.
 3. **Responsibility is not a permission list.** Designer, Worker, and Reviewer use
    their own judgment under user requirements and repository rules. Main corrects
    observed deviations without imposing a technical recipe. Reviewer judgment
@@ -17,7 +19,9 @@
    and open decisions remain accessible without replaying every conversation.
    Source history is immutable and retrieved when needed.
 6. **One fact has one owner.** Shared requirements and checks live at their common
-   layer. A Task maps to one deliverable Draft PR; a Node maps to one coherent commit.
+   layer. Tasks describe outcomes, Nodes describe coherent contributions, and PRs
+   describe reviewable delivery boundaries. A PR may cover related Tasks, and a
+   Node's resulting revision may include multiple commits.
 7. **Tools assist judgment.** Local graph operations handle traversal, rewiring,
    review propagation, and affected checks. They are not permission or approval gates.
 8. **Changes preserve evidence.** Completed work retains its result while affected

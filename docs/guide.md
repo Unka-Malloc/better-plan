@@ -9,15 +9,19 @@ planning, parallel implementation, and independent review.
 
 | Role | What it does |
 | --- | --- |
-| Main | Understands and conveys your needs, relays questions, resumes interrupted work, and starts the next ready work. |
+| Main | Understands and conveys your needs, tracks real blockers and ready work, relays questions, and resumes interrupted work. |
 | Designer | Independently designs the solution and a shared plan with useful parallel work. |
 | Workers | Read the shared plan and repository, implement their assigned contributions, and record results. |
-| Reviewer | Independently checks the result and the plan, fixes defects, then integrates and verifies the delivery. |
+| Reviewer | Independently checks the result and the plan, organizes repairs, reviews their source, then integrates and verifies the delivery. |
 
 One Designer owns the design. Workers run in parallel where the work allows it.
-After the other writers finish, one Reviewer stays responsible through repair and
-closure. Questions that require your decision come back through Main; dependent
-work waits for clarity.
+One Reviewer stays responsible for review and closure and may organize Workers to
+implement independent repairs in parallel. Freeze only the candidate undergoing a
+verification that needs a stable snapshot; unrelated work can continue outside it.
+Questions that require your decision come back through Main; dependent work waits
+for clarity. Main tracks the next useful outcome, its true blockers, ready work, and
+repeated effort. If the host does not let the Reviewer dispatch a Worker, Main
+forwards the Reviewer's repair assignment without changing its technical scope.
 
 The [presentation](presentations/better-plan-workflow.html) includes the actual
 shared instructions and role prompts. GitHub displays HTML as source; download the
@@ -62,10 +66,11 @@ You describe the goal; the agents maintain the plan through the skill's tools.
 Current requirements, architecture, open decisions, dependencies, and results are
 shared directly. Relevant source conversations remain available as on-demand history.
 
-A Task groups an independently deliverable change into a Draft PR. Its Nodes are
-coherent contributions, each represented by a commit. The Reviewer handles final
-integration after the other writers finish. Longer programmes keep future work as
-outlines until it is ready to design in detail.
+A Task describes a deliverable outcome; a Node describes a coherent contribution.
+A Draft PR marks a reviewable delivery boundary and may cover related Tasks. A Node's
+resulting revision may contain multiple commits. Keep these relationships explicit
+and useful for review rather than forcing one-to-one mappings. Longer programmes
+keep future work as outlines until it is ready to design in detail.
 
 For inspection from the command line, replace `<plan>` with the plan directory:
 
@@ -93,7 +98,10 @@ industry sources. Agents choose what helps; it is not a required reading list.
 
 Maintaining Better Plan itself uses the ordinary repository workflow, without
 creating a local plan workspace. Run relevant focused tests while editing. After
-implementation, source review, and repairs are complete, run the full suite:
+editing canonical role guidance, refresh the offline presentation's prompt data with
+`python3 scripts/generate_workflow_presentation.py`; pass `--check` to detect drift
+without writing. After implementation, source review, and repairs are complete, run
+the full suite:
 
 ```sh
 python3 scripts/run_tests.py

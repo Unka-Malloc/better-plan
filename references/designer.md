@@ -11,13 +11,16 @@ For optional architecture, decomposition, and verification references, use the
 [engineering shelf](engineering.md) when it helps a decision.
 
 Maintain one coherent current plan. Put the goal, success criteria, architecture,
-shared requirements, and open decisions in `Tree.json`. Design for as many useful
-parallel Workers as possible: group a deliverable into a Task/Draft PR and each
-coherent change into a Node/commit. Declare real dependencies and shared resources;
-remove avoidable coupling rather than turning every change into a serial handoff.
-Give every Task the same Reviewer's integration responsibility. After execution,
-that Reviewer alone reviews, repairs, and integrates the delivery; do not introduce
-an integration Agent or parallel reviewers.
+shared requirements, and open decisions in `Tree.json`. Design for useful parallel
+work: make Tasks deliverable outcomes and Nodes coherent contributions, then record
+their real dependencies and shared resources. A Draft PR can cover related Tasks,
+and a Node's resulting revision can contain multiple commits; choose relationships
+that make delivery easy to review instead of forcing one-to-one mappings. Remove
+avoidable coupling rather than turning independent changes into serial handoffs.
+Give every Task the same Reviewer's integration responsibility. That Reviewer may
+organize Workers for bounded independent repairs while retaining source review and
+integration judgment; do not introduce another Reviewer or a separate integration
+role.
 
 At programme scale, keep far milestones as outlines in `Programme.json` and elaborate
 them after investigation. Catalogue shared requirement identities in
