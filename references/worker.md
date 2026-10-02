@@ -17,6 +17,9 @@ results, requirement exceptions, and any remaining questions. Checks assist your
 judgment rather than gate completion. See [the tree contract](checkpoints-tree.md)
 for updating facts, clearing handled reviews, and recovering interrupted checks.
 
-Hand off after your work and writes are finished. The last Worker does not become an
-integrator. After all Workers finish, the single Reviewer independently reviews and
-repairs the delivery, then integrates it. Do not keep writing alongside that review.
+Hand off after your assigned work and writes are finished. The Reviewer remains
+responsible for independent review and integration. During review, the Reviewer may
+ask you to implement a bounded repair. Use the assigned worktree and exclusive write
+ownership, keep changes outside any candidate being verified, then report the result
+for the Reviewer to inspect and integrate. Do not claim integration or final review
+responsibility.

@@ -21,17 +21,21 @@ parallel Workers, and one Reviewer; native profiles are optional ways to load th
 | Role | Purpose | Codex preset selector |
 |---|---|---|
 | `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
-| `worker` | executes one Node and creates or records its scoped commit; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
-| `reviewer` | owns review, direct repair, integration, verification, and Task/Tree conclusions within the approved scope | `gpt-6-astra / xhigh` |
+| `worker` | executes an assigned Node or bounded repair and records the resulting revision; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
+| `reviewer` | owns independent review, repair coordination, source review, integration, verification, and Task/Tree conclusions within the approved scope | `gpt-6-astra / xhigh` |
 
 A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. The packaged
-worker profile handles any Node assigned to it. A Task is a group of Node commits delivered in one
-Draft PR, so work that needs independent commits is split into Nodes with explicit dependencies.
+worker profile handles an assigned Node or bounded repair. Tasks describe outcomes, Nodes describe
+coherent contributions, and Draft PRs mark reviewable delivery boundaries. A PR may cover related
+Tasks, and a Node's resulting revision may contain multiple commits; record the actual relationships.
 
-Main conveys user requirements and work references. Agents load the shared skill
-and their role reference directly. One Reviewer retains convergence responsibility
-after all other writers finish; use native resumption for omissions or interruptions.
-See `references/main.md` for continuity and question relay.
+Main conveys user requirements and work references, tracks true dependencies and
+ready work, and keeps the next useful outcome moving. The Reviewer retains review
+and integration responsibility while it may organize independent Workers to repair
+bounded defects. Freeze only the candidate being verified. Native host tools carry
+dispatch and resumption; when the Reviewer cannot dispatch, Main forwards its repair
+assignment mechanically without deciding the technical remedy. See
+`references/main.md` for continuity and question relay.
 
 Role prompt content identifies the role and loads its maintained guidance. It does
 not repeat model, effort, provenance, repository rules, or workflow instructions.
@@ -63,11 +67,12 @@ cannot dispatch its own Nodes and nesting cannot recurse. Kilo pins no model, no
 reasoning effort, so each Subagent inherits the invoking primary Agent's model and the host's
 default reasoning behaviour. A user may pin a Kilo-supported model as their own local configuration;
 install, update, and Doctor never rewrite it.
-Do not add dispatch-time model, provider, variant, or effort overrides to implement
-Reviewer priority: Kilo uses the invoking host's current selection. Model capability,
-artifact authority, and tool permission are separate concerns. A Reviewer can repair
-directly within allowed tools; when delegation or clarification is genuinely needed,
-the coordinator performs that operation without taking over convergence ownership.
+Do not add dispatch-time model, provider, variant, or effort overrides to enable
+Reviewer delegation: Kilo uses the invoking host's current selection. Model capability,
+artifact authority, and tool permission are separate concerns. The packaged Kilo
+Reviewer remains a leaf because its `task: deny` field is host configuration. When it
+needs a Worker, Main forwards its bounded repair assignment and reports the result;
+the Reviewer retains source review and integration responsibility.
 
 DeepSeek Harness installs only the shared skill: it reads the shared scan directory and spawns
 subagents from a prompt, so there is no role file, no pin, and no receipt to manage.

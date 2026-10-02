@@ -34,9 +34,11 @@ slice is incomplete. If every Node changes one shared registry, there is still a
 coordination cost despite the parallel labels. Resolve the real join in the design;
 adding Workers alone does not remove it.
 
-Better Plan's Task/Draft PR and Node/commit mapping, and its single final Reviewer,
-are project conventions. Google's review staffing and process are not imported with
-the decomposition advice.
+Better Plan's use of Tasks for outcomes, Nodes for coherent contributions, and PRs
+for reviewable delivery boundaries, with one accountable Reviewer, are project
+conventions. Related Tasks may share a PR, and a Node's resulting revision may
+contain multiple commits. Google's review staffing and process are not imported
+with the decomposition advice.
 
 ## Refactoring
 

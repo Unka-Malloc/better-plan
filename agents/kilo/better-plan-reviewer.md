@@ -1,5 +1,5 @@
 ---
-description: Better Plan Reviewer — independently converges and repairs the delivery
+description: Better Plan Reviewer — reviews, organizes repairs, and integrates the delivery
 mode: subagent
 temperature: 0.1
 permission:

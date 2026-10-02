@@ -13,37 +13,40 @@ collaboration; they do not grant permission or police Agent judgment.
 
 **Main understands and faithfully conveys user needs, keeps work moving, and answers
 to the user for their execution.** It connects one Designer, parallel Workers, and
-one Reviewer. It relays questions and decisions, resumes interrupted work, starts
-the next ready work, and promptly points out observed deviations. It does not
-reinterpret repository materials for specialists or prescribe their technical
-approach. See [main guidance](references/main.md).
+one Reviewer. It tracks the user's next useful outcome, true blockers, ready work,
+and repeated effort; resumes interrupted work and starts work as dependencies allow.
+It does not reinterpret repository materials for specialists or prescribe technical
+remedies. When the host does not let the Reviewer dispatch a Worker, Main forwards
+the Reviewer's repair assignment unchanged and returns the result. See [main
+guidance](references/main.md).
 
 **One Designer designs what the user's long-term goal needs.** Architecture, code,
 documentation, workflows, scripts, and tools are all available means. The Designer
 chooses the approach and decomposition, using the repository and shared evidence.
 See [Designer guidance](references/designer.md).
 
-**Workers execute ready Nodes autonomously and in parallel.** Give each Worker the
-repository, plan, and Node reference; the shared materials supply the work. Design
-real dependencies and ownership to maximize useful parallelism, not repeated main
-instructions. See [Worker guidance](references/worker.md).
+**Workers execute ready Nodes and scoped repairs autonomously and in parallel.** Give
+each Worker the repository, plan, and work reference; shared materials supply the
+context. Design real dependencies and exclusive write ownership to maximize useful
+parallelism, not repeated main instructions. See [Worker guidance](references/worker.md).
 
-**One Reviewer independently brings the delivery to completion.** After the other
-writers have finished, it examines user needs, industry best practices, repository
-rules, and whether the plan and its execution actually serve the original intent.
-It directly repairs what it discovers, including defects in the design or plan,
-then integrates and verifies the result. Neither main's checklist nor the plan
-limits its investigation or repairs. Keep the same Reviewer through corrections;
-there is no separate integration Agent and no concurrent writer during convergence.
-See [Reviewer guidance](references/reviewer.md).
+**One Reviewer independently brings the delivery to completion.** It examines user
+needs, industry best practices, repository rules, and whether the plan and its
+execution serve the original intent. It may directly repair issues or organize
+Workers to implement independent, bounded repairs in isolated worktrees. The same
+Reviewer retains source review, integration, verification, and delivery judgment.
+Freeze only the exact candidate that needs a stable verification snapshot; unrelated
+writers may continue outside it. If the host does not let the Reviewer dispatch,
+Main forwards its assignment mechanically. See [Reviewer guidance](references/reviewer.md).
 
 Every role exercises its own judgment under the user's requirements, repository
 rules, and actual host permissions. A main brief adds no further authority boundary.
+Host tools and permissions determine whether a role can dispatch another Agent;
+model capability or parent-child topology does not establish that capability.
 Agents raise material uncertainty through main to the user; pause work that depends
-on the answer rather than inventing requirements. Main's in-process correction and
+on the answer rather than inventing requirements. Main's active coordination and
 the Reviewer's independent final judgment protect the outcome without per-step
-approval. Model capability and parent-child topology do not establish technical
-superiority.
+approval.
 
 ## Shared information
 
@@ -61,10 +64,13 @@ Before revising the plan, archive relevant available conversation with `history
 archive`; retain source meaning without requiring Agents to replay the conversation.
 History is read on demand, not injected into every assignment.
 
-A Task is one independently deliverable Draft PR containing its Nodes' commits.
-A Node is one coherent change and one commit. The Reviewer owns integration;
-`integration_owner` records that responsibility, not an additional Agent. Task PRs
-leave the project buildable and runnable after their declared prerequisites.
+A Task describes a deliverable outcome. A Draft PR may group related Tasks when that
+is the clearest reviewable delivery. A Node describes a coherent contribution; its
+commit field records the resulting revision and may name a revision containing
+multiple commits. Keep Task, Node, commit, and PR relationships explicit without
+forcing a one-to-one mapping. The Reviewer owns integration; `integration_owner`
+records that responsibility, not an additional Agent. Deliveries leave the project
+buildable and runnable after their declared prerequisites.
 Longer programmes keep future milestones as outlines until their requirements are
 understood; see [programme guidance](references/programme.md).
 

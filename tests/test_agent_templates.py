@@ -9,6 +9,7 @@ import unittest
 from scripts.better_plan.installation.assignments import CODEX_DEFAULT_MATRIX
 from scripts.better_plan.installation.models import AGENTS, CURRENT_SKILL_FILES
 from scripts.better_plan.installation.targets import KILO_AGENT_FILES, NATIVE_ROLE_FILES
+from scripts.generate_workflow_presentation import build_prompt_data, embedded_prompt_data
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,16 @@ REMOVED_ROLES = (
 
 
 class PackagedRoleTests(unittest.TestCase):
+    def test_presentation_prompt_data_matches_the_canonical_sources(self) -> None:
+        html = (ROOT / "docs" / "presentations" / "better-plan-workflow.html").read_text(
+            encoding="utf-8"
+        )
+        data = embedded_prompt_data(html)
+        self.assertEqual(data, build_prompt_data(ROOT))
+        self.assertEqual(set(data["roles"]), {"main", "designer", "worker", "reviewer"})
+        self.assertEqual(set(data["entries"]), {"main", "designer", "worker", "reviewer"})
+        self.assertEqual(set(data["briefs"]), {"designer", "worker", "reviewer"})
+
     def test_every_native_host_packages_the_three_roles(self) -> None:
         for host, filenames in ROLE_FILES.items():
             with self.subTest(host=host):
