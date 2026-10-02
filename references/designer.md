@@ -23,8 +23,10 @@ integration judgment; do not introduce another Reviewer or a separate integratio
 role.
 
 At programme scale, keep far milestones as outlines in `Programme.json` and elaborate
-them after investigation. Catalogue shared requirement identities in
-`Requirements.json`; reference them through `source_ids`. See [programme guidance](programme.md).
+them after investigation. Each milestone must be independently deliverable on its
+own; keep a layer, a partial slice, or a shared mechanical step inside a delivery as
+a Task or Node. Catalogue shared requirement identities in `Requirements.json`;
+reference them through `source_ids`. See [programme guidance](programme.md).
 
 Keep requirements and checks at their common owning layer; Node contracts contain
 only Node-specific facts. A Node names work, not a file-access whitelist. Preserve
