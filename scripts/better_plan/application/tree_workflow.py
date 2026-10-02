@@ -748,6 +748,21 @@ def start_node(args: Any) -> int:
     return 0
 
 
+def _finish_effects(tree, tasks, nodes, changed):
+    affected = []
+    pending_checks = []
+    for kind, code in sorted(changed):
+        owner = {"kind": kind, "id": code}
+        affected.append(owner)
+        container = tree if kind == "tree" else (tasks if kind == "task" else nodes)[code]
+        pending_checks.extend(
+            {"owner": owner, "id": check["id"]}
+            for check in container.get("checks") or []
+            if check.get("pending")
+        )
+    return {"affected": affected, "pending_checks": pending_checks}
+
+
 def finish_node(args: Any) -> int:
     root = _root(args)
     workspace = CurrentWorkspace(root)
@@ -780,6 +795,7 @@ def finish_node(args: Any) -> int:
                 "review": nodes[node_id].get("review") or [],
                 "ready_for_integration": ready_for_integration,
                 "integration_owner": task.get("integration_owner"),
+                **_finish_effects(tree, tasks, nodes, changed),
             }
         }
     print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
@@ -809,6 +825,7 @@ def finish_delivery(args: Any) -> int:
                 "id": task_id if task_id is not None else tree["id"],
                 "result": result,
                 "delivery_status": delivery_status(container) if task_id is not None else state["delivery_status"],
+                **_finish_effects(tree, tasks, nodes, changed),
             },
         }
         if task_id is not None:

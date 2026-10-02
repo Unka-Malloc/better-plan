@@ -12,7 +12,7 @@ the Tree goal and requirements, Task outcome, Node facts, dependencies, and pend
 reviews. Consult additional shared material whenever it helps the work.
 
 Implement and verify the outcome, then record it with `node finish <plan> <node>
---summary TEXT --commit REF`. Keep each Node's coherent commit attributable; report
+--summary TEXT --commit REF`. Keep each Node's resulting revision attributable; report
 results, requirement exceptions, and any remaining questions. Checks assist your
 judgment rather than gate completion. See [the tree contract](checkpoints-tree.md)
 for updating facts, clearing handled reviews, and recovering interrupted checks.

@@ -656,6 +656,27 @@ class DeliveryAndCheckTests(unittest.TestCase):
         self.ws.write_task(tasks["T"])
         return self.args(owner="task:T", id="C", cwd=None)
 
+    def test_finish_summary_identifies_affected_work_and_pending_checks(self):
+        self.install_checks()
+        tree, tasks, nodes = self.ws.load()
+        tasks["X"]["checks"] = [check("UNRELATED", {"kind": "task"})]
+        self.ws.write_task(tasks["X"])
+        self.finish_all()
+        self.output.seek(0)
+        self.output.truncate(0)
+
+        tree_workflow.finish_node(self.args(id="A", result=None, summary="Repaired", commit="repaired-head"))
+        finished = json.loads(self.output.getvalue())["finished"]
+        affected = {(item["kind"], item["id"]) for item in finished["affected"]}
+        self.assertIn(("node", "B"), affected)
+        self.assertIn(("task", "U"), affected)
+        self.assertNotIn(("task", "X"), affected)
+        self.assertEqual(finished["pending_checks"], [
+            {"owner": {"kind": "task", "id": "T"}, "id": "C"},
+            {"owner": {"kind": "task", "id": "T"}, "id": "D"},
+        ])
+        self.assertNotIn("requirements", finished)
+
     def test_explicit_delivery_and_reconfirmation_do_not_erase_child_facts(self):
         self.assertEqual(derived_state(*self.ws.load())["delivery_status"], "unrecorded")
         self.finish_all()
