@@ -583,7 +583,7 @@ class WorkerAndHistoryTests(unittest.TestCase):
             cli = CliWorkspace(self, root)
             cli.init()
             transcript = root / "conversation.txt"
-            transcript.write_text("user said keep history", encoding="utf-8", newline="")
+            transcript.write_bytes(b"user said keep history")
             attachment = root / "legacy.bin"
             original = b"legacy\r\nbytes\x00\xff"
             attachment.write_bytes(original)
