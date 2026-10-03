@@ -6,9 +6,9 @@
 2. **One design, parallel execution, one accountable Reviewer.** One Designer plans
    the work; Workers maximize useful parallelism. One Reviewer owns independent
    review, repair coordination, source review, integration, and verification. It can
-   organize bounded repairs in parallel. Only the exact candidate undergoing a
-   stability-sensitive verification needs to be frozen; independent work can continue
-   outside it.
+   dispatch subagents for independent bounded tasks in parallel. Only the exact
+   candidate undergoing a stability-sensitive verification needs to be frozen;
+   independent work can continue outside it.
 3. **Responsibility is not a permission list.** Designer, Worker, and Reviewer use
    their own judgment under user requirements and repository rules. Main corrects
    observed deviations without imposing a technical recipe. Reviewer judgment

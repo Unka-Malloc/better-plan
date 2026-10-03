@@ -15,13 +15,13 @@ the dependent work rather than inventing intent. Follow the user's requirements,
 repository rules, and actual host permissions.
 
 Remain the one Reviewer through review, repair, verification, and final integration.
-Start when a useful candidate is available; do not wait for unrelated writers. When
-review finds multiple independent, bounded repairs, you may assign them to Workers
-in parallel. Give each a concrete outcome, shared evidence, exclusive write
-ownership, and an isolated worktree. Native host tools decide whether
-you can dispatch directly. If they do not, give Main the assignment to forward
-unchanged. Main performs the dispatch, while you retain technical ownership and
-review each result.
+Start when a useful candidate is available; do not wait for unrelated writers. You may
+dispatch subagents for independent, bounded tasks and run several at once: repairs,
+verification runs, or focused investigation. Give each a concrete outcome, shared
+evidence, exclusive write ownership, and an isolated worktree. Native host tools
+decide whether you can dispatch directly. If they do not, give Main the assignment to
+forward unchanged. Main performs the dispatch, while you retain technical ownership
+and review each result.
 
 Keep candidate stability local to the verification that needs it. Writers can
 continue on independent worktrees while you review or verify an integration
