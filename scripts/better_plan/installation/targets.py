@@ -467,22 +467,26 @@ def _merge_markdown_prompt(existing: str, expected: str) -> str | None:
     untouched by returning ``None``.
     """
 
-    def split(text: str) -> tuple[list[str], str] | None:
-        if not text.startswith("---\n"):
+    def split(text: str) -> tuple[str, list[str], str, str] | None:
+        opening = re.match(r"---\r?\n", text)
+        if opening is None:
             return None
-        end = text.find("\n---\n", 4)
-        if end < 0:
+        closing = re.search(r"(?m)^---\r?\n", text[opening.end():])
+        if closing is None:
             return None
-        return text[4:end].splitlines(), text[end + 5:]
+        end = opening.end() + closing.start()
+        body = opening.end() + closing.end()
+        return text[:opening.end()], text[opening.end():end].splitlines(keepends=True), text[end:body], text[body:]
 
     current = split(existing)
     target = split(expected)
     if current is None or target is None:
         return None
-    front, _ = current
-    target_front, target_body = target
+    opening, front, closing, _ = current
+    _, target_front, _, target_body = target
+    newline = "\r\n" if opening.endswith("\r\n") else "\n"
     description = next(
-        (line for line in target_front if line.startswith("description:")), None
+        (line.rstrip("\r\n") for line in target_front if line.startswith("description:")), None
     )
     merged: list[str] = []
     replaced = False
@@ -490,20 +494,18 @@ def _merge_markdown_prompt(existing: str, expected: str) -> str | None:
         if line.startswith("description:"):
             replaced = True
             if description is not None:
-                merged.append(description)
+                ending = "\r\n" if line.endswith("\r\n") else "\n"
+                merged.append(description + ending)
             continue
         merged.append(line)
     if not replaced and description is not None:
         index = next(
-            (
-                position
-                for position, line in enumerate(target_front)
-                if line.startswith("description:")
-            ),
-            len(merged),
+            (position for position, line in enumerate(target_front)
+             if line.startswith("description:")), len(merged),
         )
-        merged.insert(min(index, len(merged)), description)
-    return "---\n" + "\n".join(merged) + "\n---\n" + target_body
+        merged.insert(min(index, len(merged)), description + newline)
+    body = target_body.replace("\r\n", "\n").replace("\n", newline)
+    return opening + "".join(merged) + closing + body
 
 
 def _merge_codex_prompt(existing: str, rendered: str) -> str | None:
@@ -523,7 +525,7 @@ def _merge_codex_prompt(existing: str, rendered: str) -> str | None:
             if start is None and line.startswith("developer_instructions = "):
                 start = index
                 for close in range(index + 1, len(lines)):
-                    if lines[close].rstrip("\n") == '"""':
+                    if lines[close].rstrip("\r\n") == '"""':
                         end = close
                         break
                 break
@@ -535,13 +537,14 @@ def _merge_codex_prompt(existing: str, rendered: str) -> str | None:
     target = locate(rendered)
     if current is None or target is None:
         return None
-    lines, _, start, end = current
+    lines, current_description, start, end = current
     target_lines, target_description, target_start, target_end = target
-    merged = [
-        *lines[:start],
-        *target_lines[target_start:target_end + 1],
-        *lines[end + 1:],
-    ]
+    description_newline = "\r\n" if current_description.endswith("\r\n") else "\n"
+    target_description = target_description.rstrip("\r\n") + description_newline
+    prompt_newline = "\r\n" if lines[start].endswith("\r\n") else "\n"
+    prompt = "".join(target_lines[target_start:target_end + 1])
+    prompt = prompt.replace("\r\n", "\n").replace("\n", prompt_newline)
+    merged = [*lines[:start], prompt, *lines[end + 1:]]
     result: list[str] = []
     replaced = False
     for line in merged:
@@ -571,23 +574,25 @@ def _refresh_prompt_files(
             complete = False
             continue
         try:
-            existing = path.read_text(encoding="utf-8")
+            original = path.read_bytes()
+            existing = original.decode("utf-8")
         except (OSError, UnicodeError):
             complete = False
             continue
-        digests[filename] = _content_digest(existing.encode("utf-8"))
+        digests[filename] = _content_digest(original)
         if format == "codex":
             merged = _merge_codex_prompt(existing, expected_text)
         else:
             merged = _merge_markdown_prompt(existing, expected_text)
         if merged is None or merged == existing:
             continue
+        content = merged.encode("utf-8")
         if not dry_run:
             try:
-                path.write_text(merged, encoding="utf-8")
+                path.write_bytes(content)
             except OSError as exc:
                 raise _InstallError("could not refresh native role prompt") from exc
-        digests[filename] = _content_digest(merged.encode("utf-8"))
+        digests[filename] = _content_digest(content)
         changed.append(filename)
     return changed, digests, complete
 

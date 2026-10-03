@@ -155,7 +155,15 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(install_targets.role_receipt_status(self.paths, host)[0], True)
         for host in ("codex", "claude", "cursor"):
             ok, message = install_targets.native_role_status(self.paths, host)
-            self.assertTrue(ok, message)
+            if host == "codex":
+                self.assertTrue(ok, message)
+            else:
+                # Raw line endings remain host-owned; compare prompt content without
+                # requiring byte equality with the LF-only packaged templates.
+                directory = install_targets._native_role_directory(self.paths, host)
+                for name, expected in install_targets.unpinned_role_payload(self.paths, host).items():
+                    self.assertEqual((directory / name).read_text(encoding="utf-8"),
+                                     expected.decode("utf-8"))
         self.assertTrue(install_targets.kilo_agent_status(self.paths)[0])
 
     def legacy_receipted_matrix(self, host: str) -> tuple[Path, Path, dict]:
@@ -284,6 +292,40 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(custom.read_bytes(), before)
         self.assertFalse((directory / "verifier.md").exists())
         self.assertFalse(receipt_path.exists())
+
+    def test_prompt_refresh_preserves_raw_host_newlines_and_hashes_written_bytes(self) -> None:
+        for host, filename, format in (("codex", "verifier.toml", "codex"),
+                                       ("claude-code", "verifier.md", "markdown")):
+            expected = (REPO_ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+            original = expected.replace("You are the", "Old prompt: You are the").replace("\n", "\r\n")
+            if format == "codex":
+                marker = 'sandbox_mode = "workspace-write"\r\n'
+                fields = marker + 'model = "custom"\nlocal_key = "preserve"\r\n'
+            else:
+                marker = 'tools: Read, Edit, Write, Glob, Grep, Bash\r\n'
+                fields = marker + 'model: custom\nlocal_key: preserve\r\n'
+            original = original.replace(marker, fields).encode("utf-8")
+            destination = Path(self.temporary.name) / host
+            destination.mkdir()
+            path = destination / filename
+            path.write_bytes(original)
+            changed, digests, complete = install_targets._refresh_prompt_files(
+                destination, {filename: expected}, format=format, dry_run=True)
+            self.assertEqual(path.read_bytes(), original)
+            changed, digests, complete = install_targets._refresh_prompt_files(
+                destination, {filename: expected}, format=format, dry_run=False)
+            written = path.read_bytes()
+            self.assertTrue(complete)
+            self.assertEqual(changed, [filename])
+            self.assertIn(fields.encode("utf-8"), written)
+            self.assertNotIn(b"Old prompt", written)
+            self.assertEqual(written, original.replace(b"Old prompt: ", b""))
+            self.assertEqual(digests[filename], install_targets._content_digest(written))
+            changed, digests, _ = install_targets._refresh_prompt_files(
+                destination, {filename: expected}, format=format, dry_run=False)
+            self.assertEqual(changed, [])
+            self.assertEqual(path.read_bytes(), written)
+            self.assertEqual(digests[filename], install_targets._content_digest(written))
 
     def test_verifier_refresh_preserves_custom_host_fields_byte_for_byte(self) -> None:
         self.install_all()
