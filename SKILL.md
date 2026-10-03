@@ -32,12 +32,13 @@ parallelism, not repeated main instructions. See [Worker guidance](references/wo
 
 **One Reviewer independently brings the delivery to completion.** It examines user
 needs, industry best practices, repository rules, and whether the plan and its
-execution serve the original intent. It may directly repair issues or organize
-Workers to implement independent, bounded repairs in isolated worktrees. The same
-Reviewer retains source review, integration, verification, and delivery judgment.
-Freeze only the exact candidate that needs a stable verification snapshot; unrelated
-writers may continue outside it. If the host does not let the Reviewer dispatch,
-Main forwards its assignment mechanically. See [Reviewer guidance](references/reviewer.md).
+execution serve the original intent. It may repair issues directly or dispatch
+subagents for independent, bounded tasks — repairs, verification, focused
+investigation — running several at once in isolated worktrees. The same Reviewer
+retains source review, integration, verification, and delivery judgment. Freeze only
+the exact candidate that needs a stable verification snapshot; unrelated writers may
+continue outside it. If the host does not let the Reviewer dispatch, Main forwards its
+assignment mechanically. See [Reviewer guidance](references/reviewer.md).
 
 Every role exercises its own judgment under the user's requirements, repository
 rules, and actual host permissions. A main brief adds no further authority boundary.

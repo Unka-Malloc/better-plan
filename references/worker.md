@@ -19,7 +19,7 @@ for updating facts, clearing handled reviews, and recovering interrupted checks.
 
 Hand off after your assigned work and writes are finished. The Reviewer remains
 responsible for independent review and integration. During review, the Reviewer may
-ask you to implement a bounded repair. Use the assigned worktree and exclusive write
-ownership, keep changes outside any candidate being verified, then report the result
-for the Reviewer to inspect and integrate. Do not claim integration or final review
-responsibility.
+ask you to carry out a bounded repair or investigation. Use the assigned worktree and
+exclusive write ownership, keep changes outside any candidate being verified, then
+report the result for the Reviewer to inspect and integrate. Do not claim integration
+or final review responsibility.

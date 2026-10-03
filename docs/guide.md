@@ -12,16 +12,16 @@ planning, parallel implementation, and independent review.
 | Main | Understands and conveys your needs, tracks real blockers and ready work, relays questions, and resumes interrupted work. |
 | Designer | Independently designs the solution and a shared plan with useful parallel work. |
 | Workers | Read the shared plan and repository, implement their assigned contributions, and record results. |
-| Reviewer | Independently checks the result and the plan, organizes repairs, reviews their source, then integrates and verifies the delivery. |
+| Reviewer | Independently checks the result and the plan, dispatches subagents for independent bounded tasks in parallel, reviews their source, then integrates and verifies the delivery. |
 
 One Designer owns the design. Workers run in parallel where the work allows it.
-One Reviewer stays responsible for review and closure and may organize Workers to
-implement independent repairs in parallel. Freeze only the candidate undergoing a
+One Reviewer stays responsible for review and closure and may dispatch subagents for
+independent, bounded tasks in parallel. Freeze only the candidate undergoing a
 verification that needs a stable snapshot; unrelated work can continue outside it.
 Questions that require your decision come back through Main; dependent work waits
 for clarity. Main tracks the next useful outcome, its true blockers, ready work, and
-repeated effort. If the host does not let the Reviewer dispatch a Worker, Main
-forwards the Reviewer's repair assignment without changing its technical scope.
+repeated effort. If the host does not let the Reviewer dispatch a subagent, Main
+forwards the Reviewer's assignment without changing its technical scope.
 
 The [presentation](presentations/better-plan-workflow.html) includes the actual
 shared instructions and role prompts. GitHub displays HTML as source; download the
