@@ -4,36 +4,70 @@
 
 ## How it works
 
-Describe the outcome you want. Better Plan helps the agents carry that intent through
-planning, parallel implementation, and independent review.
+Describe the outcome you want. Better Plan carries that intent through architecture,
+parallel implementation, continuous verification, and fresh independent closure.
 
 | Role | What it does |
 | --- | --- |
-| Main | Understands and conveys your needs, tracks real blockers and ready work, relays questions, and resumes interrupted work. |
-| Designer | Maps requirements to architecture, complete milestones, and real dependencies, then hands off ready work for maximum useful parallelism. |
-| Workers | Read the shared plan and repository, implement their assigned contributions, and record results. |
-| Reviewer | Closes milestones promptly, repairs and integrates the whole plan with parallel help, and verifies all recorded user requirements, including plan omissions. |
+| Main | Owns requirements, dispatch, coordination, blockers, user questions, and the workflow handoff. |
+| Designer | Provides light architecture and decomposition into independently deliverable milestones with real dependencies. |
+| Workers | Implement assigned contributions and scoped repairs; their output is untrusted until independently inspected. |
+| Verifier | Runs persistently alongside Main by default; independently inspects every actual change, integrates, tests, and repairs continuously. |
+| Reviewer | Independently validates and repairs a stable candidate against requirements and code, then closes its scope. |
 
-One Designer owns the design. Workers run in parallel where the work allows it.
-One Reviewer stays responsible for review and closure and may dispatch subagents for
-independent, bounded tasks in parallel. Freeze only the candidate undergoing a
-verification that needs a stable snapshot; unrelated work can continue outside it.
-Questions that require your decision come back through Main; dependent work waits
-for clarity. Main tracks the next useful outcome, its true blockers, ready work, and
-repeated effort. If the host does not let the Reviewer dispatch a subagent, Main
-forwards the Reviewer's assignment without changing its technical scope.
+### Continuous work and milestone closure
 
-Designer does not have to predict every runtime bug or prescribe every implementation
-detail. Workers handle those as work proceeds; discoveries update the affected plan
-without restarting the entire design. Independently deliverable existing bug fixes,
-necessary refactors, and new features have clear milestone boundaries. Errors made
-while implementing a feature remain part of that feature. Final review reconciles
-the central requirement record with the actual integrated result, not merely a list
-of completed milestones. These responsibilities do not change your host model or
-reasoning settings.
+Main starts the persistent Verifier and dispatches ready work. Designer hands off once
+architecture, boundaries, and dependencies are clear; it does not predict every runtime
+bug. Workers choose implementation details and resolve ordinary implementation problems.
+They have no QA, process, integration, or mandatory evidence-pack duty. Their reports
+locate work, but are not proof of correctness. The Verifier inspects the actual changes,
+including repairs, and independently establishes whether the integrated result works.
+
+Use inexpensive Workers in parallel where useful, within available resources and host
+permissions. Real dependencies and shared writes determine what can run together.
+Nothing here assumes unlimited or free compute or changes host-owned settings.
+
+When a milestone candidate is ready, a separate Reviewer receives its requirements
+and immutable code snapshot. Prior Worker or Verifier conclusions are not its proof.
+It independently validates and repairs the candidate, rerunning affected checks after
+changes. Meanwhile the persistent Verifier continues other work outside that candidate.
+Only the reviewed candidate is held stable; unrelated work does not stop. Reviewer
+corrections return to the persistent Verifier for inspection and integration into
+the ongoing whole-plan candidate.
+
+### Final handoff
+
+1. Main establishes that all Workers are done, milestone-review repair writes have
+   ended, and corrected milestone revisions have been incorporated.
+2. The persistent Verifier runs final whole-plan regression on the integrated result,
+   repairs defects, and repeats affected verification as needed.
+3. Verifier notifies Main when that work is complete.
+4. Main stops the Verifier and confirms its writes have ended.
+5. A separate final Reviewer independently validates and repairs the final candidate
+   from requirements and code, closing every requirement, including missing plan work.
+
+This is a simple host handoff: all Workers done → Verifier final regression → notify
+Main → Main stops Verifier → separate final Reviewer. Earlier test results and milestone
+closure are not substitutes for final independent judgment. Rework cycles are allowed;
+changed candidates need fresh verification. There is no added enforcement or human
+approval framework. Material questions go through Main, and only dependent work waits
+for an answer. Existing authorization and repository rules still apply.
+
+Independently deliverable existing bug fixes, necessary refactors, and new features
+have distinct milestone boundaries. Ordinary errors introduced while implementing a
+feature remain within that feature. See the [fictional project story](story.md) for
+an example of all three, continuous repair, milestone review, and final closure.
+
+The package includes four native specialist profiles: Designer, Worker, Verifier,
+and Reviewer. Verifier uses the host default without adding model or reasoning
+selectors. Existing host-owned configuration stays unchanged. Main starts the Verifier through
+the host during the default workflow; installing a profile does not launch an agent.
+The independent Reviewer may resume across milestones and final review while remaining
+separate from the persistent Verifier.
 
 The [presentation](presentations/better-plan-workflow.html) includes the actual
-shared instructions and role prompts. GitHub displays HTML as source; download the
+shared instructions and all role prompts. GitHub displays HTML as source; download the
 file and open it locally to use the slides, role tabs, and keyboard navigation.
 
 ## Install and update
@@ -65,7 +99,9 @@ python3 scripts/install.py doctor --agents codex
 ```
 
 Updates refresh the skill and role prompts while preserving existing model, tool,
-permission, and sandbox configuration. The installed package includes this guide,
+permission, and sandbox configuration. A narrow migration adds only a missing
+Verifier profile to recognized older installations; same-name custom roles or uncertain
+ownership are reported without replacement. The installed package includes this guide,
 the offline presentation, and the license. See [host configuration](../references/host-configuration.md)
 for installation locations, receipts, and Doctor diagnostics.
 

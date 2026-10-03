@@ -23,12 +23,12 @@ class ConfiguredRoleNameTests(unittest.TestCase):
     def test_configured_role_names_reads_the_local_matrix(self) -> None:
         home = self._home_with(
             {
-                "renamed.toml": 'name = "designer"\nmodel = "local-model"\n',
+                "renamed.toml": 'name = "verifier"\nmodel = "local-model"\n',
                 "reviewer.toml": 'name = "reviewer"\n',
             }
         )
 
-        self.assertEqual(configured_codex_role_names(home), {"designer", "reviewer"})
+        self.assertEqual(configured_codex_role_names(home), {"verifier", "reviewer"})
 
     def test_a_malformed_role_file_is_ignored_rather_than_guessed(self) -> None:
         home = self._home_with(

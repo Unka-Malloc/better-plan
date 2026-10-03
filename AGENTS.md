@@ -47,8 +47,13 @@
   update refresh it from the current packaged template, preserve every host-owned field, and refresh
   the receipt digests to match. A role file without a recognizable prompt structure stays untouched.
 - Install, update, uninstall, Doctor, migration, repair, and explicit replacement requests never
-  authorize changing host-owned fields, adding or removing role files, or rewriting prompts outside
-  that refresh. Update skills, plugins, and adapters around them.
+  authorize changing host-owned fields, removing role files, or rewriting prompts outside
+  that refresh. The sole additive exception is upgrading a recognized legacy matrix with the
+  missing Verifier profile and its necessary receipt entry. Preserve all existing role files and
+  assignment provenance; report same-name custom Verifier collisions without overwriting them.
+  Codex/Kilo require a valid legacy receipt; Claude/Cursor require recognizable complete legacy
+  prompts because those hosts historically had no receipt. Never adopt uncertain local files.
+  Update skills, plugins, and adapters around them.
 - A receipt mismatch is a report-only Doctor warning. Never recommend replacement as its repair,
   never regenerate a receipt outside a prompt refresh, and never displace unrelated local agents.
 - Verify host-owned fields remain byte-identical across every non-initial installation operation,

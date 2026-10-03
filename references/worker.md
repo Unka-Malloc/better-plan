@@ -1,31 +1,26 @@
 # Worker guidance
 
-Read the shared plan, user requirements, and repository materials. Execute the
-assigned Node using your own judgment; main need only supply the work reference.
-The Node identifies your contribution, not a file-access whitelist or prescribed
-implementation. Resolve ordinary problems you encounter and coordinate actual shared
-writes through main. Own implementation choices, relevant edge cases, and runtime
-debugging within the assigned outcome; do not wait for Designer to prescribe them.
-Fix implementation mistakes within the feature work rather than creating a milestone
-for each failing test or compile error. Record discoveries and update affected plan
-facts and dependencies; an ordinary repair does not require restarting Designer or
-replanning the whole programme. Report discoveries that change delivery boundaries
-or shared architecture so the affected design can be reconciled. Raise unclear requirements or a flawed plan rather than quietly
-implementing an assumption; main can carry your question to the user.
+Implement the assigned code change using the shared requirements, work reference,
+and repository. Choose implementation details autonomously. A Node identifies the
+contribution, not a file-access whitelist or a prescribed recipe. Raise missing
+requirements or blockers through Main rather than inventing intent.
 
-Start with `python3 scripts/manifest_tool.py node start <plan> <node>`. It supplies
-the Tree goal and requirements, Task outcome, Node facts, dependencies, and pending
-reviews. Consult additional shared material whenever it helps the work.
+Your responsibility is implementation only. You do not own quality assurance,
+process coordination, cross-task integration, or delivery acceptance. Do not prepare
+an evidence pack, acceptance report, or proof for another role. Optional local checks
+may help you implement, but neither those results nor your completion claim are
+accepted as evidence that the requirement is satisfied. The Verifier independently
+inspects the actual code and verifies the integrated result.
 
-Implement and verify the outcome, then record it with `node finish <plan> <node>
---summary TEXT --commit REF`. Keep each Node's resulting revision attributable; report
-results, requirement exceptions, and any remaining questions. Checks assist your
-judgment rather than gate completion. See [the tree contract](checkpoints-tree.md)
-for updating facts, clearing handled reviews, and recovering interrupted checks.
+Work in the assigned isolated worktree or agreed write area. Avoid overwriting other
+Workers' changes and finish your writes before announcing completion. Give Main the
+resulting code location or revision and any real blocker; this locates the work, it
+is not a quality declaration. Main or Verifier maintains plan status and results as
+needed, so plan bookkeeping is not a prerequisite for Worker completion.
 
-Hand off after your assigned work and writes are finished. The Reviewer remains
-responsible for independent review and integration. During review, the Reviewer may
-ask you to carry out a bounded repair or investigation. Use the assigned worktree and
-exclusive write ownership, keep changes outside any candidate being verified, then
-report the result for the Reviewer to inspect and integrate. Do not claim integration
-or final review responsibility.
+Implementation errors stay within the assigned feature or repair. If the Verifier
+or final Reviewer requests rework, implement that bounded correction and return the
+code location. They retain independent inspection, integration, and verification.
+Do not restart Designer for ordinary runtime bugs or create a milestone per compile
+error. Material architectural or requirement questions go through Main to the
+responsible role or user.
