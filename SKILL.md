@@ -9,6 +9,10 @@ Better Plan is a shared blackboard for long-term work. Agents read the same user
 requirements, plan, repository documents, and evidence directly. Its tools assist
 collaboration; they do not grant permission or police Agent judgment.
 
+It assumes every Agent makes mistakes, so it widens parallel work instead of gating
+each contribution and concentrates integration and review in one capable Reviewer.
+See [design principles](references/design-principles.md).
+
 ## Workflow
 
 **Main understands and faithfully conveys user needs, keeps work moving, and answers
