@@ -1,7 +1,8 @@
 """Select the packaged Codex role matrix once at first installation.
 
-Codex is the only host with packaged native roles, and its matrix is a fixed
-preset. One benchmark table is read, for the receipt's provenance only: the
+Codex is the only host with packaged model pins. Its three existing pins are
+a fixed preset; Verifier inherits host defaults without a model or effort pin.
+One benchmark table is read, for the receipt's provenance only: the
 Intelligence Index row behind each pin records ``index_score`` and
 ``cost_per_task_usd``. Nothing here selects a role, a model, or an effort, and
 no second index is consulted. Kilo packages no preset at all and keeps
@@ -36,12 +37,12 @@ class RoleAssignment:
 
     role: str
     agent_name: str
-    model: str
+    model: str | None
     reasoning_effort: str | None
-    benchmark_id: str
+    benchmark_id: str | None
     # The one standard evaluation basis: the model row's Intelligence Index score and its
     # published task cost from the same table.
-    index_score: int
+    index_score: int | None
     cost_per_task_usd: float | None
     source: str
 
@@ -67,6 +68,10 @@ def _codex_default_delivery_assignments(
             cost_per_task_usd=benchmark.cost_per_task_usd,
             source="codex-default-matrix",
         )
+    assignments["verifier"] = RoleAssignment(
+        role="verifier", agent_name="verifier", model=None, reasoning_effort=None,
+        benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
+    )
     return assignments
 
 

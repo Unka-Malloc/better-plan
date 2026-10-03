@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Shared plans for autonomous, long-lived collaboration"
-  default_prompt: "Use $better-plan to keep the user's goal moving through ready parallel work, accountable review, and integrated verification."
+  default_prompt: "Use $better-plan to keep the user's goal moving through parallel implementation, default persistent verification, and independent milestone and final review."

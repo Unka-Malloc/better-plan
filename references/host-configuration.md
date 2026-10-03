@@ -5,8 +5,10 @@ configuration changes, installation/update/Doctor work, or host integration. Ord
 delivery turns do not load it.
 
 Better Plan supports five targets: Codex, Claude Code, Cursor, Kilo Code, and DeepSeek Harness.
-Codex is the only one with packaged role presets; every other target installs unpinned roles and
-inherits its model and reasoning effort from the host and the user's own configuration.
+Codex has packaged model presets for Designer, Worker, and Reviewer. The new Verifier
+profile has no model or reasoning selector and inherits host configuration. Other
+targets likewise inherit model and reasoning settings; DeepSeek Harness uses prompts
+instead of native role files.
 
 Better Plan owns the Tree and its CLI. It installs **no Hooks, no dispatch adapter, and no lifecycle
 callback**: who spawns which role, how a spawn is correlated with a result, and what the host's
@@ -15,27 +17,40 @@ host's session state.
 
 ## Optional packaged roles
 
-Better Plan offers three native role profiles. The workflow uses one Designer,
-parallel Workers, and one Reviewer; native profiles are optional ways to load them:
+Fresh installations offer four native role profiles. The workflow starts one
+persistent Verifier by default alongside Main and parallel Workers; Designer shapes
+the work and Reviewer independently closes stable milestones and the final result.
+A native profile loads instructions; it does not automatically launch a process:
 
 | Role | Purpose | Codex preset selector |
 |---|---|---|
 | `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
-| `worker` | executes an assigned Node or bounded repair and records the resulting revision; as many worker slots as the delivery needs dispatch here | `gpt-6-luna / max` |
-| `reviewer` | owns independent review, repair coordination, source review, integration, verification, and Task/Tree conclusions within the approved scope | `gpt-6-astra / xhigh` |
+| `worker` | implements assigned code; no quality/process/integration ownership or required evidence pack | `gpt-6-luna / max` |
+| `verifier` | persistently inspects actual code, integrates, checks, and repairs throughout execution | host-inherited; no model or effort pin |
+| `reviewer` | independently validates and repairs stable milestone and final code against user requirements, then records conclusions | `gpt-6-astra / xhigh` |
 
 A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. The packaged
 worker profile handles an assigned Node or bounded repair. Tasks describe outcomes, Nodes describe
 coherent contributions, and Draft PRs mark reviewable delivery boundaries. A PR may cover related
 Tasks, and a Node's resulting revision may contain multiple commits; record the actual relationships.
 
-Main conveys user requirements and work references, tracks true dependencies and
-ready work, and keeps the next useful outcome moving. The Reviewer retains review
-and integration responsibility while it may organize independent Workers to repair
-bounded defects. Freeze only the candidate being verified. Native host tools carry
-dispatch and resumption; when the Reviewer cannot dispatch, Main forwards its repair
-assignment mechanically without deciding the technical remedy. See
-`references/main.md` for continuity and question relay.
+Main owns requirements, dispatch, and process. Verifier runs persistently alongside
+it, independently inspects and integrates Worker code, and arranges repairs. Main
+forwards technical repair assignments unchanged when the host prevents direct
+dispatch. Reviewer receives requirements and immutable milestone code while Verifier
+continues elsewhere. For whole-plan final takeover, all Workers finish, Verifier
+regresses and notifies Main, and Main stops Verifier before final review. No upstream
+proof pack is required. See `references/main.md` for the native handoff.
+
+Existing installations preserve their user-owned role files and assignment settings.
+A narrow upgrade exception adds the missing packaged Verifier profile and its necessary
+receipt entry where ownership is known and no same-name role or destination conflicts.
+It never changes existing model, tool, or permission settings, replaces a custom
+Verifier, or adopts unrelated files. A collision or uncertain ownership is reported
+without overwriting the conflicting configuration. The workflow can use the Verifier
+guide with an authorized host agent while the user resolves that host setup.
+Host concurrency and lifecycle limitations remain real; report them rather than claim
+that installing a profile started a running agent.
 
 Role prompt content identifies the role and loads its maintained guidance. It does
 not repeat model, effort, provenance, repository rules, or workflow instructions.
@@ -53,10 +68,10 @@ local roles.
 
 | Target | Roles installed as | Selector |
 |---|---|---|
-| Codex | `$CODEX_HOME/agents/{designer,worker,reviewer}.toml` | packaged; selectors preserved on update |
-| Claude Code | `~/.claude/agents/{designer,worker,reviewer}.md` | host-inherited |
-| Cursor | `~/.cursor/agents/{designer,worker,reviewer}.md` | host-inherited |
-| Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
+| Codex | `$CODEX_HOME/agents/{designer,worker,verifier,reviewer}.toml` | three packaged pins; Verifier host-inherited; existing selectors preserved |
+| Claude Code | `~/.claude/agents/{designer,worker,verifier,reviewer}.md` | host-inherited |
+| Cursor | `~/.cursor/agents/{designer,worker,verifier,reviewer}.md` | host-inherited |
+| Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,verifier,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
 | DeepSeek Harness | no role file at all; roles are prompts | none |
 
 Claude Code and Cursor inherit model and effort from host configuration; no identity
@@ -68,11 +83,11 @@ reasoning effort, so each Subagent inherits the invoking primary Agent's model a
 default reasoning behaviour. A user may pin a Kilo-supported model as their own local configuration;
 install, update, and Doctor never rewrite it.
 Do not add dispatch-time model, provider, variant, or effort overrides to enable
-Reviewer delegation: Kilo uses the invoking host's current selection. Model capability,
+Verifier or Reviewer delegation: Kilo uses the invoking host's current selection. Model capability,
 artifact authority, and tool permission are separate concerns. The packaged Kilo
-Reviewer remains a leaf because its `task: deny` field is host configuration. When it
-needs a Worker, Main forwards its bounded repair assignment and reports the result;
-the Reviewer retains source review and integration responsibility.
+Verifier and Reviewer remain leaves because their `task: deny` fields are host
+configuration. Main forwards bounded repair assignments and code locations; Verifier
+or Reviewer independently inspects the returned code according to the current phase.
 
 DeepSeek Harness installs only the shared skill: it reads the shared scan directory and spawns
 subagents from a prompt, so there is no role file, no pin, and no receipt to manage.
@@ -82,8 +97,13 @@ subagents from a prompt, so there is no role file, no pin, and no receipt to man
 Codex and Kilo keep a managed receipt next to — never inside — their role directory
 (`$CODEX_HOME/agents.better-plan.json`, `<kilo-config>/agents.better-plan.json`). Codex's receipt
 records each file digest plus the assignment it was rendered from; Kilo's records file digests only.
-Claude Code and Cursor keep no receipt: their roles are verified by comparing the installed files
-with the rendered templates.
+Claude Code and Cursor now keep a Verifier-only ownership receipt at
+`<host-home>/agents.better-plan.json`: schema version 1, the target host, and a `files`
+map containing only `verifier.md` and its SHA256 digest. Older three-role installations
+had no such receipt. This narrow record distinguishes the new managed profile from
+a same-name custom role without adopting the other files; role templates are still
+compared independently. Missing or invalid ownership records never authorize replacing
+an existing Verifier.
 
 A receipt is an integrity record, never an authority. A prompt refresh rewrites the digests of the
 files it maintained and keeps the recorded assignment provenance; a mismatch outside that refresh is
@@ -92,8 +112,9 @@ that disagrees with local files never causes a role file to be replaced.
 
 ## Codex presets
 
-Codex writes its three selectors once at first installation and never rewrites them afterwards; role
-prompt content is refreshed by install and update.
+Codex writes its three pinned selectors once at first installation and never rewrites
+them afterwards. The fourth Verifier profile has no selector; it inherits host defaults.
+Role prompt content is refreshed by install and update.
 Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
 selects. The packaged catalog records those rows at 52 for `designer` and `reviewer` and 37 for
 `worker`, each with the task cost the same table publishes (`gpt-6-astra-xhigh` $2.31, `gpt-6-luna`
@@ -118,7 +139,8 @@ tool, permission, and sandbox fields are host configuration: install, update, un
 repair, and Doctor leave them byte-identical. Description and instruction text are skill-owned:
 install and update refresh them from the current packaged template, preserve every host-owned field,
 and refresh the receipt digests to match. A role file without a recognizable prompt structure is
-left untouched, and Better Plan never adds or removes role files after first installation.
+left untouched. After first installation, Better Plan never removes role files; the
+only addition allowed is the narrow missing-Verifier upgrade described above.
 
 Neither a receipt mismatch nor an explicit replacement request authorizes changing host-owned fields
 or rewriting prompts outside install and update. Doctor reports the integrity finding as a warning
@@ -140,7 +162,7 @@ when the host format supports a non-destructive merge. A receipt covers only art
 Better Plan created and never converts a pre-existing file into a managed file. Uninstall removes
 only owned artifacts. On a collision or replacement requirement, fail closed and leave the original
 untouched. Only an explicit request naming the exact existing file and mutation can authorize it.
-Existing native role files and receipts are always governed by the stricter native-role rule above,
+Existing native role files and receipts are always governed by the native-role rule above,
 including Better Plan-created roles; neither this update authorization nor the explicit-file
 exception permits changing host-owned fields or rewriting prompts outside install and update.
 
@@ -167,8 +189,8 @@ Doctor is read-only and reports each selected target separately:
 | Target | Checks |
 |---|---|
 | Codex | local role names, receipt integrity, role template comparison, installed skill structure, source comparison |
-| Claude Code | local role files, plugin manifest, `claude plugin validate` when the CLI is present |
-| Cursor | local role files, installed skill structure, the Cursor CLI version when it is present |
+| Claude Code | local role files, Verifier receipt, plugin manifest, `claude plugin validate` when the CLI is present |
+| Cursor | local role files, Verifier receipt, installed skill structure, the Cursor CLI version when it is present |
 | Kilo | Agent matrix against the packaged sources, installed skill structure, `kilo agent list` when the CLI is present |
 | DeepSeek Harness | installed skill structure |
 

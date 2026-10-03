@@ -83,6 +83,41 @@ title, and `goal`, `success`, `requirements`, and `open_decisions` move from the
 outline with empty defaults. The workspace is created exactly like `tree init` and
 `Programme.json` is written atomically.
 
+## Slicing and adjusting milestones
+
+Design milestones around complete outcomes, with only real `requires` edges. For
+example, a request to add saved filters may reveal an existing query bug and a needed
+query-module refactor:
+
+- Repair the existing query bug as its own milestone if that repair is independently
+  useful and deliverable. Include its regression evidence.
+- Make the query-module refactor a separate milestone when it preserves working
+  behavior and can be integrated independently. Record why the feature needs it.
+- Deliver saved filters with its persistence, callers, tests, and documentation as
+  one complete capability. Those parts can be Tasks or Nodes with parallel Workers;
+  a persistence-only layer is not a complete feature milestone.
+
+If saved filters truly needs the refactor, record that edge. Do not make an unrelated
+query repair a prerequisite merely because it was discovered first; execute it in
+parallel when dependencies and write ownership allow. Do not bundle unrelated cleanup
+into the feature, or undertake unrelated work without the project's authorization.
+If a refactor cannot leave the project working independently, keep the necessary
+change inside the feature rather than inventing a separately deliverable milestone.
+
+A compile error or runtime bug introduced while implementing saved filters stays
+within that feature's work and repair cycle. It does not create a milestone for each
+error. A discovered pre-existing defect may justify a separate bounded repair
+milestone; update affected requirements, dependencies, and review evidence rather
+than restarting Designer or rebuilding the entire programme.
+
+Keep distant work as outlines, hand off ready work, and refine only what execution
+needs next. Verifier stays active alongside Main and prepares stable milestone code
+for independent Reviewer closure; it continues unrelated work without altering the
+review snapshot. At whole-plan completion, Verifier performs final regression, informs
+Main, and is stopped before Reviewer independently reconciles all catalogue requirements
+against the final code. Neither phase requires an upstream proof pack. Milestone
+closure and final requirement closure are distinct judgments, not extra approval gates.
+
 ## Requirement catalogue
 
 `Requirements.json`, next to `Programme.json`, owns programme-wide requirement
@@ -148,6 +183,9 @@ references, and unknown references.
 `deliveries` lists every delivery that references the id, including through one of
 its Tasks; `tasks` separately names those Task references. A requirement is
 uncovered when no outline, Tree, or Task references it and it has no `exclusion`.
+These are reference-coverage results, not acceptance evidence. An exclusion must
+reflect actual agreed scope, not a way to conceal unfinished work. The Reviewer
+checks satisfaction against original requirements even when coverage is complete.
 
 ## Programme export
 
