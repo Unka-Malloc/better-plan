@@ -56,3 +56,10 @@ stable milestone and final code directly against requirements.
 Refactoring plans leave independently deliverable slices buildable, update affected
 producers and consumers together, and replace incorrect unpublished implementation
 without compatibility layers created solely to preserve a development mistake.
+
+An explicitly assigned **Adversary** adds independent, feedback-only challenge in
+any collaboration structure. It investigates actual activity, host capabilities,
+applicable rules, and external best practices rather than merely checking a plan.
+One or multiple targets are grouped by functional domain where useful, including
+coordinators and Reviewers. Direct target messages or unchanged coordinator relay
+carry concerns; the role never edits artifacts, repairs, or owns acceptance.
