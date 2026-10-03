@@ -50,3 +50,11 @@ inspect the production connection, and challenge a faulty assumption in the plan
 Assertions tied to an internal call order or incidental wording may reject harmless
 changes while missing the actual requirement. Conversely, a small test with a clear
 behavioral claim may be enough; more tests are not automatically stronger evidence.
+
+## Responsibility for evidence
+
+Verifier performs independent inspection and checking during implementation. Reviewer
+independently inspects milestone and final code and performs its own validation against
+user requirements. Worker reports and prior Verifier checks do not establish acceptance
+for Reviewer, and neither role owes it a proof pack. The references above inform those
+judgments; they do not impose quality-assurance duties on implementation-only Workers.

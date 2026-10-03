@@ -35,7 +35,8 @@ coordination cost despite the parallel labels. Resolve the real join in the desi
 adding Workers alone does not remove it.
 
 Better Plan's use of Tasks for outcomes, Nodes for coherent contributions, and PRs
-for reviewable delivery boundaries, with one accountable Reviewer, are project
+for reviewable delivery boundaries, with a persistent implementation Verifier and
+one independent Reviewer for milestone and final closure, are project
 conventions. Related Tasks may share a PR, and a Node's resulting revision may
 contain multiple commits. Google's review staffing and process are not imported
 with the decomposition advice.

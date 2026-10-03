@@ -29,7 +29,7 @@
   "outcome": "What this group delivers",
   "requirements": ["Requirement for this Task"],
   "draft_pr": null,
-  "integration_owner": "reviewer",
+  "integration_owner": "verifier",
   "delivery": {"result": null, "review": []},
   "checks": []
 }
@@ -73,9 +73,10 @@ treated as opaque.
 
 `integration_owner` identifies responsibility for Task integration, not a model or
 temporary session. When a Task's Nodes finish, `ready_for_integration` reports that
-Task's implementation readiness. One final Reviewer remains accountable for
-integration and can organize bounded Worker repairs with clear ownership. This is
-guidance, not a role restriction enforced by the tool.
+Task's implementation readiness, not acceptance. The persistent Verifier owns ongoing
+source inspection, integration, checks, and repairs. Reviewer independently closes
+stable milestones and finally the whole plan, including integrating its own repairs.
+This is guidance, not a role restriction or lifecycle enforced by the tool.
 
 `delivery_policy` is optional current Tree policy. Default delivery ends at
 engineering completion with PRs Draft. Ready, merge, installation and live acceptance
@@ -85,7 +86,13 @@ are separately authorized project work; recording delivery performs none of them
 
 The Reviewer uses `task finish <root> <id> --summary TEXT` or `--result FILE`,
 then `tree finish <root>` with the same result options after independent review,
-repair, integration, and verification. Main conveys the resulting conclusion to the user. `--result` is a JSON object (or `-` for stdin); use
+repair, integration, and verification of the milestone or final candidate. Verifier
+may maintain operational results and check records during execution, but those records
+are not Reviewer acceptance evidence. Worker completion identifies implemented code,
+not verified satisfaction; Main or Verifier can record Node status on its behalf.
+Final whole-plan review follows Verifier regression and shutdown; milestone review
+uses an immutable revision while Verifier continues elsewhere. Main conveys the
+conclusion to the user. `--result` is a JSON object (or `-` for stdin); use
 `summary` and `exceptions` for the conclusion and any exceptions. Commands record declarations
 without approval, Git or test gates. They replace only the owner's current result
 and clear only that owner's delivery reviews. Generic Tree/Task updates do not edit

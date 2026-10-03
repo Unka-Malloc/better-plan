@@ -137,9 +137,11 @@ def doctor(paths: _InstallPaths, agents: list[str]) -> list[_Check]:
         checks.append(check_shared_scan_agent(paths, "codex"))
     if "claude" in agents:
         checks.append(check_native_roles(paths, "claude"))
+        checks.append(check_role_receipt(paths, "claude"))
         checks.append(check_claude(paths))
     if "cursor" in agents:
         checks.append(check_native_roles(paths, "cursor"))
+        checks.append(check_role_receipt(paths, "cursor"))
         checks.append(check_shared_scan_agent(paths, "cursor"))
         checks.append(check_optional_client_cli("cursor"))
     if "kilo" in agents:

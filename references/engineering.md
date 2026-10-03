@@ -17,7 +17,8 @@ them context; the sources are not all universal standards.
 | Which tests are useful, and what do passing tests fail to prove? | [Verification: evidence](engineering-verification.md#evidence) |
 
 The notes summarize selected ideas, link to their original sources, and give small
-Better Plan applications. They can serve Designer, Worker, and Reviewer alike.
+Better Plan applications. They can inform design and implementation, Verifier checks, and independent Reviewer
+judgment; they do not require implementation-only Workers to produce acceptance proof.
 For framework-specific choices, use the official guidance and maintained source/tests
 for the version in the repository; a generic reference cannot choose its directory
 layout or runtime semantics for it. Sources checked 2026-10-01.
