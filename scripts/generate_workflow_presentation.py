@@ -15,7 +15,7 @@ DATA_PATTERN = re.compile(
     r'(<script id="prompt-data" type="application/json">)(.*?)(</script>)',
     re.DOTALL,
 )
-ROLE_NAMES = ("designer", "worker", "reviewer")
+ROLE_NAMES = ("designer", "worker", "verifier", "reviewer")
 
 
 def _role_entry(root: Path, role: str) -> str:
@@ -43,7 +43,7 @@ def _briefs(root: Path) -> dict[str, str]:
     section = re.split(r"^##\s+", tail, maxsplit=1, flags=re.MULTILINE)[0]
     briefs = {
         role.lower(): value
-        for role, value in re.findall(r'^- (Designer|Worker|Reviewer): "(.*)"$', section, re.MULTILINE)
+        for role, value in re.findall(r'^- (Designer|Worker|Verifier|Reviewer): "(.*)"$', section, re.MULTILINE)
     }
     if set(briefs) != set(ROLE_NAMES):
         raise ValueError("role brief examples in references/main.md are incomplete")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import shutil
 import tempfile
 import unittest
@@ -20,7 +21,7 @@ from scripts.better_plan.installation.models import Check
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ROLES = ("designer", "worker", "reviewer")
+ROLES = ("designer", "worker", "reviewer", "verifier")
 
 
 def make_paths(root: Path, repo_root: Path = REPO_ROOT) -> install_models.InstallPaths:
@@ -50,7 +51,7 @@ class InstallTests(unittest.TestCase):
         )
 
     def protected_role_state(self) -> list[Path]:
-        """Every immutable artifact: role files and the two managed receipts."""
+        """Every protected artifact: role files and managed receipts."""
 
         return [
             *[self.paths.codex_home / "agents" / ("%s.toml" % role) for role in ROLES],
@@ -59,9 +60,11 @@ class InstallTests(unittest.TestCase):
             *[self.paths.kilo_agents / name for name in install_targets.KILO_AGENT_FILES],
             install_targets._native_receipt_path(self.paths.codex_home / "agents"),
             install_targets._native_receipt_path(self.paths.kilo_agents),
+            install_targets._native_receipt_path(self.paths.claude_home / "agents"),
+            install_targets._native_receipt_path(self.paths.cursor_home / "agents"),
         ]
 
-    def test_a_fresh_install_writes_the_shared_skill_and_three_roles(self) -> None:
+    def test_a_fresh_install_writes_the_shared_skill_and_four_roles(self) -> None:
         self.install_all()
         self.assertTrue((self.paths.shared_skill / "SKILL.md").is_file())
         for role in ROLES:
@@ -87,7 +90,7 @@ class InstallTests(unittest.TestCase):
         self.assertIsNotNone(receipt)
         assert receipt is not None
         self.assertEqual(set(receipt["assignments"]), set(ROLES))
-        for role in ROLES:
+        for role in CODEX_DEFAULT_MATRIX:
             with self.subTest(role=role):
                 self.assertEqual(receipt["assignments"][role].model, CODEX_DEFAULT_MATRIX[role][1])
                 prompt = (self.paths.codex_home / "agents" / ("%s.toml" % role)).read_text(
@@ -99,6 +102,209 @@ class InstallTests(unittest.TestCase):
                 self.assertNotIn("assignment:", instructions.lower())
                 self.assertNotIn("reasoning_effort", instructions)
                 self.assertNotIn("model=", instructions)
+
+    def test_verifier_inherits_host_defaults_without_invented_provenance(self) -> None:
+        self.install_all()
+        path = self.paths.codex_home / "agents" / "verifier.toml"
+        document = install_targets.tomllib.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(document["name"], "verifier")
+        self.assertNotIn("model", document)
+        self.assertNotIn("model_reasoning_effort", document)
+        self.assertIn("references/verifier.md", document["developer_instructions"])
+        receipt = install_targets._load_native_receipt(
+            install_targets._native_receipt_path(path.parent), "codex"
+        )
+        assignment = receipt["assignments"]["verifier"]
+        self.assertEqual(assignment.source, "host-default")
+        for field in ("model", "reasoning_effort", "benchmark_id", "index_score", "cost_per_task_usd"):
+            self.assertIsNone(getattr(assignment, field))
+        self.assertTrue((self.paths.shared_skill / "references" / "verifier.md").is_file())
+        checks = {item.target: item for item in install_doctor.doctor(self.paths, ["claude", "cursor"])}
+        for host in ("claude", "cursor"):
+            self.assertEqual(checks[host + " role receipt"].status, "OK")
+
+    def test_legacy_matrices_add_only_verifier_and_refresh_receipts(self) -> None:
+        self.install_all()
+        # Represent the previously shipped file sets and provenance faithfully.
+        for host in ("codex", "claude", "cursor", "kilo"):
+            directory = (self.paths.kilo_agents if host == "kilo" else
+                         install_targets._native_role_directory(self.paths, host))
+            filename = ("better-plan-verifier.md" if host == "kilo" else
+                        "verifier.toml" if host == "codex" else "verifier.md")
+            (directory / filename).unlink()
+            receipt_path = install_targets._native_receipt_path(directory)
+            if host in ("claude", "cursor"):
+                receipt_path.unlink()
+            elif receipt_path.exists():
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                receipt["files"].pop(filename)
+                if "assignments" in receipt:
+                    receipt["assignments"].pop(filename)
+                receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+            for path in directory.iterdir():
+                path.write_text(path.read_text(encoding="utf-8").replace(
+                    "You are the", "Outdated prompt: You are the"
+                ), encoding="utf-8")
+        before = {path: path.read_bytes() for path in self.protected_role_state() if path.exists()}
+        self.install_all(dry_run=True)
+        self.assertEqual({path: path.read_bytes() for path in self.protected_role_state() if path.exists()}, before)
+        messages = self.install_all()
+        self.assertEqual(sum("added missing profile" in message for message in messages), 4)
+        self.assertTrue(all(path.exists() for path in self.protected_role_state()))
+        for host in ("codex", "kilo", "claude", "cursor"):
+            self.assertEqual(install_targets.role_receipt_status(self.paths, host)[0], True)
+        for host in ("codex", "claude", "cursor"):
+            ok, message = install_targets.native_role_status(self.paths, host)
+            self.assertTrue(ok, message)
+        self.assertTrue(install_targets.kilo_agent_status(self.paths)[0])
+
+    def legacy_receipted_matrix(self, host: str) -> tuple[Path, Path, dict]:
+        install_service.install_agents(self.paths, [host], dry_run=False)
+        directory = (self.paths.kilo_agents if host == "kilo" else self.paths.codex_home / "agents")
+        filename = "better-plan-verifier.md" if host == "kilo" else "verifier.toml"
+        (directory / filename).unlink()
+        receipt_path = install_targets._native_receipt_path(directory)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["files"].pop(filename)
+        if "assignments" in receipt:
+            receipt["assignments"].pop(filename)
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        return directory, receipt_path, receipt
+
+    def test_additive_upgrade_preserves_custom_fields_and_original_provenance(self) -> None:
+        for host in ("codex", "kilo"):
+            directory, receipt_path, receipt = self.legacy_receipted_matrix(host)
+            worker = directory / ("worker.toml" if host == "codex" else "better-plan-worker.md")
+            text = worker.read_text(encoding="utf-8")
+            text = (text.replace('model = "gpt-6-luna"', 'model = "local-choice"') if host == "codex"
+                    else text.replace("temperature: 0.1", "temperature: 0.77"))
+            worker.write_text(text, encoding="utf-8")
+            before = {path.name: path.read_bytes() for path in directory.iterdir()}
+            messages = install_service.install_agents(self.paths, [host], dry_run=False)
+            self.assertIn("added missing profile", " ".join(messages))
+            for name, content in before.items():
+                self.assertEqual((directory / name).read_bytes(), content)
+            updated = json.loads(receipt_path.read_text(encoding="utf-8"))
+            for key in ("files", "assignments"):
+                for name, value in receipt.get(key, {}).items():
+                    self.assertEqual(updated[key][name], value)
+            self.assertFalse(install_targets.role_receipt_status(self.paths, host)[0])
+
+    def test_uncertain_receipts_never_authorize_verifier_addition(self) -> None:
+        for host in ("codex", "kilo"):
+            directory, receipt_path, _ = self.legacy_receipted_matrix(host)
+            for broken in (None, "invalid receipt"):
+                if broken is None:
+                    receipt_path.unlink()
+                else:
+                    receipt_path.write_text(broken, encoding="utf-8")
+                before = {path.name: path.read_bytes() for path in directory.iterdir()}
+                messages = install_service.install_agents(self.paths, [host], dry_run=False)
+                self.assertIn("valid legacy receipt required", " ".join(messages))
+                self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, before)
+
+    def test_custom_verifier_collisions_are_reported_without_refresh_or_adoption(self) -> None:
+        for host in ("codex", "kilo"):
+            directory, receipt_path, _ = self.legacy_receipted_matrix(host)
+            filename = "verifier.toml" if host == "codex" else "better-plan-verifier.md"
+            custom = directory / filename
+            source = (REPO_ROOT / "agents" / host / filename).read_text(encoding="utf-8")
+            custom.write_text(source.replace("You are the", "Custom instruction: You are the"),
+                              encoding="utf-8")
+            before = custom.read_bytes(), receipt_path.read_bytes()
+            messages = install_service.install_agents(self.paths, [host], dry_run=False)
+            self.assertIn("collision", " ".join(messages))
+            self.assertEqual((custom.read_bytes(), receipt_path.read_bytes()), before)
+            if host == "codex":
+                renamed = directory / "my-own-verifier.toml"
+                custom.rename(renamed)
+                messages = install_service.install_agents(self.paths, [host], dry_run=False)
+                self.assertIn("collision", " ".join(messages))
+                self.assertFalse(custom.exists())
+                self.assertEqual((renamed.read_bytes(), receipt_path.read_bytes()), before)
+
+    def test_receipt_symlink_cannot_authorize_additive_upgrade(self) -> None:
+        directory, receipt_path, _ = self.legacy_receipted_matrix("codex")
+        external = receipt_path.with_name("external-receipt.json")
+        receipt_path.rename(external)
+        try:
+            receipt_path.symlink_to(external)
+        except OSError:
+            self.skipTest("symlink creation unavailable")
+        before = external.read_bytes()
+        messages = install_service.install_agents(self.paths, ["codex"], dry_run=False)
+        self.assertIn("valid legacy receipt required", " ".join(messages))
+        self.assertFalse((directory / "verifier.toml").exists())
+        self.assertEqual(external.read_bytes(), before)
+
+    def test_unreceipted_unpinned_verifier_is_never_adopted(self) -> None:
+        for host in ("claude", "cursor"):
+            install_service.install_agents(self.paths, [host], dry_run=False)
+            directory = install_targets._native_role_directory(self.paths, host)
+            install_targets._native_receipt_path(directory).unlink()
+            verifier = directory / "verifier.md"
+            verifier.write_text(verifier.read_text(encoding="utf-8").replace(
+                "You are the", "My custom instructions: You are the"), encoding="utf-8")
+            before = verifier.read_bytes()
+            messages = install_service.install_agents(self.paths, [host], dry_run=False)
+            self.assertIn("collision", " ".join(messages))
+            self.assertEqual(verifier.read_bytes(), before)
+            self.assertFalse(install_targets._native_receipt_path(directory).exists())
+
+    def test_renamed_unpinned_verifier_blocks_addition_and_receipt_creation(self) -> None:
+        for host in ("claude", "cursor"):
+            install_service.install_agents(self.paths, [host], dry_run=False)
+            directory = install_targets._native_role_directory(self.paths, host)
+            receipt_path = install_targets._native_receipt_path(directory)
+            receipt_path.unlink()
+            verifier = directory / "verifier.md"
+            renamed = directory / "my-custom-verifier.md"
+            verifier.rename(renamed)
+            renamed.write_text(renamed.read_text(encoding="utf-8").replace(
+                "name: verifier", 'name: "verifier"').replace(
+                "You are the", "My custom instructions: You are the"), encoding="utf-8")
+            before = renamed.read_bytes()
+            messages = install_service.install_agents(self.paths, [host], dry_run=False)
+            self.assertIn("collision", " ".join(messages))
+            self.assertEqual(renamed.read_bytes(), before)
+            self.assertFalse(verifier.exists())
+            self.assertFalse(receipt_path.exists())
+
+    def test_ambiguous_unpinned_native_identity_blocks_verifier_addition(self) -> None:
+        install_service.install_agents(self.paths, ["claude"], dry_run=False)
+        directory = self.paths.claude_home / "agents"
+        receipt_path = install_targets._native_receipt_path(directory)
+        receipt_path.unlink()
+        (directory / "verifier.md").unlink()
+        custom = directory / "custom.md"
+        custom.write_text("---\nname: >-\n  verifier\n---\nCustom instructions\n", encoding="utf-8")
+        before = custom.read_bytes()
+        messages = install_service.install_agents(self.paths, ["claude"], dry_run=False)
+        self.assertIn("unreadable or ambiguous", " ".join(messages))
+        self.assertEqual(custom.read_bytes(), before)
+        self.assertFalse((directory / "verifier.md").exists())
+        self.assertFalse(receipt_path.exists())
+
+    def test_verifier_refresh_preserves_custom_host_fields_byte_for_byte(self) -> None:
+        self.install_all()
+        for host in ("codex", "claude", "cursor", "kilo"):
+            directory = (self.paths.kilo_agents if host == "kilo" else
+                         install_targets._native_role_directory(self.paths, host))
+            filename = ("better-plan-verifier.md" if host == "kilo" else
+                        "verifier.toml" if host == "codex" else "verifier.md")
+            path = directory / filename
+            original = path.read_text(encoding="utf-8")
+            if host == "codex":
+                custom = original.replace('sandbox_mode = "workspace-write"',
+                    'sandbox_mode = "local-sandbox"\nmodel = "custom"\n'
+                    'model_reasoning_effort = "medium"\nprovider = "local"\ncustom_key = 42')
+            else:
+                custom = original.replace("\n---\n", "\nmodel: custom\nvariant: local\n"
+                    "reasoning_effort: medium\ncustom_key: 42\n---\n", 1)
+            path.write_text(custom.replace("You are the", "Outdated prompt: You are the"),
+                            encoding="utf-8")
+            install_service.install_agents(self.paths, [host], dry_run=False)
+            self.assertEqual(path.read_text(encoding="utf-8"), custom)
 
     def test_a_local_role_without_a_prompt_structure_is_left_untouched(self) -> None:
         agents = self.paths.codex_home / "agents"
@@ -135,7 +341,7 @@ class InstallTests(unittest.TestCase):
         self.assertIn("skill only", " ".join(messages))
         self.assertFalse((self.paths.codex_home / "agents").exists())
 
-    def test_kilo_installs_one_primary_and_three_subagents(self) -> None:
+    def test_kilo_installs_one_primary_and_four_subagents(self) -> None:
         install_service.install_agents(self.paths, ["kilo"], dry_run=False)
         agents = self.paths.kilo_agents
         self.assertTrue((agents / "better-plan.md").is_file())

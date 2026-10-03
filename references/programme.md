@@ -111,9 +111,12 @@ milestone; update affected requirements, dependencies, and review evidence rathe
 than restarting Designer or rebuilding the entire programme.
 
 Keep distant work as outlines, hand off ready work, and refine only what execution
-needs next. The Reviewer records each verified delivery promptly and then reconciles
-all catalogue requirements against the final integrated outcome. Milestone closure
-and final requirement closure are distinct judgments, not extra approval gates.
+needs next. Verifier stays active alongside Main and prepares stable milestone code
+for independent Reviewer closure; it continues unrelated work without altering the
+review snapshot. At whole-plan completion, Verifier performs final regression, informs
+Main, and is stopped before Reviewer independently reconciles all catalogue requirements
+against the final code. Neither phase requires an upstream proof pack. Milestone
+closure and final requirement closure are distinct judgments, not extra approval gates.
 
 ## Requirement catalogue
 

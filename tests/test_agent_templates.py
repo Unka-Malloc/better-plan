@@ -14,9 +14,9 @@ from scripts.generate_workflow_presentation import build_prompt_data, embedded_p
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLE_FILES = {
-    "codex": ("designer.toml", "worker.toml", "reviewer.toml"),
-    "claude-code": ("designer.md", "worker.md", "reviewer.md"),
-    "cursor": ("designer.md", "worker.md", "reviewer.md"),
+    "codex": ("designer.toml", "worker.toml", "verifier.toml", "reviewer.toml"),
+    "claude-code": ("designer.md", "worker.md", "verifier.md", "reviewer.md"),
+    "cursor": ("designer.md", "worker.md", "verifier.md", "reviewer.md"),
 }
 REMOVED_ROLES = (
     "hybrid-worker",
@@ -34,20 +34,21 @@ class PackagedRoleTests(unittest.TestCase):
         )
         data = embedded_prompt_data(html)
         self.assertEqual(data, build_prompt_data(ROOT))
-        self.assertEqual(set(data["roles"]), {"main", "designer", "worker", "reviewer"})
-        self.assertEqual(set(data["entries"]), {"main", "designer", "worker", "reviewer"})
-        self.assertEqual(set(data["briefs"]), {"designer", "worker", "reviewer"})
+        self.assertEqual(set(data["roles"]), {"main", "designer", "worker", "verifier", "reviewer"})
+        self.assertEqual(set(data["entries"]), {"main", "designer", "worker", "verifier", "reviewer"})
+        self.assertEqual(set(data["briefs"]), {"designer", "worker", "verifier", "reviewer"})
+        self.assertEqual(set(re.findall(r'data-role="([a-z]+)"', html)), set(data["roles"]))
 
-    def test_every_native_host_packages_the_three_roles(self) -> None:
+    def test_every_native_host_packages_the_four_roles(self) -> None:
         for host, filenames in ROLE_FILES.items():
             with self.subTest(host=host):
                 self.assertEqual(
                     sorted(name.name for name in (ROOT / "agents" / host).iterdir() if name.is_file()),
                     sorted(filenames),
                 )
-        self.assertEqual(NATIVE_ROLE_FILES["codex"], ROLE_FILES["codex"])
-        self.assertEqual(NATIVE_ROLE_FILES["claude"], ROLE_FILES["claude-code"])
-        self.assertEqual(NATIVE_ROLE_FILES["cursor"], ROLE_FILES["cursor"])
+        self.assertEqual(sorted(NATIVE_ROLE_FILES["codex"]), sorted(ROLE_FILES["codex"]))
+        self.assertEqual(sorted(NATIVE_ROLE_FILES["claude"]), sorted(ROLE_FILES["claude-code"]))
+        self.assertEqual(sorted(NATIVE_ROLE_FILES["cursor"]), sorted(ROLE_FILES["cursor"]))
 
     def test_no_removed_role_is_still_packaged(self) -> None:
         for host in ROLE_FILES:
@@ -68,7 +69,7 @@ class PackagedRoleTests(unittest.TestCase):
 
     def test_host_prompts_delegate_workflow_to_current_skill(self) -> None:
         for host in (*ROLE_FILES, "kilo"):
-            for role in ("designer", "worker", "reviewer"):
+            for role in ("designer", "worker", "verifier", "reviewer"):
                 filename = ("better-plan-" if host == "kilo" else "") + role + (".toml" if host == "codex" else ".md")
                 with self.subTest(host=host, role=role):
                     text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
@@ -77,6 +78,8 @@ class PackagedRoleTests(unittest.TestCase):
 
     def test_codex_is_the_only_host_with_presets(self) -> None:
         self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
+        verifier = (ROOT / "agents" / "codex" / "verifier.toml").read_text(encoding="utf-8")
+        self.assertNotRegex(verifier, r"(?m)^\s*(model|model_reasoning_effort)\s*=")
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
 
     def test_installed_guidance_links_resolve_inside_the_payload(self) -> None:
@@ -102,8 +105,8 @@ class PackagedRoleTests(unittest.TestCase):
                     self.assertNotIn("model =", text)
                     self.assertNotIn("model:", text)
 
-    def test_kilo_installs_one_primary_and_three_leaf_subagents(self) -> None:
-        self.assertEqual(len(KILO_AGENT_FILES), 4)
+    def test_kilo_installs_one_primary_and_four_leaf_subagents(self) -> None:
+        self.assertEqual(len(KILO_AGENT_FILES), 5)
         primary = (ROOT / "agents" / "kilo" / "better-plan.md").read_text(encoding="utf-8")
         self.assertIn("mode: primary", primary)
         for filename in KILO_AGENT_FILES[1:]:

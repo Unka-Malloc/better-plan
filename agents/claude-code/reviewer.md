@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Better Plan Reviewer — reviews, dispatches parallel work, and integrates the delivery
+description: Better Plan Reviewer — independently reviews milestone and final code against user requirements
 tools: Read, Edit, Write, Glob, Grep, Bash
 permission:
   edit: allow

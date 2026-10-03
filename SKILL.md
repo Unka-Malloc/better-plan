@@ -1,6 +1,6 @@
 ---
 name: better-plan
-description: "Coordinate long-lived work through a shared plan: one Designer, parallel Workers, and one independent Reviewer. Tree tools maintain requirements, dependencies, results, checks, and retrievable history."
+description: "Coordinate long-lived work through a shared plan: one Designer, parallel Workers, a persistent Verifier, and one independent Reviewer. Tree tools maintain requirements, dependencies, results, checks, and retrievable history."
 ---
 
 # Better Plan
@@ -9,53 +9,50 @@ Better Plan is a shared blackboard for long-term work. Agents read the same user
 requirements, plan, repository documents, and evidence directly. Its tools assist
 collaboration; they do not grant permission or police Agent judgment.
 
-It assumes every Agent makes mistakes, so it widens parallel work instead of gating
-each contribution and concentrates integration and review in one capable Reviewer.
+It assumes every Agent makes mistakes. Widen implementation in parallel, independently
+verify and integrate throughout execution, and independently review the final code.
 See [design principles](references/design-principles.md).
 
 ## Workflow
 
-**Main understands and faithfully conveys user needs, keeps work moving, and answers
-to the user for their execution.** It connects one Designer, parallel Workers, and
-one Reviewer. It tracks the user's next useful outcome, true blockers, ready work,
-and repeated effort; resumes interrupted work and starts work as dependencies allow.
-It does not reinterpret repository materials for specialists or prescribe technical
-remedies. When the host does not let the Reviewer dispatch a Worker, Main forwards
-the Reviewer's repair assignment unchanged and returns the result. See [main
-guidance](references/main.md).
+**Main owns user requirements, dispatch, and process.** Keep the central requirement
+record faithful, work moving, and real blockers visible. Main does not prescribe
+implementation details. It connects one Designer, parallel Workers, a default-on
+persistent Verifier, and one independent Reviewer. Native host tools carry dispatch,
+resumption, and stopping; see [Main guidance](references/main.md).
 
-**One Designer turns user requirements into architecture and deliverable work.**
-Choose the approach, complete milestones, real dependencies, and maximum useful
-parallelism. Hand off once Workers can proceed; implementation details and runtime
-discoveries do not need exhaustive upfront design. This lighter design scope does
-not change host-owned model or reasoning settings.
-See [Designer guidance](references/designer.md).
+**One Designer turns requirements into architecture and deliverable work.** Choose
+complete milestones, real dependencies, and maximum useful parallelism. Hand off
+once Workers can proceed; do not exhaustively predesign implementation details or
+runtime failures. See [Designer guidance](references/designer.md).
 
-**Workers execute ready Nodes and scoped repairs autonomously and in parallel.** Give
-each Worker the repository, plan, and work reference; shared materials supply the
-context. Design real dependencies and exclusive write ownership to maximize useful
-parallelism, not repeated main instructions. See [Worker guidance](references/worker.md).
+**Workers only implement assigned code.** Give them the repository, shared requirements,
+and work reference. They do not own quality, process, cross-task integration, or
+acceptance, and owe no evidence pack. Their completion claims locate code; they are
+never trusted acceptance evidence. Parallelize useful implementation within actual
+host resources. See [Worker guidance](references/worker.md).
 
-**One Reviewer independently brings the whole plan to completion.** It owns timely
-milestone closure and final reconciliation of all recorded user requirements,
-including omissions from the plan, not just milestones already ready for review. It
-examines user needs, industry best practices, repository rules, and whether the plan and its
-execution serve the original intent. It may repair issues directly or dispatch
-subagents for independent, bounded tasks — repairs, verification, focused
-investigation — running several at once in isolated worktrees. The same Reviewer
-retains source review, integration, verification, and delivery judgment. Freeze only
-the exact candidate that needs a stable verification snapshot; unrelated writers may
-continue outside it. If the host does not let the Reviewer dispatch, Main forwards its
-assignment mechanically. See [Reviewer guidance](references/reviewer.md).
+**One persistent Verifier independently inspects, integrates, checks, and repairs.**
+Start it by default alongside Main and keep it through execution of the whole plan,
+not just one milestone. It may inspect every change, verify actual code, and arrange
+bounded repairs. Main retains process ownership. See [Verifier guidance](references/verifier.md).
 
-Every role exercises its own judgment under the user's requirements, repository
-rules, and actual host permissions. A main brief adds no further authority boundary.
-Host tools and permissions determine whether a role can dispatch another Agent;
-model capability or parent-child topology does not establish that capability.
-Agents raise material uncertainty through main to the user; pause work that depends
-on the answer rather than inventing requirements. Main's active coordination and
-the Reviewer's independent final judgment protect the outcome without per-step
-approval.
+**One Reviewer independently closes milestones and all final requirements.** For a
+milestone, give it requirements and a stable code snapshot; Verifier may continue
+unrelated work without changing that snapshot. Reviewer reaches its own conclusions
+from code and independently performed checks, not Worker or Verifier process proof.
+For whole-plan final review, wait for all Workers to finish, Verifier's final regression
+and notification, then Main stops Verifier before Reviewer's final takeover. Reviewer
+independently validates, repairs, and reconciles every recorded requirement, including
+plan omissions. Rework is allowed with an explicit ownership handoff. See
+[Reviewer guidance](references/reviewer.md).
+
+No role owes Reviewer a proof pack. Shared results aid coordination but never substitute
+for independent judgment. Every role follows user requirements, repository rules,
+and actual host permissions; Main's brief adds no authority boundary. Host settings,
+including model, reasoning, tools, and budgets, stay user-owned. Missing host capacity
+or lifecycle controls must be reported rather than assumed. This role handoff adds
+no human-approval mechanism or runtime enforcement.
 
 ## Shared information
 
@@ -77,8 +74,9 @@ A Task describes a deliverable outcome. A Draft PR may group related Tasks when 
 is the clearest reviewable delivery. A Node describes a coherent contribution; its
 commit field records the resulting revision and may name a revision containing
 multiple commits. Keep Task, Node, commit, and PR relationships explicit without
-forcing a one-to-one mapping. The Reviewer owns integration; `integration_owner`
-records that responsibility, not an additional Agent. Deliveries leave the project
+forcing a one-to-one mapping. The Verifier owns ongoing integration;
+`integration_owner` records that responsibility. Reviewer independently integrates
+and revalidates any repairs during review. Deliveries leave the project
 buildable and runnable after their declared prerequisites.
 Longer programmes keep future milestones as outlines until their requirements are
 understood; each milestone is one independently deliverable unit rather than a layer

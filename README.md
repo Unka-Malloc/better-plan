@@ -2,13 +2,16 @@
 
 **Keep long-running agent work aligned with what you asked for.**
 
-Better Plan gives your coding agents a shared plan they can understand, update, and
-carry across sessions. One Designer shapes the work, Workers make progress in
-parallel, and one independent Reviewer organizes repairs and integrates the result.
+Better Plan gives your coding agents a shared plan they can carry across sessions.
+Main keeps requirements and dispatch moving. A light Designer shapes the architecture,
+Workers implement in parallel, and a persistent Verifier independently checks,
+integrates, tests, and repairs their work. A separate Reviewer closes each candidate
+from requirements and code.
 
-![One Designer shapes the plan, Workers implement in parallel, and one Reviewer organizes repairs, reviews source, and integrates. Main carries user needs, tracks blockers, and starts ready work.](docs/images/workflow.svg)
+![Main coordinates requirements and dispatch; Designer decomposes the work; Workers implement; persistent Verifier checks and integrates; separate Reviewer independently closes immutable candidates.](docs/images/workflow.svg)
 
 **[Explore the workflow](docs/guide.md#how-it-works)** ·
+**[Read a fictional project story](docs/story.md)** ·
 **[Get the interactive presentation](docs/presentations/better-plan-workflow.html)**
 
 The presentation is a standalone HTML file: download it and open it in your browser.
@@ -16,20 +19,22 @@ It shows the workflow and the actual role prompts, with no setup or internet req
 
 ## Why use it?
 
-Agents make mistakes while they work, so Better Plan widens parallel work rather than
-approving each step, and concentrates integration and review in one capable Reviewer.
+Agents make mistakes. Better Plan keeps implementation inexpensive and parallel where
+resources allow, then checks actual changes independently instead of trusting reports.
 
-- **Keep the goal in view.** Requirements, decisions, and results live in a shared
-  plan instead of being repeatedly reinterpreted in handoffs.
-- **Make useful work parallel.** Workers read the same context and use their own
-  judgment. Real dependencies determine what can run together, including independent
-  repairs discovered during review.
-- **Keep one Reviewer accountable.** The Reviewer checks the result—and the plan
-  itself—against your needs, organizes repairs, reviews their source, and integrates
-  the delivery. Independent work can continue outside the candidate being verified.
+- **Keep the goal in view.** Main preserves requirements, decisions, and real blockers
+  while Designer supplies architecture and independently deliverable milestones.
+- **Keep implementation focused.** Workers implement bounded contributions. They do
+  not own QA, process, integration, or a mandatory proof package.
+- **Check work continuously.** The default-on Verifier runs alongside Main, inspects
+  every actual change, integrates it, tests it, and repairs defects as work arrives.
+- **Close with a fresh view.** A separate Reviewer independently assesses immutable
+  milestone candidates from requirements and code. Final review follows the Verifier's
+  whole-plan regression and shutdown, and covers every requirement, including omissions.
 
 Use it for multi-part features, migrations, and projects that span many sessions.
-Small tasks can stay small.
+Small tasks can stay small. Parallelism stays within available resources and host
+permissions; Better Plan does not change your model or reasoning configuration.
 
 ## Start using it
 

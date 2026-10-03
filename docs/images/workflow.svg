@@ -1,15 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
-<title id="title">A shared plan. Parallel work. Independent review.</title>
-<desc id="desc">Main conveys user needs, tracks blockers, starts ready work, and reduces repetition. One Designer designs; many Workers execute in parallel; one Reviewer reviews the result, organizes bounded repairs, and integrates it. Only the candidate being verified is frozen.</desc>
-<rect width="1200" height="430" rx="16" fill="#f4f2ec"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 590" role="img" aria-labelledby="title desc">
+<title id="title">Continuous verification, independent closure</title>
+<desc id="desc">Main manages requirements, dispatch, and process alongside a persistent Verifier. Designer supplies architecture, Workers implement, and Verifier inspects, integrates, tests, and repairs every actual change. A separate Reviewer closes immutable milestones while other work continues. After all Workers and milestone-review repair writes finish and corrected revisions are incorporated, Verifier performs final regression, notifies Main, and is stopped before a separate final Reviewer closes all requirements from requirements and code.</desc>
+<rect width="1200" height="590" rx="16" fill="#f4f2ec"/>
 <g font-family="Arial, Helvetica, sans-serif" fill="#222a26">
-<text x="48" y="56" font-size="14" font-weight="700" letter-spacing="2" fill="#335c43">A SHARED PLAN. A COMPLETE RESULT.</text>
-<rect x="48" y="82" width="1104" height="55" rx="6" fill="#e4eadf"/>
-<text x="72" y="116" font-size="19"><tspan font-weight="700">Main</tspan><tspan dx="20">Convey needs · Track blockers · Start ready work</tspan></text>
-<g stroke="#ccd2c7" fill="none"><rect x="48" y="174" width="300" height="169" rx="6"/><rect x="450" y="174" width="300" height="169" rx="6"/><rect x="852" y="174" width="300" height="169" rx="6"/></g>
-<g fill="#335c43" font-size="36" font-weight="700"><text x="72" y="225">1 Designer</text><text x="474" y="225">N Workers</text><text x="876" y="225">1 Reviewer</text></g>
-<g font-size="20"><text x="72" y="274">Design what the goal needs.</text><text x="474" y="274">Execute in parallel.</text><text x="876" y="274">Review. Repair. Integrate.</text></g>
-<g font-size="15" fill="#636d65"><text x="72" y="310">One coherent design</text><text x="474" y="310">Autonomous contributions</text><text x="876" y="310">Coordinate independent repairs</text></g>
-<g stroke="#335c43" stroke-width="3" fill="none"><path d="M370 259h55m-10-9 10 9-10 9"/><path d="M772 259h55m-10-9 10 9-10 9"/></g>
-<text x="48" y="393" font-size="17" fill="#636d65">Every agent reads shared requirements, plan, repository, and evidence; only the candidate being verified is frozen.</text>
+<text x="40" y="48" font-size="14" font-weight="700" letter-spacing="2" fill="#335c43">CONTINUOUS VERIFICATION. INDEPENDENT CLOSURE.</text>
+<rect x="40" y="70" width="1120" height="58" rx="6" fill="#e4eadf"/>
+<text x="62" y="106" font-size="21"><tspan font-weight="700">Main</tspan><tspan dx="24">Requirements · Dispatch · Process · Host handoffs</tspan></text>
+<g stroke="#ccd2c7" fill="none"><rect x="40" y="155" width="325" height="156" rx="6"/><rect x="415" y="155" width="325" height="156" rx="6"/><rect x="790" y="155" width="370" height="156" rx="6"/></g>
+<g font-size="30" font-weight="700" fill="#335c43"><text x="62" y="202">Designer</text><text x="437" y="202">Workers</text><text x="812" y="202">Persistent Verifier</text></g>
+<g font-size="18"><text x="62" y="244">Light architecture and</text><text x="62" y="274">deliverable milestones</text><text x="437" y="244">Parallel implementation</text><text x="437" y="274">Untrusted changes, no QA duty</text><text x="812" y="244">Inspect · Integrate · Test · Repair</text><text x="812" y="274">Default-on alongside Main</text></g>
+<g stroke="#335c43" stroke-width="3" fill="none"><path d="M376 230h27m-8-8 8 8-8 8"/><path d="M752 230h27m-8-8 8 8-8 8"/></g>
+<rect x="40" y="336" width="1120" height="86" rx="6" fill="#e4eadf"/>
+<text x="62" y="370" font-size="22" font-weight="700">Separate milestone Reviewer</text><text x="62" y="399" font-size="18">Requirements + immutable code candidate → independent validation, repairs, and closure</text>
+<text x="40" y="453" font-size="17" fill="#636d65">Verifier continues other work outside the candidate. Review repairs return for integration.</text>
+<text x="40" y="498" font-size="15" font-weight="700" fill="#335c43">FINAL HANDOFF</text>
+<text x="40" y="527" font-size="18">All Workers done → Verifier final regression → notify Main → Main stops Verifier</text>
+<text x="40" y="556" font-size="18">→ Separate final Reviewer: independently validate, repair, and close every requirement</text>
 </g></svg>
