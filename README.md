@@ -16,6 +16,9 @@ It shows the workflow and the actual role prompts, with no setup or internet req
 
 ## Why use it?
 
+Agents make mistakes while they work, so Better Plan widens parallel work rather than
+approving each step, and concentrates integration and review in one capable Reviewer.
+
 - **Keep the goal in view.** Requirements, decisions, and results live in a shared
   plan instead of being repeatedly reinterpreted in handoffs.
 - **Make useful work parallel.** Workers read the same context and use their own

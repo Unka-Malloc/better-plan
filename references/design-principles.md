@@ -1,5 +1,13 @@
 # Design principles
 
+Better Plan assumes that every Agent makes mistakes while developing. Reviewing every
+step does not remove that; it serializes the work and spends attention on each
+contribution. The efficient response is the opposite: Agents work in parallel as
+widely as their real dependencies allow, and one Agent of the highest capability
+available to the host integrates and reviews the completed delivery, where mistakes
+surface together and are corrected once. Capability earns that judgment role; host
+tools still decide what it may dispatch.
+
 1. **Shared information replaces repeated briefing.** Agents read requirements,
    current plans, repository documents, and evidence directly. Main understands and
    conveys the user's needs and keeps the process continuous.
