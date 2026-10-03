@@ -1,6 +1,6 @@
 ---
 name: better-plan
-description: "Coordinate long-lived work through a shared plan: one Designer, parallel Workers, a persistent Verifier, and one independent Reviewer. Tree tools maintain requirements, dependencies, results, checks, and retrievable history."
+description: "Coordinate long-lived work through a shared plan: one Designer, parallel Workers, a persistent Verifier, one independent Reviewer, and assignable feedback-only Adversaries. Tree tools maintain requirements, dependencies, results, checks, and retrievable history."
 ---
 
 # Better Plan
@@ -46,6 +46,16 @@ and notification, then Main stops Verifier before Reviewer's final takeover. Rev
 independently validates, repairs, and reconciles every recorded requirement, including
 plan omissions. Rework is allowed with an explicit ownership handoff. See
 [Reviewer guidance](references/reviewer.md).
+
+**Adversaries independently challenge assigned agents through feedback only.** One
+or multiple Adversaries may target one or multiple agents, including Main, Designer,
+Workers, Verifier, or Reviewer. Group related Worker targets by functional domain.
+They investigate actual activity, environment capabilities, applicable rules, and
+external best practices from the outset of their assignment, including concerns
+outside the plan. Direct messages go to targets where supported; otherwise Main
+relays unchanged. They never edit artifacts or perform repairs. This reusable role
+needs no plan and is explicitly assigned, not automatically started. See
+[Adversary guidance](references/adversary.md).
 
 No role owes Reviewer a proof pack. Shared results aid coordination but never substitute
 for independent judgment. Every role follows user requirements, repository rules,

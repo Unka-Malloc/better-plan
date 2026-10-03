@@ -29,9 +29,9 @@ from .skills import (
 
 
 NATIVE_ROLE_FILES: dict[str, tuple[str, ...]] = {
-    "codex": ("designer.toml", "worker.toml", "reviewer.toml", "verifier.toml"),
-    "claude": ("designer.md", "worker.md", "reviewer.md", "verifier.md"),
-    "cursor": ("designer.md", "worker.md", "reviewer.md", "verifier.md"),
+    "codex": ("designer.toml", "worker.toml", "reviewer.toml", "verifier.toml", "adversary.toml"),
+    "claude": ("designer.md", "worker.md", "reviewer.md", "verifier.md", "adversary.md"),
+    "cursor": ("designer.md", "worker.md", "reviewer.md", "verifier.md", "adversary.md"),
 }
 # Claude Code keeps its packaged role sources under `agents/claude-code`.
 _NATIVE_SOURCE_TARGET = {"claude": "claude-code"}
@@ -44,7 +44,11 @@ KILO_AGENT_FILES = (
     "better-plan-worker.md",
     "better-plan-reviewer.md",
     "better-plan-verifier.md",
+    "better-plan-adversary.md",
 )
+# These host-default roles may be added to recognized earlier matrices, independently.
+_ADDITIVE_ROLES = ("verifier", "adversary")
+_BASE_ROLES = ("designer", "worker", "reviewer")
 # Kilo owns model and variant selection. A packaged Kilo file must never pin one.
 _KILO_SELECTOR_PIN = re.compile(r"(?m)^(?:model|variant|reasoning_effort|reasoningEffort)\s*:")
 
@@ -171,7 +175,7 @@ def _load_kilo_receipt(path: Path) -> dict[str, str] | None:
     files = value.get("files")
     if (
         not isinstance(files, dict)
-        or set(files) not in (set(KILO_AGENT_FILES), set(KILO_AGENT_FILES) - {"better-plan-verifier.md"})
+        or not _recognized_matrix_files(set(files), "kilo")
         or any(
             not isinstance(digest, str)
             or len(digest) != 64
@@ -223,10 +227,10 @@ def install_kilo_agent_matrix(paths: _InstallPaths, *, dry_run: bool) -> list[st
     payload = _validate_kilo_sources(paths)
     if kilo_agent_configuration_exists(paths):
         messages = ["native: preserved kilo Agent matrix"]
-        upgrade, managed_verifier = _upgrade_legacy_verifier(paths, "kilo", dry_run=dry_run)
+        upgrade, managed_roles = _upgrade_additive_roles(paths, "kilo", dry_run=dry_run)
         messages.extend(upgrade)
         messages.extend(_refresh_kilo_prompts(
-            paths, dry_run=dry_run, skip_verifier=not managed_verifier
+            paths, dry_run=dry_run, skip_roles=set(_ADDITIVE_ROLES) - managed_roles
         ))
         return messages
     destination = paths.kilo_agents
@@ -277,10 +281,19 @@ def native_role_configuration_exists(paths: _InstallPaths, target: str) -> bool:
     receipt = _native_receipt_path(destination)
     if receipt.exists() or receipt.is_symlink():
         return True
-    if target == "codex" and configured_codex_role_names(paths.codex_home).intersection(
-        _codex_role_names()
-    ):
-        return True
+    if target == "codex":
+        # An unreadable or oversized file may still declare a colliding host identity.
+        # Do not treat an incomplete scan as permission to install a fresh matrix.
+        if any(document is None or document.get("name") in _codex_role_names()
+               for _, document in _role_documents(destination)):
+            return True
+    if target in UNPINNED_HOSTS:
+        packaged_names = {Path(filename).stem for filename in NATIVE_ROLE_FILES[target]}
+        # Native identities survive filename changes. Unreadable names cannot
+        # establish that a first install is safe either.
+        if any(_markdown_role_name(path) in packaged_names | {None}
+               for path in destination.glob("*.md")):
+            return True
     return any(
         (destination / filename).exists() or (destination / filename).is_symlink()
         for filename in NATIVE_ROLE_FILES[target]
@@ -305,7 +318,7 @@ def _assignment_value(value: object) -> _RoleAssignment:
     # Host-default provenance records no invented model, effort, or benchmark.
     if value.get("source") == "host-default":
         if (
-            value.get("role") != "verifier" or value.get("agent_name") != "verifier"
+            value.get("role") not in _ADDITIVE_ROLES or value.get("agent_name") != value.get("role")
             or any(value.get(field) is not None for field in (
                 "model", "reasoning_effort", "benchmark_id", "index_score", "cost_per_task_usd"
             ))
@@ -399,7 +412,6 @@ def _write_native_receipt(path: Path, target: str, payload: list[tuple[str, byte
 
 def _replace_native_receipt(
     path: Path,
-    assignments: dict[str, _RoleAssignment],
     digests: dict[str, str],
 ) -> None:
     """Refresh Codex receipt digests after a prompt-only update.
@@ -408,16 +420,12 @@ def _replace_native_receipt(
     are never rewritten by a prompt refresh.
     """
 
-    value = {
-        "schema_version": 3,
-        "target": "codex",
-        "files": digests,
-        "assignments": {
-            f"{assignment.agent_name}.toml": _assignment_payload(assignment)
-            for assignment in assignments.values()
-        },
-    }
     try:
+        # Retain the original serialized provenance, including legacy metadata.
+        # Only prompts actually refreshed may get a new digest; unrelated drift
+        # remains visible to Doctor instead of being silently rebaselined.
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["files"].update(digests)
         path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
     except OSError as exc:
         raise _InstallError("could not write native role template receipt") from exc
@@ -609,70 +617,63 @@ def _refresh_role_prompts(
     target: str,
     *,
     dry_run: bool,
-    skip_verifier: bool = False,
+    skip_roles: set[str] | None = None,
 ) -> list[str]:
     """Refresh skill-owned prompt content while preserving host-owned configuration."""
 
+    skip_roles = skip_roles or set()
+    destination = _native_role_directory(paths, target)
     if target == "codex":
-        destination = _native_role_directory(paths, "codex")
-        expected: dict[str, str] = {}
-        for role, source in _validate_native_sources(paths, "codex").items():
-            if skip_verifier and role == "verifier":
-                continue
-            path = destination / f"{role}.toml"
-            expected[path.name] = source
-        changed, digests, _ = _refresh_prompt_files(
-            destination, expected, format="codex", dry_run=dry_run
-        )
-        if not dry_run and changed:
-            receipt_path = _native_receipt_path(destination)
-            try:
-                receipt = _load_native_receipt(receipt_path, "codex")
-            except _InstallError:
-                receipt = None
-            if (receipt is not None and set(receipt["files"]).issubset(digests)
-                    and set(receipt["files"]).intersection(changed)):
-                _replace_native_receipt(
-                    receipt_path, receipt["assignments"],
-                    {name: digests[name] for name in receipt["files"]},
-                )
-        return _refresh_message("codex", changed, dry_run=dry_run)
-
-    if target in UNPINNED_HOSTS:
+        documents = dict(_role_documents(destination))
+        expected = {
+            f"{role}.toml": source
+            for role, source in _validate_native_sources(paths, target).items()
+            if role not in skip_roles
+            and (documents.get(destination / f"{role}.toml") or {}).get("name") == role
+        }
+    elif target in UNPINNED_HOSTS:
         expected = {
             filename: content.decode("utf-8")
             for filename, content in unpinned_role_payload(paths, target).items()
-            if not (skip_verifier and filename == "verifier.md")
+            if Path(filename).stem not in skip_roles
+            and _markdown_role_name(destination / filename) == Path(filename).stem
         }
-        changed, _, _ = _refresh_prompt_files(
-            _native_role_directory(paths, target),
-            expected,
-            format="markdown",
-            dry_run=dry_run,
-        )
-        if not dry_run and "verifier.md" in changed:
-            destination = _native_role_directory(paths, target)
-            receipt_path = _native_receipt_path(destination)
-            try:
-                receipt = _load_unpinned_verifier_receipt(receipt_path, target)
-            except _InstallError:
-                receipt = None
-            if receipt is not None:
-                _write_unpinned_verifier_receipt(
-                    receipt_path, target, (destination / "verifier.md").read_bytes(), refresh=True
-                )
-        return _refresh_message(target, changed, dry_run=dry_run)
+    else:
+        return []
+    changed, digests, _ = _refresh_prompt_files(
+        destination, expected, format="codex" if target == "codex" else "markdown",
+        dry_run=dry_run,
+    )
+    if not dry_run and changed:
+        receipt_path = _native_receipt_path(destination)
+        try:
+            receipt = (_load_native_receipt(receipt_path, target) if target == "codex" else
+                       _load_unpinned_role_receipt(receipt_path, target))
+        except _InstallError:
+            receipt = None
+        if receipt is not None:
+            files = receipt["files"] if target == "codex" else receipt
+            refreshed = {name: digests[name] for name in changed if name in files}
+            if refreshed:
+                if target == "codex":
+                    _replace_native_receipt(receipt_path, refreshed)
+                else:
+                    _write_unpinned_role_receipt(
+                        receipt_path, target, {**files, **refreshed}, refresh=True
+                    )
+    return _refresh_message(target, changed, dry_run=dry_run)
 
-    return []
 
-
-def _refresh_kilo_prompts(paths: _InstallPaths, *, dry_run: bool, skip_verifier: bool = False) -> list[str]:
+def _refresh_kilo_prompts(
+    paths: _InstallPaths, *, dry_run: bool, skip_roles: set[str] | None = None,
+) -> list[str]:
     """Refresh Kilo Agent prompts; the host owns mode, temperature, and permissions."""
 
+    skipped = {f"better-plan-{role}.md" for role in (skip_roles or set())}
     expected = {
         filename: content.decode("utf-8")
         for filename, content in _validate_kilo_sources(paths).items()
-        if not (skip_verifier and filename == "better-plan-verifier.md")
+        if filename not in skipped
     }
     changed, digests, _ = _refresh_prompt_files(
         paths.kilo_agents, expected, format="markdown", dry_run=dry_run
@@ -683,14 +684,15 @@ def _refresh_kilo_prompts(paths: _InstallPaths, *, dry_run: bool, skip_verifier:
             receipt = _load_kilo_receipt(receipt_path)
         except _InstallError:
             receipt = None
-        if (receipt is not None and set(receipt).issubset(digests)
-                and set(receipt).intersection(changed)):
-            _replace_kilo_receipt(receipt_path, {name: digests[name] for name in receipt})
+        if receipt is not None:
+            refreshed = {name: digests[name] for name in changed if name in receipt}
+            if refreshed:
+                _replace_kilo_receipt(receipt_path, {**receipt, **refreshed})
     return _refresh_message("kilo", changed, dry_run=dry_run)
 
 
-def _load_unpinned_verifier_receipt(path: Path, target: str) -> dict[str, str] | None:
-    """Only the newly introduced Verifier is receipted on previously unpinned hosts."""
+def _load_unpinned_role_receipt(path: Path, target: str) -> dict[str, str] | None:
+    """Track additive-role ownership, including historical Verifier-only receipts."""
     if not path.exists() and not path.is_symlink():
         return None
     try:
@@ -701,23 +703,25 @@ def _load_unpinned_verifier_receipt(path: Path, target: str) -> dict[str, str] |
                 or value.get("schema_version") != 1 or value.get("target") != target):
             raise ValueError
         files = value.get("files")
-        if (not isinstance(files, dict) or set(files) != {"verifier.md"}
-                or not isinstance(files["verifier.md"], str)
-                or not re.fullmatch("[0-9a-f]{64}", files["verifier.md"])):
+        if (not isinstance(files, dict) or not files
+                or not set(files).issubset({f"{role}.md" for role in _ADDITIVE_ROLES})
+                or any(not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest)
+                       for digest in files.values())):
             raise ValueError
         return files
     except (OSError, UnicodeError, ValueError):
-        raise _InstallError("Verifier receipt is invalid")
+        raise _InstallError("native additive role receipt is invalid")
 
 
-def _write_unpinned_verifier_receipt(path: Path, target: str, content: bytes, *, refresh: bool = False) -> None:
-    value = {"schema_version": 1, "target": target,
-             "files": {"verifier.md": _content_digest(content)}}
+def _write_unpinned_role_receipt(
+    path: Path, target: str, files: dict[str, str], *, refresh: bool = False,
+) -> None:
+    value = {"schema_version": 1, "target": target, "files": files}
     try:
         with path.open("w" if refresh else "x", encoding="utf-8") as stream:
             stream.write(json.dumps(value, sort_keys=True) + "\n")
     except OSError as exc:
-        raise _InstallError("could not write Verifier receipt") from exc
+        raise _InstallError("could not write native additive role receipt") from exc
 
 
 def _recognizable_markdown_role(path: Path, role: str) -> bool:
@@ -734,47 +738,68 @@ def _recognizable_markdown_role(path: Path, role: str) -> bool:
             and f"`references/{role}.md`" in text)
 
 
-def _declared_markdown_verifiers(directory: Path) -> tuple[list[Path], bool]:
-    """Find native identities from frontmatter, conservatively flagging uncertainty."""
-    matches: list[Path] = []
-    uncertain = False
-    for path in sorted(directory.glob("*.md")):
-        try:
-            if not path.is_file():
-                uncertain = True
-                continue
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            uncertain = True
-            continue
-        if not text.startswith("---\n") or "\n---\n" not in text[4:]:
-            uncertain = True
-            continue
-        frontmatter = text[4:text.index("\n---\n", 4)]
-        names = re.findall(r"(?m)^name:[ \t]*(.*)$", frontmatter)
-        if len(names) != 1:
-            uncertain = True
-            continue
-        # Native names are simple scalars. Complex YAML syntax is not guessed.
-        scalar = re.fullmatch(r"(?:([A-Za-z0-9_-]+)|\"([A-Za-z0-9_-]+)\"|'([A-Za-z0-9_-]+)')[ \t]*(?:#.*)?", names[0])
-        if scalar is None:
-            uncertain = True
-        elif "verifier" in scalar.groups():
-            matches.append(path)
-    return matches, uncertain
+def _markdown_role_name(path: Path) -> str | None:
+    """Read one simple native identity, without guessing complex YAML syntax."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+        return None
+    frontmatter = text[4:text.index("\n---\n", 4)]
+    names = re.findall(r"(?m)^name:[ \t]*(.*)$", frontmatter)
+    if len(names) != 1:
+        return None
+    scalar = re.fullmatch(
+        r"(?:([A-Za-z0-9_-]+)|\"([A-Za-z0-9_-]+)\"|'([A-Za-z0-9_-]+)')[ \t]*(?:#.*)?",
+        names[0],
+    )
+    return next((name for name in scalar.groups() if name is not None), None) if scalar else None
 
 
-def _upgrade_legacy_verifier(paths: _InstallPaths, target: str, *, dry_run: bool) -> tuple[list[str], bool]:
-    """Add only Verifier to a recognized legacy matrix; never adopt a collision.
+def _role_filename(target: str, role: str) -> str:
+    if target == "kilo":
+        return f"better-plan-{role}.md"
+    return f"{role}.toml" if target == "codex" else f"{role}.md"
 
-    The bool permits normal Verifier prompt maintenance only for a recognized
-    managed role. Receipt provenance and old digests are preserved on addition.
+
+def _recognized_matrix_files(files: set[str], target: str) -> bool:
+    """Recognize the original matrix and its independently added host-default roles."""
+    base = {_role_filename(target, role) for role in _BASE_ROLES}
+    if target == "kilo":
+        base.add("better-plan.md")
+    additive = {_role_filename(target, role) for role in _ADDITIVE_ROLES}
+    return base.issubset(files) and files.issubset(base | additive)
+
+
+def _upgrade_additive_roles(
+    paths: _InstallPaths, target: str, *, dry_run: bool,
+) -> tuple[list[str], set[str]]:
+    messages: list[str] = []
+    managed: set[str] = set()
+    for role in _ADDITIVE_ROLES:
+        upgrade, owned = _upgrade_additive_role(paths, target, role, dry_run=dry_run)
+        messages.extend(upgrade)
+        if owned:
+            managed.add(role)
+    return messages, managed
+
+
+def _upgrade_additive_role(
+    paths: _InstallPaths, target: str, role: str, *, dry_run: bool,
+) -> tuple[list[str], bool]:
+    """Add a missing specialist to a recognized earlier matrix without adopting files.
+
+    The bool permits prompt maintenance only for a receipted, unambiguous role.
+    Existing provenance and digests are preserved when extending the receipt.
     """
     destination = paths.kilo_agents if target == "kilo" else _native_role_directory(paths, target)
-    filename = ("better-plan-verifier.md" if target == "kilo" else
-                "verifier.toml" if target == "codex" else "verifier.md")
+    filename = _role_filename(target, role)
     path = destination / filename
-    prefix = f"native: {target} Verifier upgrade"
+    label = role.title()
+    prefix = f"native: {target} {label} upgrade"
     if destination.is_symlink() or not destination.is_dir():
         return [f"{prefix} skipped: role directory is not a regular directory"], False
     receipt_path = _native_receipt_path(destination)
@@ -785,51 +810,60 @@ def _upgrade_legacy_verifier(paths: _InstallPaths, target: str, *, dry_run: bool
         elif target == "kilo":
             receipt = _load_kilo_receipt(receipt_path)
         else:
-            receipt = _load_unpinned_verifier_receipt(receipt_path, target)
+            receipt = _load_unpinned_role_receipt(receipt_path, target)
     except _InstallError:
         pass
-    files = (receipt["files"] if target == "codex" and receipt is not None else receipt)
+    files = receipt["files"] if target == "codex" and receipt is not None else receipt
     occupied = path.exists() or path.is_symlink()
-    markdown_identities, uncertain_names = (_declared_markdown_verifiers(destination)
-                                            if target in UNPINNED_HOSTS else ([], False))
-    if uncertain_names:
+    identities: list[Path] = []
+    if target == "codex":
+        documents = dict(_role_documents(destination))
+        uncertain = any(document is None for document in documents.values())
+        identities = [candidate for candidate, document in documents.items()
+                      if document is not None and document.get("name") == role]
+    elif target in UNPINNED_HOSTS:
+        names = {candidate: _markdown_role_name(candidate) for candidate in sorted(destination.glob("*.md"))}
+        uncertain = any(name is None for name in names.values())
+        identities = [candidate for candidate, name in names.items() if name == role]
+    else:
+        # Kilo identifies agents by filename, rather than a name field.
+        uncertain = False
+    if uncertain:
         return [f"{prefix} skipped: native role names are unreadable or ambiguous"], False
-    named = ((target == "codex" and "verifier" in configured_codex_role_names(paths.codex_home))
-             or bool(markdown_identities))
-    if occupied or named:
-        managed = (occupied and files is not None and filename in files)
-        if target == "codex":
-            # A renamed or duplicate custom native identity cannot be overwritten.
-            identities = [candidate for candidate, document in _role_documents(destination)
-                          if document is not None and document.get("name") == "verifier"]
+    if occupied or identities:
+        managed = occupied and files is not None and filename in files
+        if target != "kilo":
             managed = managed and identities == [path]
-        if target in UNPINNED_HOSTS:
-            managed = managed and markdown_identities == [path]
         if managed and path.is_file() and not path.is_symlink():
             return [], True
-        return [f"{prefix} skipped: existing Verifier name or path preserved (collision)"], False
+        return [f"{prefix} skipped: existing {label} name or path preserved (collision)"], False
+    # A recorded but missing profile is local deletion/drift, not a legacy matrix.
+    if files is not None and filename in files:
+        return [f"{prefix} skipped: receipt records a missing role; report only"], False
     if target in UNPINNED_HOSTS:
-        if receipt_path.exists() or receipt_path.is_symlink():
+        if files is None and (receipt_path.exists() or receipt_path.is_symlink()):
             return [f"{prefix} skipped: existing receipt requires inspection; no local files adopted"], False
-        if not all(_recognizable_markdown_role(destination / f"{role}.md", role)
-                   for role in ("designer", "worker", "reviewer")):
+        if not all(_recognizable_markdown_role(destination / f"{name}.md", name)
+                   for name in _BASE_ROLES):
             return [f"{prefix} skipped: legacy role matrix is incomplete or unrecognized"], False
+        if files is not None and any(
+            _markdown_role_name(destination / name) != Path(name).stem for name in files
+        ):
+            return [f"{prefix} skipped: managed role matrix is incomplete or unrecognized"], False
         content = unpinned_role_payload(paths, target)[filename]
     else:
-        legacy_files = (set(KILO_AGENT_FILES) - {filename} if target == "kilo" else
-                        set(NATIVE_ROLE_FILES["codex"]) - {filename})
-        if files is None or set(files) != legacy_files:
+        if files is None or not _recognized_matrix_files(set(files), target):
             return [f"{prefix} skipped: valid legacy receipt required; no local files adopted"], False
         if any((destination / name).is_symlink() or not (destination / name).is_file()
                for name in files):
             return [f"{prefix} skipped: legacy role matrix is incomplete"], False
         if target == "codex":
-            documents = dict(_role_documents(destination))
             if any(not documents.get(destination / name)
-                   or documents[destination / name].get("name") != posixpath.splitext(name)[0]
+                   or documents[destination / name].get("name") != Path(name).stem
+                   or receipt["assignments"][Path(name).stem].role != Path(name).stem
                    for name in files):
                 return [f"{prefix} skipped: legacy native role identity is unrecognized"], False
-            content = _validate_native_sources(paths, target)["verifier"].encode("utf-8")
+            content = _validate_native_sources(paths, target)[role].encode("utf-8")
         else:
             content = _validate_kilo_sources(paths)[filename]
     if dry_run:
@@ -837,21 +871,21 @@ def _upgrade_legacy_verifier(paths: _InstallPaths, target: str, *, dry_run: bool
     if files is not None and (receipt_path.is_symlink() or not receipt_path.is_file()):
         return [f"{prefix} skipped: receipt is no longer a regular file"], False
     _create_native_role(path, content)
-    if target in UNPINNED_HOSTS:
-        _write_unpinned_verifier_receipt(receipt_path, target, content)
-    if files is not None:
-        # The valid original receipt is extended, not regenerated or rebaselined.
+    if files is None:
+        _write_unpinned_role_receipt(receipt_path, target, {filename: _content_digest(content)})
+    else:
+        # Extend the validated original receipt without normalizing its provenance.
         value = json.loads(receipt_path.read_text(encoding="utf-8"))
         value["files"][filename] = _content_digest(content)
         if target == "codex":
             value["assignments"][filename] = _assignment_payload(_RoleAssignment(
-                role="verifier", agent_name="verifier", model=None, reasoning_effort=None,
+                role=role, agent_name=role, model=None, reasoning_effort=None,
                 benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
             ))
         try:
             receipt_path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
         except OSError as exc:
-            raise _InstallError("Verifier added but receipt extension failed; report only") from exc
+            raise _InstallError(f"{label} added but receipt extension failed; report only") from exc
     return [f"{prefix}: added missing profile (host defaults)"], True
 
 
@@ -885,10 +919,10 @@ def install_role_templates(
         return install_unpinned_role_templates(paths, target, dry_run=dry_run)
     if native_role_configuration_exists(paths, target):
         messages = [f"native: preserved {target} role templates"]
-        upgrade, managed_verifier = _upgrade_legacy_verifier(paths, target, dry_run=dry_run)
+        upgrade, managed_roles = _upgrade_additive_roles(paths, target, dry_run=dry_run)
         messages.extend(upgrade)
         messages.extend(_refresh_role_prompts(
-            paths, target, dry_run=dry_run, skip_verifier=not managed_verifier
+            paths, target, dry_run=dry_run, skip_roles=set(_ADDITIVE_ROLES) - managed_roles
         ))
         return messages
 
@@ -915,14 +949,14 @@ def install_unpinned_role_templates(
     *,
     dry_run: bool,
 ) -> list[str]:
-    """Install the four unpinned role files once, without a packaged selector."""
+    """Install the five unpinned role files once, without a packaged selector."""
 
     if native_role_configuration_exists(paths, target):
         messages = [f"native: preserved {target} role templates"]
-        upgrade, managed_verifier = _upgrade_legacy_verifier(paths, target, dry_run=dry_run)
+        upgrade, managed_roles = _upgrade_additive_roles(paths, target, dry_run=dry_run)
         messages.extend(upgrade)
         messages.extend(_refresh_role_prompts(
-            paths, target, dry_run=dry_run, skip_verifier=not managed_verifier
+            paths, target, dry_run=dry_run, skip_roles=set(_ADDITIVE_ROLES) - managed_roles
         ))
         return messages
     destination = _native_role_directory(paths, target)
@@ -935,8 +969,9 @@ def install_unpinned_role_templates(
     for filename, content in payload.items():
         # Exclusive creation cannot overwrite a role that appeared after discovery.
         _create_native_role(destination / filename, content)
-    _write_unpinned_verifier_receipt(
-        _native_receipt_path(destination), target, payload["verifier.md"]
+    _write_unpinned_role_receipt(
+        _native_receipt_path(destination), target,
+        {f"{role}.md": _content_digest(payload[f"{role}.md"]) for role in _ADDITIVE_ROLES},
     )
     return [f"native: installed {target} role templates (no packaged presets)"]
 
@@ -1029,7 +1064,7 @@ def role_receipt_status(paths: _InstallPaths, target: str) -> tuple[bool, str]:
     try:
         receipt_path = _native_receipt_path(destination)
         receipt = (_load_kilo_receipt(receipt_path) if target == "kilo" else
-                   _load_unpinned_verifier_receipt(receipt_path, target) if target in UNPINNED_HOSTS else
+                   _load_unpinned_role_receipt(receipt_path, target) if target in UNPINNED_HOSTS else
                    _load_native_receipt(receipt_path, target))
         if receipt is None:
             return False, "no managed receipt; report only"

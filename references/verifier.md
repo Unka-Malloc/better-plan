@@ -79,3 +79,11 @@ installation alone does not start or monitor an agent. Existing host customizati
 remain intact; see [host configuration](host-configuration.md). If a native profile
 is unavailable, use this guide with an authorized host agent or report the concrete
 blocker. Do not claim an enforced runtime lifecycle.
+
+## Adversary feedback
+
+An assigned Adversary may challenge your assumptions, approach, environment
+feasibility, or conclusions, including concerns outside the plan. Consider its
+feedback on its merits and respond through available host messages. You retain
+your role's decisions and responsibilities; feedback is not a veto or acceptance
+gate, and the Adversary does not edit artifacts or perform repairs.

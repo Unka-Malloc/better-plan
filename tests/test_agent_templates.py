@@ -14,9 +14,9 @@ from scripts.generate_workflow_presentation import build_prompt_data, embedded_p
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLE_FILES = {
-    "codex": ("designer.toml", "worker.toml", "verifier.toml", "reviewer.toml"),
-    "claude-code": ("designer.md", "worker.md", "verifier.md", "reviewer.md"),
-    "cursor": ("designer.md", "worker.md", "verifier.md", "reviewer.md"),
+    "codex": ("designer.toml", "worker.toml", "verifier.toml", "reviewer.toml", "adversary.toml"),
+    "claude-code": ("designer.md", "worker.md", "verifier.md", "reviewer.md", "adversary.md"),
+    "cursor": ("designer.md", "worker.md", "verifier.md", "reviewer.md", "adversary.md"),
 }
 REMOVED_ROLES = (
     "hybrid-worker",
@@ -34,12 +34,12 @@ class PackagedRoleTests(unittest.TestCase):
         )
         data = embedded_prompt_data(html)
         self.assertEqual(data, build_prompt_data(ROOT))
-        self.assertEqual(set(data["roles"]), {"main", "designer", "worker", "verifier", "reviewer"})
-        self.assertEqual(set(data["entries"]), {"main", "designer", "worker", "verifier", "reviewer"})
-        self.assertEqual(set(data["briefs"]), {"designer", "worker", "verifier", "reviewer"})
+        self.assertEqual(set(data["roles"]), {"main", "designer", "worker", "verifier", "reviewer", "adversary"})
+        self.assertEqual(set(data["entries"]), {"main", "designer", "worker", "verifier", "reviewer", "adversary"})
+        self.assertEqual(set(data["briefs"]), {"designer", "worker", "verifier", "reviewer", "adversary"})
         self.assertEqual(set(re.findall(r'data-role="([a-z]+)"', html)), set(data["roles"]))
 
-    def test_every_native_host_packages_the_four_roles(self) -> None:
+    def test_every_native_host_packages_the_five_roles(self) -> None:
         for host, filenames in ROLE_FILES.items():
             with self.subTest(host=host):
                 self.assertEqual(
@@ -69,7 +69,7 @@ class PackagedRoleTests(unittest.TestCase):
 
     def test_host_prompts_delegate_workflow_to_current_skill(self) -> None:
         for host in (*ROLE_FILES, "kilo"):
-            for role in ("designer", "worker", "verifier", "reviewer"):
+            for role in ("designer", "worker", "verifier", "reviewer", "adversary"):
                 filename = ("better-plan-" if host == "kilo" else "") + role + (".toml" if host == "codex" else ".md")
                 with self.subTest(host=host, role=role):
                     text = (ROOT / "agents" / host / filename).read_text(encoding="utf-8")
@@ -81,6 +81,21 @@ class PackagedRoleTests(unittest.TestCase):
         verifier = (ROOT / "agents" / "codex" / "verifier.toml").read_text(encoding="utf-8")
         self.assertNotRegex(verifier, r"(?m)^\s*(model|model_reasoning_effort)\s*=")
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
+
+    def test_adversary_profiles_offer_read_only_inspection_without_selectors(self) -> None:
+        codex = (ROOT / "agents/codex/adversary.toml").read_text(encoding="utf-8")
+        self.assertIn('sandbox_mode = "read-only"', codex)
+        self.assertNotRegex(codex, r"(?m)^\s*(model|model_reasoning_effort)\s*=")
+        claude = (ROOT / "agents/claude-code/adversary.md").read_text(encoding="utf-8")
+        self.assertIn("tools: Read, Glob, Grep, WebFetch, WebSearch, SendMessage", claude)
+        cursor = (ROOT / "agents/cursor/adversary.md").read_text(encoding="utf-8")
+        self.assertIn("readonly: true", cursor)
+        kilo = (ROOT / "agents/kilo/better-plan-adversary.md").read_text(encoding="utf-8")
+        self.assertIn('  "*": deny', kilo)
+        for tool in ("read", "glob", "grep", "webfetch"):
+            self.assertIn("  %s: allow" % tool, kilo)
+        for tool in ("edit", "write", "bash", "task"):
+            self.assertIn("  %s: deny" % tool, kilo)
 
     def test_installed_guidance_links_resolve_inside_the_payload(self) -> None:
         # Progressive disclosure works only if every linked guide ships with the skill.
@@ -105,8 +120,8 @@ class PackagedRoleTests(unittest.TestCase):
                     self.assertNotIn("model =", text)
                     self.assertNotIn("model:", text)
 
-    def test_kilo_installs_one_primary_and_four_leaf_subagents(self) -> None:
-        self.assertEqual(len(KILO_AGENT_FILES), 5)
+    def test_kilo_installs_one_primary_and_five_leaf_subagents(self) -> None:
+        self.assertEqual(len(KILO_AGENT_FILES), 6)
         primary = (ROOT / "agents" / "kilo" / "better-plan.md").read_text(encoding="utf-8")
         self.assertIn("mode: primary", primary)
         for filename in KILO_AGENT_FILES[1:]:
