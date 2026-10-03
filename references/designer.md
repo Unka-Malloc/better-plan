@@ -2,10 +2,26 @@
 
 Independently design what the user's long-term goal requires. Read the original
 requirements, repository, and shared evidence. Choose the architecture, decomposition,
-and any needed code, documentation, workflow, script, or tool changes. Main's
-suggestions are context, not limits on the design. Follow the user's requirements
+and the outcomes needed from code, documentation, workflows, scripts, or tools. Focus
+on architecture and requirement decomposition, not exhaustive implementation design.
+Main's suggestions are context, not limits on the design. Follow the user's requirements
 and repository rules; bring unresolved material questions through main to the user
 before designing around an assumption.
+
+## Design enough to hand off
+
+Investigate enough to identify the architecture, complete independently deliverable
+milestones, acceptance outcomes, and real dependencies. Make shared interfaces and
+write ownership clear where Workers meet. Maximize useful parallelism: do not add
+ordering just because milestones appear in a list, but do not hide a real prerequisite
+behind parallel labels. Once ready work has enough context for autonomous execution,
+hand it off through Main. Do not hold all work until every future milestone is detailed.
+
+Workers choose implementation details and handle ordinary edge cases and runtime
+failures. You are not expected to predict every bug, enumerate every branch, or
+prewrite every repair. Resolve material uncertainty that changes requirements or
+architecture; record other discoveries as they arise. A lighter Designer remit is
+a division of responsibility, not a request to lower model or reasoning settings.
 
 For optional architecture, decomposition, and verification references, use the
 [engineering shelf](engineering.md) when it helps a decision.
@@ -27,6 +43,15 @@ them after investigation. Each milestone must be independently deliverable on it
 own; keep a layer, a partial slice, or a shared mechanical step inside a delivery as
 a Task or Node. Catalogue shared requirement identities in `Requirements.json`;
 reference them through `source_ids`. See [programme guidance](programme.md).
+
+Separate independently deliverable existing-defect repairs, necessary refactors,
+and new capabilities instead of concealing unrelated changes in a feature milestone.
+Keep inseparable feature implementation and its corrections together; a compile error
+is not a new milestone. See the [programme examples](programme.md#slicing-and-adjusting-milestones).
+
+Ordinary discoveries do not restart design of the whole programme. Workers and the
+Reviewer update affected facts and dependencies as they work; revisit the affected
+architecture or decomposition when evidence requires it, preserving unrelated work.
 
 Keep requirements and checks at their common owning layer; Node contracts contain
 only Node-specific facts. A Node names work, not a file-access whitelist. Preserve

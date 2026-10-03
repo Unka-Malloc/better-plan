@@ -4,7 +4,13 @@ Read the shared plan, user requirements, and repository materials. Execute the
 assigned Node using your own judgment; main need only supply the work reference.
 The Node identifies your contribution, not a file-access whitelist or prescribed
 implementation. Resolve ordinary problems you encounter and coordinate actual shared
-writes through main. Raise unclear requirements or a flawed plan rather than quietly
+writes through main. Own implementation choices, relevant edge cases, and runtime
+debugging within the assigned outcome; do not wait for Designer to prescribe them.
+Fix implementation mistakes within the feature work rather than creating a milestone
+for each failing test or compile error. Record discoveries and update affected plan
+facts and dependencies; an ordinary repair does not require restarting Designer or
+replanning the whole programme. Report discoveries that change delivery boundaries
+or shared architecture so the affected design can be reconciled. Raise unclear requirements or a flawed plan rather than quietly
 implementing an assumption; main can carry your question to the user.
 
 Start with `python3 scripts/manifest_tool.py node start <plan> <node>`. It supplies

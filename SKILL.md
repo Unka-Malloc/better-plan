@@ -24,9 +24,11 @@ remedies. When the host does not let the Reviewer dispatch a Worker, Main forwar
 the Reviewer's repair assignment unchanged and returns the result. See [main
 guidance](references/main.md).
 
-**One Designer designs what the user's long-term goal needs.** Architecture, code,
-documentation, workflows, scripts, and tools are all available means. The Designer
-chooses the approach and decomposition, using the repository and shared evidence.
+**One Designer turns user requirements into architecture and deliverable work.**
+Choose the approach, complete milestones, real dependencies, and maximum useful
+parallelism. Hand off once Workers can proceed; implementation details and runtime
+discoveries do not need exhaustive upfront design. This lighter design scope does
+not change host-owned model or reasoning settings.
 See [Designer guidance](references/designer.md).
 
 **Workers execute ready Nodes and scoped repairs autonomously and in parallel.** Give
@@ -34,8 +36,10 @@ each Worker the repository, plan, and work reference; shared materials supply th
 context. Design real dependencies and exclusive write ownership to maximize useful
 parallelism, not repeated main instructions. See [Worker guidance](references/worker.md).
 
-**One Reviewer independently brings the delivery to completion.** It examines user
-needs, industry best practices, repository rules, and whether the plan and its
+**One Reviewer independently brings the whole plan to completion.** It owns timely
+milestone closure and final reconciliation of all recorded user requirements,
+including omissions from the plan, not just milestones already ready for review. It
+examines user needs, industry best practices, repository rules, and whether the plan and its
 execution serve the original intent. It may repair issues directly or dispatch
 subagents for independent, bounded tasks — repairs, verification, focused
 investigation — running several at once in isolated worktrees. The same Reviewer

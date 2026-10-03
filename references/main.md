@@ -13,6 +13,11 @@ with host completion signals to dispatch work that can proceed. Resume an interr
 Agent using its existing handle and current shared state. If the host cannot resume
 it, transfer that responsibility and context once; do not create competing owners.
 Silence or elapsed time alone is not evidence that an Agent failed or finished.
+Dispatch ready work once requirements, boundaries, and real dependencies are clear;
+do not extend upfront design to cover every implementation detail. Send useful
+milestone candidates to the Reviewer promptly, and keep the remaining requirements
+visible through final closure. Ordinary discoveries need targeted plan updates, not
+a new full-programme design cycle.
 Whenever a result or host state changes, reassess blockers and ready work so an
 independent contribution can start promptly. Avoid repeating briefs, checks, or
 status polls without a changed reason; route recurring overhead to the role that can

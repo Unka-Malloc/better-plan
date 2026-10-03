@@ -10,9 +10,9 @@ planning, parallel implementation, and independent review.
 | Role | What it does |
 | --- | --- |
 | Main | Understands and conveys your needs, tracks real blockers and ready work, relays questions, and resumes interrupted work. |
-| Designer | Independently designs the solution and a shared plan with useful parallel work. |
+| Designer | Maps requirements to architecture, complete milestones, and real dependencies, then hands off ready work for maximum useful parallelism. |
 | Workers | Read the shared plan and repository, implement their assigned contributions, and record results. |
-| Reviewer | Independently checks the result and the plan, dispatches subagents for independent bounded tasks in parallel, reviews their source, then integrates and verifies the delivery. |
+| Reviewer | Closes milestones promptly, repairs and integrates the whole plan with parallel help, and verifies all recorded user requirements, including plan omissions. |
 
 One Designer owns the design. Workers run in parallel where the work allows it.
 One Reviewer stays responsible for review and closure and may dispatch subagents for
@@ -22,6 +22,15 @@ Questions that require your decision come back through Main; dependent work wait
 for clarity. Main tracks the next useful outcome, its true blockers, ready work, and
 repeated effort. If the host does not let the Reviewer dispatch a subagent, Main
 forwards the Reviewer's assignment without changing its technical scope.
+
+Designer does not have to predict every runtime bug or prescribe every implementation
+detail. Workers handle those as work proceeds; discoveries update the affected plan
+without restarting the entire design. Independently deliverable existing bug fixes,
+necessary refactors, and new features have clear milestone boundaries. Errors made
+while implementing a feature remain part of that feature. Final review reconciles
+the central requirement record with the actual integrated result, not merely a list
+of completed milestones. These responsibilities do not change your host model or
+reasoning settings.
 
 The [presentation](presentations/better-plan-workflow.html) includes the actual
 shared instructions and role prompts. GitHub displays HTML as source; download the
