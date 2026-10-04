@@ -143,9 +143,10 @@ class InstallTests(unittest.TestCase):
             else:
                 receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
             for path in directory.iterdir():
-                path.write_text(path.read_text(encoding="utf-8").replace(
-                    "You are the", "Outdated prompt: You are the"
-                ), encoding="utf-8")
+                # Mutate prompts only, not untouched host-owned newline bytes.
+                path.write_bytes(path.read_bytes().replace(
+                    b"You are the", b"Outdated prompt: You are the"
+                ))
         before = {path: path.read_bytes() for path in self.protected_role_state() if path.exists()}
         self.install_all(dry_run=True)
         self.assertEqual({path: path.read_bytes() for path in self.protected_role_state() if path.exists()}, before)
