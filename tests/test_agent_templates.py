@@ -77,12 +77,12 @@ class PackagedRoleTests(unittest.TestCase):
                     self.assertIn("references/%s.md" % role, text)
 
     def test_codex_is_the_only_host_with_presets(self) -> None:
-        self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer"})
+        self.assertEqual(set(CODEX_DEFAULT_MATRIX), {"designer", "worker", "reviewer", "verifier", "adversary"})
         verifier = (ROOT / "agents" / "codex" / "verifier.toml").read_text(encoding="utf-8")
         self.assertNotRegex(verifier, r"(?m)^\s*(model|model_reasoning_effort)\s*=")
         self.assertEqual(AGENTS, ("codex", "claude", "cursor", "kilo", "dsh"))
 
-    def test_adversary_profiles_offer_read_only_inspection_without_selectors(self) -> None:
+    def test_adversary_prompt_sources_offer_read_only_inspection(self) -> None:
         codex = (ROOT / "agents/codex/adversary.toml").read_text(encoding="utf-8")
         self.assertIn('sandbox_mode = "read-only"', codex)
         self.assertNotRegex(codex, r"(?m)^\s*(model|model_reasoning_effort)\s*=")

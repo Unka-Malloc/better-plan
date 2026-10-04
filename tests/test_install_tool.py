@@ -82,7 +82,7 @@ class InstallTests(unittest.TestCase):
                     self.assertFalse((directory / removed).with_suffix(".toml").exists())
                     self.assertFalse((directory / removed).with_suffix(".md").exists())
 
-    def test_codex_records_the_three_preset_assignments(self) -> None:
+    def test_codex_records_the_five_preset_assignments(self) -> None:
         self.install_all()
         receipt = install_targets._load_native_receipt(
             install_targets._native_receipt_path(self.paths.codex_home / "agents"), "codex"
@@ -103,7 +103,7 @@ class InstallTests(unittest.TestCase):
                 self.assertNotIn("reasoning_effort", instructions)
                 self.assertNotIn("model=", instructions)
 
-    def test_additive_roles_inherit_host_defaults_without_invented_provenance(self) -> None:
+    def test_additive_roles_use_codex_presets_without_invented_provenance(self) -> None:
         self.install_all()
         receipt = install_targets._load_native_receipt(
             install_targets._native_receipt_path(self.paths.codex_home / "agents"), "codex"
@@ -112,17 +112,61 @@ class InstallTests(unittest.TestCase):
             path = self.paths.codex_home / "agents" / f"{role}.toml"
             document = install_targets.tomllib.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(document["name"], role)
-            self.assertNotIn("model", document)
-            self.assertNotIn("model_reasoning_effort", document)
+            self.assertEqual(document["model"], CODEX_DEFAULT_MATRIX[role][1])
+            self.assertEqual(document["model_reasoning_effort"], CODEX_DEFAULT_MATRIX[role][2])
             self.assertIn(f"references/{role}.md", document["developer_instructions"])
             assignment = receipt["assignments"][role]
-            self.assertEqual(assignment.source, "host-default")
-            for field in ("model", "reasoning_effort", "benchmark_id", "index_score", "cost_per_task_usd"):
-                self.assertIsNone(getattr(assignment, field))
+            if role == "adversary":
+                self.assertEqual(assignment.source, "codex-preset-unbenchmarked")
+                for field in ("benchmark_id", "index_score", "cost_per_task_usd"):
+                    self.assertIsNone(getattr(assignment, field))
+                self.assertIn("benchmark unavailable", install_targets._assignment_summary(assignment))
+            else:
+                self.assertEqual(assignment.source, "codex-default-matrix")
+                self.assertEqual(assignment.benchmark_id, "gpt-6-luna")
             self.assertTrue((self.paths.shared_skill / "references" / f"{role}.md").is_file())
         checks = {item.target: item for item in install_doctor.doctor(self.paths, ["claude", "cursor"])}
         for host in ("claude", "cursor"):
             self.assertEqual(checks[host + " role receipt"].status, "OK")
+
+    def test_previous_unpinned_codex_profiles_keep_host_fields_and_provenance(self) -> None:
+        self.install_all()
+        directory = self.paths.codex_home / "agents"
+        receipt_path = install_targets._native_receipt_path(directory)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        expected = {}
+        for role in ("verifier", "adversary"):
+            path = directory / f"{role}.toml"
+            content = "".join(line for line in path.read_text(encoding="utf-8").splitlines(True)
+                              if not line.startswith(("model =", "model_reasoning_effort =")))
+            # One old profile inherits host defaults; the other has a local override.
+            if role == "verifier":
+                content = content.replace('sandbox_mode = ',
+                    'model = "local-verifier"\nmodel_reasoning_effort = "low"\nsandbox_mode = ')
+            expected[path] = content
+            old = content.replace("You are the", "Outdated prompt: You are the")
+            path.write_text(old, encoding="utf-8")
+            receipt["files"][path.name] = install_targets._content_digest(path.read_bytes())
+            receipt["assignments"][path.name] = dict(
+                role=role, agent_name=role, model=None, reasoning_effort=None,
+                benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default")
+        receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+        self.install_all()
+        for path, content in expected.items():
+            self.assertEqual(path.read_text(encoding="utf-8"), content)
+        refreshed = json.loads(receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual(refreshed["assignments"], receipt["assignments"])
+        self.assertTrue(install_targets.role_receipt_status(self.paths, "codex")[0])
+
+    def test_unbenchmarked_receipt_rejects_invented_provenance(self) -> None:
+        self.install_all()
+        receipt_path = install_targets._native_receipt_path(self.paths.codex_home / "agents")
+        value = json.loads(receipt_path.read_text(encoding="utf-8"))["assignments"]["adversary.toml"]
+        self.assertEqual(install_targets._assignment_value(value).model, "gpt-6.1-sol")
+        for field, invalid in (("benchmark_id", "gpt-6-sol-high"), ("index_score", 43),
+                               ("cost_per_task_usd", 0.37), ("reasoning_effort", None)):
+            with self.subTest(field=field), self.assertRaises(install_models.InstallError):
+                install_targets._assignment_value(dict(value, **{field: invalid}))
 
     def test_three_role_legacy_matrices_add_both_profiles_and_refresh_receipts(self) -> None:
         self.install_all()
@@ -167,6 +211,11 @@ class InstallTests(unittest.TestCase):
                     self.assertEqual((directory / name).read_text(encoding="utf-8"),
                                      expected.decode("utf-8"))
         self.assertTrue(install_targets.kilo_agent_status(self.paths)[0])
+        for role in ("verifier", "adversary"):
+            path = self.paths.codex_home / "agents" / f"{role}.toml"
+            document = install_targets.tomllib.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual((document["model"], document["model_reasoning_effort"]),
+                             CODEX_DEFAULT_MATRIX[role][1:3])
 
     def legacy_receipted_matrix(self, host: str) -> tuple[Path, Path, dict]:
         install_service.install_agents(self.paths, [host], dry_run=False)
@@ -187,7 +236,7 @@ class InstallTests(unittest.TestCase):
             directory, receipt_path, receipt = self.legacy_receipted_matrix(host)
             worker = directory / install_targets._role_filename(host, "verifier")
             text = worker.read_text(encoding="utf-8")
-            text = (text.replace('sandbox_mode = ', 'model = "local-choice"\nsandbox_mode = ') if host == "codex"
+            text = (text.replace('model = "gpt-6-luna"', 'model = "local-choice"') if host == "codex"
                     else text.replace("\n---\n", "\nmodel: local-choice\n---\n", 1))
             if host == "codex":
                 receipt["assignments"]["worker.toml"]["index_basis"] = "intelligence"
@@ -372,9 +421,10 @@ class InstallTests(unittest.TestCase):
             path = directory / filename
             original = path.read_text(encoding="utf-8")
             if host == "codex":
-                custom = original.replace('sandbox_mode = "read-only"',
-                    'sandbox_mode = "local-sandbox"\nmodel = "custom"\n'
-                    'model_reasoning_effort = "medium"\nprovider = "local"\ncustom_key = 42')
+                custom = (original.replace('model = "gpt-6.1-sol"', 'model = "custom"')
+                    .replace('model_reasoning_effort = "high"', 'model_reasoning_effort = "medium"')
+                    .replace('sandbox_mode = "read-only"',
+                             'sandbox_mode = "local-sandbox"\nprovider = "local"\ncustom_key = 42'))
             else:
                 custom = original.replace("\n---\n", "\nmodel: custom\nvariant: local\n"
                     "reasoning_effort: medium\ncustom_key: 42\n---\n", 1)
