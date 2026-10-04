@@ -46,7 +46,7 @@ KILO_AGENT_FILES = (
     "better-plan-verifier.md",
     "better-plan-adversary.md",
 )
-# These host-default roles may be added to recognized earlier matrices, independently.
+# These roles may be added to recognized earlier matrices, independently.
 _ADDITIVE_ROLES = ("verifier", "adversary")
 _BASE_ROLES = ("designer", "worker", "reviewer")
 # Kilo owns model and variant selection. A packaged Kilo file must never pin one.
@@ -322,6 +322,19 @@ def _assignment_value(value: object) -> _RoleAssignment:
             or any(value.get(field) is not None for field in (
                 "model", "reasoning_effort", "benchmark_id", "index_score", "cost_per_task_usd"
             ))
+            or "index_basis" in value
+        ):
+            raise _InstallError("native role template receipt is invalid")
+        return _RoleAssignment(**value)
+    # Explicit presets can precede a benchmark catalog row; never fabricate provenance.
+    if value.get("source") == "codex-preset-unbenchmarked":
+        if (
+            value.get("role") not in (*_BASE_ROLES, *_ADDITIVE_ROLES)
+            or value.get("agent_name") != value.get("role")
+            or any(not isinstance(value.get(field), str) or not value[field].strip()
+                   for field in ("model", "reasoning_effort"))
+            or any(value.get(field) is not None
+                   for field in ("benchmark_id", "index_score", "cost_per_task_usd"))
             or "index_basis" in value
         ):
             raise _InstallError("native role template receipt is invalid")
@@ -766,7 +779,7 @@ def _role_filename(target: str, role: str) -> str:
 
 
 def _recognized_matrix_files(files: set[str], target: str) -> bool:
-    """Recognize the original matrix and its independently added host-default roles."""
+    """Recognize the original matrix and its independently added roles."""
     base = {_role_filename(target, role) for role in _BASE_ROLES}
     if target == "kilo":
         base.add("better-plan.md")
@@ -863,11 +876,16 @@ def _upgrade_additive_role(
                    or receipt["assignments"][Path(name).stem].role != Path(name).stem
                    for name in files):
                 return [f"{prefix} skipped: legacy native role identity is unrecognized"], False
-            content = _validate_native_sources(paths, target)[role].encode("utf-8")
+            try:
+                assignment = _select_role_assignments(paths, target)[role]
+            except ToolError as exc:
+                raise _InstallError("native role assignments could not be selected") from exc
+            content = _render_native_source(_validate_native_sources(paths, target)[role], assignment)
         else:
             content = _validate_kilo_sources(paths)[filename]
+    settings = "packaged Codex preset" if target == "codex" else "host defaults"
     if dry_run:
-        return [f"{prefix}: would add missing profile (host defaults)"], False
+        return [f"{prefix}: would add missing profile ({settings})"], False
     if files is not None and (receipt_path.is_symlink() or not receipt_path.is_file()):
         return [f"{prefix} skipped: receipt is no longer a regular file"], False
     _create_native_role(path, content)
@@ -878,15 +896,12 @@ def _upgrade_additive_role(
         value = json.loads(receipt_path.read_text(encoding="utf-8"))
         value["files"][filename] = _content_digest(content)
         if target == "codex":
-            value["assignments"][filename] = _assignment_payload(_RoleAssignment(
-                role=role, agent_name=role, model=None, reasoning_effort=None,
-                benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
-            ))
+            value["assignments"][filename] = _assignment_payload(assignment)
         try:
             receipt_path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
         except OSError as exc:
             raise _InstallError(f"{label} added but receipt extension failed; report only") from exc
-    return [f"{prefix}: added missing profile (host defaults)"], True
+    return [f"{prefix}: added missing profile ({settings})"], True
 
 
 def _native_payload(
@@ -1013,7 +1028,10 @@ def _assignment_summary(assignment: _RoleAssignment) -> str:
     if assignment.model is None:
         return f"{assignment.agent_name} -> {assignment.role}, host-default (no model or effort selector)"
     effort = assignment.reasoning_effort or "host-default"
-    # One standard basis: every pin reports its Intelligence Index score, and the task cost the
+    if assignment.benchmark_id is None:
+        return (f"{assignment.agent_name} -> {assignment.role}, {assignment.model}/{effort}, "
+                f"benchmark unavailable, cost unavailable, source {assignment.source}")
+    # One standard basis: every benchmarked pin reports its Intelligence Index score, and the task cost the
     # same table publishes for that row.
     cost = (
         f"cost ${assignment.cost_per_task_usd:.2f}/task"

@@ -73,8 +73,8 @@ Raise material uncertainty through Main and pause only work that depends on it.
 Default engineering delivery leaves PRs Draft. Publication, merge, installation,
 and live acceptance still follow project authorization.
 
-Verifier is a default-on workflow role with a packaged native profile that inherits
-the host model and reasoning settings. Main starts it with available host facilities;
+Verifier is a default-on workflow role. New Codex profiles use GPT-6 Luna / max;
+other hosts inherit model and reasoning settings. Main starts it with available host facilities;
 installation alone does not start or monitor an agent. Existing host customizations
 remain intact; see [host configuration](host-configuration.md). If a native profile
 is unavailable, use this guide with an authorized host agent or report the concrete

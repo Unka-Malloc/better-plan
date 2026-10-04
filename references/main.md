@@ -78,9 +78,9 @@ resuming Verifier and repeat final review afterward. Do not run competing final 
 ## Briefs
 
 Give missing context and work references, not repeated materials or implementation
-recipes. Native role prompts load the skill. The packaged Verifier profile inherits
-host model and reasoning settings; a host without native profiles can load the same
-role guide directly. Installation does not itself launch the persistent agent.
+recipes. Native role prompts load the skill. New Codex Verifier profiles use
+GPT-6 Luna / max; other hosts inherit model and reasoning settings. A host without
+native profiles can load the same role guide directly. Installation does not itself launch the persistent agent.
 
 - Designer: "Design the plan for these user requirements: <requirements/source>. Repository: <repo>. Plan: <plan>."
 - Worker: "Implement <node> in <plan>. Repository: <repo>. Return the code location and blockers."

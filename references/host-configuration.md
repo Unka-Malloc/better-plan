@@ -5,8 +5,8 @@ configuration changes, installation/update/Doctor work, or host integration. Ord
 delivery turns do not load it.
 
 Better Plan supports five targets: Codex, Claude Code, Cursor, Kilo Code, and DeepSeek Harness.
-Codex has packaged model presets for Designer, Worker, and Reviewer. The Verifier and Adversary
-profiles have no model or reasoning selectors and inherit host configuration. Other
+Codex has packaged model and reasoning presets for all five roles, including
+Verifier (`gpt-6-luna / max`) and Adversary (`gpt-6.1-sol / high`). Other
 targets likewise inherit model and reasoning settings; DeepSeek Harness uses prompts
 instead of native role files.
 
@@ -26,8 +26,8 @@ A native profile loads instructions; it does not automatically launch a process:
 |---|---|---|
 | `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
 | `worker` | implements assigned code; no quality/process/integration ownership or required evidence pack | `gpt-6-luna / max` |
-| `verifier` | persistently inspects actual code, integrates, checks, and repairs throughout execution | host-inherited; no model or effort pin |
-| `adversary` | independently challenges explicitly assigned targets through feedback only; reusable without a plan | host-inherited; no model or effort pin |
+| `verifier` | persistently inspects actual code, integrates, checks, and repairs throughout execution | `gpt-6-luna / max` |
+| `adversary` | independently challenges explicitly assigned targets through feedback only; reusable without a plan | `gpt-6.1-sol / high` |
 | `reviewer` | independently validates and repairs stable milestone and final code against user requirements, then records conclusions | `gpt-6-astra / xhigh` |
 
 Adversaries are explicitly assigned one or multiple target agents, grouped by
@@ -75,7 +75,7 @@ local roles.
 
 | Target | Roles installed as | Selector |
 |---|---|---|
-| Codex | `$CODEX_HOME/agents/{designer,worker,verifier,reviewer,adversary}.toml` | three packaged pins; Verifier/Adversary host-inherited; existing selectors preserved |
+| Codex | `$CODEX_HOME/agents/{designer,worker,verifier,reviewer,adversary}.toml` | five packaged pins; existing selectors preserved |
 | Claude Code | `~/.claude/agents/{designer,worker,verifier,reviewer,adversary}.md` | host-inherited |
 | Cursor | `~/.cursor/agents/{designer,worker,verifier,reviewer,adversary}.md` | host-inherited |
 | Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,verifier,reviewer,adversary}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
@@ -119,17 +119,22 @@ that disagrees with local files never causes a role file to be replaced.
 
 ## Codex presets
 
-Codex writes its three pinned selectors once at first installation and never rewrites
-them afterwards. Verifier and Adversary have no selectors; they inherit host defaults.
+Codex writes its five pinned selectors when first creating a role and never rewrites
+them afterwards. Recognized legacy upgrades use the same presets for missing Verifier
+or Adversary profiles only. Existing profiles keep their selectors, including older
+Verifier and Adversary profiles with no selectors.
 Role prompt content is refreshed by install and update.
-Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
-selects. The packaged catalog records those rows at 52 for `designer` and `reviewer` and 37 for
-`worker`, each with the task cost the same table publishes (`gpt-6-astra-xhigh` $2.31, `gpt-6-luna`
+Where a matching benchmark row is available, a pin records the Intelligence Index for
+the exact model and effort it selects. The packaged catalog records those rows at 52
+for `designer` and `reviewer` and 37 for `worker` and `verifier`, each with the task cost the same table publishes (`gpt-6-astra-xhigh` $2.31, `gpt-6-luna`
 $0.07). No second index, harness comparison, or cross-index comparison is
 used, and an API benchmark cost is never a host's subscription usage.
+The catalog has no GPT-6.1 Sol / high row: Adversary records its explicit selector
+with `source = "codex-preset-unbenchmarked"` and null benchmark, score, and cost.
+It never borrows another model's result or blocks installation for that absent row.
 
 The catalog (`scripts/better_plan/domain/model_catalog.json`) is read for that provenance only, at
-first installation, and it is the sole source of those rows: Better Plan ships no separate benchmark
+role creation, and it is the sole source of those rows: Better Plan ships no separate benchmark
 dataset. A row is reference data for the pinned model and effort, not proof that a host can run it.
 
 A role is identified by the TOML `name` in a Codex role file, never by its filename, so a renamed
@@ -137,7 +142,7 @@ file still counts as the same role and an unrelated file never does. Better Plan
 those names only to decide whether a same-name role already exists; it does not resolve, recommend,
 or adopt a selector, and no command prints an installed-versus-recommended comparison. If a local
 role exists, the host uses it; if none exists, the host decides what to run, and the packaged
-presets above are only what a first installation writes.
+presets above apply only when a profile is first created.
 
 ## Native role configuration and prompt refresh
 
