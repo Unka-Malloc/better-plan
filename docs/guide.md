@@ -175,14 +175,36 @@ The [reference shelf](../references/engineering.md) offers optional, problem-ori
 notes on architecture, decomposition, tests, and acceptance, with links to original
 industry sources. Agents choose what helps; it is not a required reading list.
 
+## Process references
+
+Alongside the role guides, five references carry the shared process mechanics:
+
+- [Glossary](../references/glossary.md) — canonical terms so briefs and records do
+  not drift.
+- [Lifecycle](../references/lifecycle.md) — one phase model: who acts, who stays
+  quiet, and what is frozen at each step.
+- [Authority](../references/authority.md) — per-role May/Must/Must not/never-decides
+  matrix for cross-role questions and dispatch.
+- [Route review](../references/route-review.md) — event-triggered re-decision of the
+  route (repeated failure, empty rounds, scope growth, cost growth) with a Round DoD:
+  every round names the uncertainty it removed.
+- [Exceptions](../references/exceptions.md) — recovery from interrupted checks,
+  stale state, phase mismatches, and persistent blockers.
+
+These are process guidance, not new gates: they add no approval mechanism, no
+runtime enforcement, and no extra status system.
+
 ## Development
 
 Maintaining Better Plan itself uses the ordinary repository workflow, without
 creating a local plan workspace. Run relevant focused tests while editing. After
 editing canonical role guidance, refresh the offline presentation's prompt data with
 `python3 scripts/generate_workflow_presentation.py`; pass `--check` to detect drift
-without writing. After implementation, source review, and repairs are complete, run
-the full suite:
+without writing. Prompt hygiene gate: every "Must not" in the authority matrix cites
+its source guide; terms in role guides come from the glossary; new reference files
+are added to `CURRENT_SKILL_FILES` in
+`scripts/better_plan/installation/models.py` so installers ship them. After
+implementation, source review, and repairs are complete, run the full suite:
 
 ```sh
 python3 scripts/run_tests.py

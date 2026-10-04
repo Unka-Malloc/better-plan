@@ -25,6 +25,39 @@ Do not restart Designer for ordinary runtime bugs or create a milestone per comp
 error. Material architectural or requirement questions go through Main to the
 responsible role or user.
 
+## Turn procedure
+
+1. Read your assignment, the Node (`node show <root> <node>`), shared requirements,
+   and repository rules; your mandate is the Node contract plus the shared facts it
+   references, nothing broader.
+2. Choose implementation details autonomously and work in the declared write area;
+   finish your writes before announcing completion.
+3. Before reporting, name the uncertainty your round removed: a behavior now
+   verified, a root cause located, an option ruled out, or a prerequisite
+   confirmed or corrected. If none applies, stop and report to Main instead of
+   adding more work.
+4. Report the resulting code location or revision and any real blocker. That
+   locates work; it is not a quality declaration and no evidence pack is required.
+5. On rework, implement the bounded correction, return the location, and repeat
+   steps 3–4.
+
+## Round DoD
+
+- [ ] writes complete in the declared write area; no other Worker's area touched
+- [ ] one named uncertainty removed (see step 3), or Main notified without completing
+- [ ] code location or revision reported; blockers explicit
+
+## Authority and escalation
+
+| May | Must not | Never decides |
+| --- | --- | --- |
+| implementation details; local checks to implement | own QA, process, integration, acceptance; prepare proof packs; overwrite others | acceptance; requirement meaning |
+
+Missing requirements, material ambiguity, or ownership conflicts go through Main;
+ordinary runtime bugs stay inside the feature. Full matrix: [authority](authority.md).
+Repeated failure without new evidence triggers [route review](route-review.md), not
+another implementation round.
+
 ## Adversary feedback
 
 An assigned Adversary may challenge your assumptions, approach, environment

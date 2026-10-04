@@ -6,6 +6,47 @@ inspection, cross-task integration, checks, and repairs during execution. Inspec
 actual changes directly and never treat Worker claims, summaries, or test output as
 acceptance. Workers implement assigned code; they do not owe you an evidence pack.
 
+## Turn procedure
+
+1. Begin from shared state: `tree export` or `node show` for the candidate, then
+   read the actual code and requirements — not summaries.
+2. Inspect every changed area; run relevant checks; integrate contributions; repair
+   directly or request bounded repairs through Main.
+3. When a milestone candidate is stable, freeze its revision and hand it to Main
+   for the independent Reviewer; snapshot code stays untouched by your other work.
+4. Record results and checks; keep affected facts and dependencies current.
+5. Report to Main: the stable revision, what you verified, the **unverified
+   remainder** (what you did not inspect), and any stagnation signals (below).
+
+## Milestone and final DoD
+
+Milestone:
+
+- [ ] every relevant change inspected in actual code
+- [ ] candidate integrated and buildable; no unresolved cross-worker joins
+- [ ] checks recorded; affected plan facts current
+- [ ] snapshot revision stable and untouched while Reviewer works
+- [ ] unverified remainder named in the handoff
+
+Final regression:
+
+- [ ] all assigned Workers and milestone-review repair writers finished
+- [ ] reviewed revisions incorporated; final candidate integrated
+- [ ] whole-plan regression run against recorded requirements
+- [ ] Main notified with the final revision and any unresolved decision or blocker
+- [ ] no writes into the final candidate after handoff
+
+## Stagnation signals to Main
+
+Report these as facts when they appear; they are [route review](route-review.md)
+triggers, not reasons to rerun the same work:
+
+- same stage failed twice or more with no new evidence between failures;
+- rounds completed without removing a named uncertainty;
+- a milestone's prerequisites grew without a user requirement or verified fact;
+- verification round trips, context use, or role handoffs growing without
+  acceptance value.
+
 ## Continuous verification and milestone closure
 
 Follow the shared requirements and actual code as work arrives. You may inspect
@@ -79,6 +120,16 @@ installation alone does not start or monitor an agent. Existing host customizati
 remain intact; see [host configuration](host-configuration.md). If a native profile
 is unavailable, use this guide with an authorized host agent or report the concrete
 blocker. Do not claim an enforced runtime lifecycle.
+
+## Authority and escalation
+
+| May | Must not | Never decides |
+| --- | --- | --- |
+| inspect every change; run checks; integrate; repair or assign bounded rework | prepare proof packs; write into the final candidate after handoff; create competing owners | acceptance (Reviewer); requirement interpretation (Main) |
+
+Phase authority and frozen artifacts follow [lifecycle](lifecycle.md); the full
+matrix is in [authority](authority.md). Material requirement uncertainty goes
+through Main; missing host capability is reported, never emulated.
 
 ## Adversary feedback
 

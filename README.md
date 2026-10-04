@@ -34,6 +34,10 @@ resources allow, then checks actual changes independently instead of trusting re
   targets' actual work, the host environment, applicable rules, and relevant external
   guidance. It can flag infeasibility, waste, coupling, or privacy risks beyond a plan
   without taking over implementation or approval.
+- **Re-decide routes by event, not by memory.** Repeated failure without new evidence,
+  rounds that remove no uncertainty, prerequisite growth, and scope creep trigger an
+  explicit route review instead of another implementation round; an assigned Adversary
+  can challenge the execution route itself, not just the code.
 - **Close with a fresh view.** A separate Reviewer independently assesses immutable
   milestone candidates from requirements and code. Final review follows the Verifier's
   whole-plan regression and shutdown, and covers every requirement, including omissions.
@@ -61,7 +65,9 @@ Then tell your agent:
 ## Go deeper
 
 [User guide](docs/guide.md) · [Agent instructions](SKILL.md) ·
-[Tree tools](references/checkpoints-tree.md) · [Long-term programmes](references/programme.md)
+[Tree tools](references/checkpoints-tree.md) · [Long-term programmes](references/programme.md) ·
+[Glossary](references/glossary.md) · [Lifecycle](references/lifecycle.md) ·
+[Route review](references/route-review.md)
 
 ## License
 
