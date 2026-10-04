@@ -24,3 +24,11 @@ code location. They retain independent inspection, integration, and verification
 Do not restart Designer for ordinary runtime bugs or create a milestone per compile
 error. Material architectural or requirement questions go through Main to the
 responsible role or user.
+
+## Adversary feedback
+
+An assigned Adversary may challenge your assumptions, approach, environment
+feasibility, or conclusions, including concerns outside the plan. Consider its
+feedback on its merits and respond through available host messages. You retain
+your role's decisions and responsibilities; feedback is not a veto or acceptance
+gate, and the Adversary does not edit artifacts or perform repairs.

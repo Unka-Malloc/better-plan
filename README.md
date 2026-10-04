@@ -6,9 +6,11 @@ Better Plan gives your coding agents a shared plan they can carry across session
 Main keeps requirements and dispatch moving. A light Designer shapes the architecture,
 Workers implement in parallel, and a persistent Verifier independently checks,
 integrates, tests, and repairs their work. A separate Reviewer closes each candidate
-from requirements and code.
+from requirements and code. An Adversary independently challenges explicitly assigned
+agents, including the Reviewer, through opinions and messages. It works with any
+collaboration structure, whether or not a plan exists.
 
-![Main coordinates requirements and dispatch; Designer decomposes the work; Workers implement; persistent Verifier checks and integrates; separate Reviewer independently closes immutable candidates.](docs/images/workflow.svg)
+![Main coordinates requirements and dispatch; Designer decomposes the work; functional-domain Workers implement; persistent Verifier checks and integrates; separate Reviewer closes immutable candidates. An explicitly assigned Adversary independently challenges any named role through messages.](docs/images/workflow.svg)
 
 **[Explore the workflow](docs/guide.md#how-it-works)** ·
 **[Read a fictional project story](docs/story.md)** ·
@@ -28,6 +30,10 @@ resources allow, then checks actual changes independently instead of trusting re
   not own QA, process, integration, or a mandatory proof package.
 - **Check work continuously.** The default-on Verifier runs alongside Main, inspects
   every actual change, integrates it, tests it, and repairs defects as work arrives.
+- **Question assumptions early.** An assigned Adversary immediately investigates its
+  targets' actual work, the host environment, applicable rules, and relevant external
+  guidance. It can flag infeasibility, waste, coupling, or privacy risks beyond a plan
+  without taking over implementation or approval.
 - **Close with a fresh view.** A separate Reviewer independently assesses immutable
   milestone candidates from requirements and code. Final review follows the Verifier's
   whole-plan regression and shutdown, and covers every requirement, including omissions.

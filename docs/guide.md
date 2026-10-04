@@ -11,9 +11,40 @@ parallel implementation, continuous verification, and fresh independent closure.
 | --- | --- |
 | Main | Owns requirements, dispatch, coordination, blockers, user questions, and the workflow handoff. |
 | Designer | Provides light architecture and decomposition into independently deliverable milestones with real dependencies. |
-| Workers | Implement assigned contributions and scoped repairs; their output is untrusted until independently inspected. |
+| Workers | Grouped by functional domain, implement assigned contributions and scoped repairs; their output is untrusted until independently inspected. |
 | Verifier | Runs persistently alongside Main by default; independently inspects every actual change, integrates, tests, and repairs continuously. |
 | Reviewer | Independently validates and repairs a stable candidate against requirements and code, then closes its scope. |
+| Adversary | Independently challenges one or more explicitly named target agents through opinions and messages; works in any collaboration structure, with or without a plan. |
+
+### Independent challenge, with or without a plan
+
+A coordinator explicitly assigns the Adversary one or more named targets. In Better
+Plan the coordinator is Main, and targets can include Main itself, Designer, Workers,
+Verifier, or Reviewer. For Workers, group assignments by **functional domain** such
+as storage or import/export, naming the actual agents in that domain. Do not partition
+Workers into arbitrary groups of a fixed size. The same role can be used in other
+collaboration structures without adopting Better Plan's delivery workflow.
+
+Once assigned, the Adversary investigates immediately. It examines what its targets
+are actually doing and trying to accomplish, the actual host environment and available
+capabilities, applicable project, organization, and local rules, and relevant external
+documentation and software best practices. It does not wait for a completed plan,
+implementation, report, or request to review. Plans and requirements can inform its
+judgment, but are neither prerequisites nor the sole authority on correctness.
+
+Independent common sense matters: a plan can be internally consistent yet infeasible
+in the real environment. A target can follow its instructions while doing wasteful or
+odd work, creating unnecessary coupling, or exposing private data. The Adversary
+questions these choices and explains concrete concerns to the responsible target.
+It messages that target directly when the host supports it; otherwise the coordinator
+relays its message unchanged. Useful uncertainty should be stated, not disguised as a
+confirmed defect.
+
+Its only outputs are opinions and messages. It never edits code, documents, or plan
+artifacts, performs repairs, or integrates work. Targets retain their responsibilities
+and judgment, and the coordinator handles decisions and coordination. There is no
+Adversary veto, mandatory evidence pack, runtime service, schema, or scheduler. An
+installed profile does not assign targets or start an agent.
 
 ### Continuous work and milestone closure
 
@@ -24,8 +55,9 @@ They have no QA, process, integration, or mandatory evidence-pack duty. Their re
 locate work, but are not proof of correctness. The Verifier inspects the actual changes,
 including repairs, and independently establishes whether the integrated result works.
 
-Use inexpensive Workers in parallel where useful, within available resources and host
-permissions. Real dependencies and shared writes determine what can run together.
+Group Workers by functional domain and use inexpensive Workers in parallel where
+useful, within available resources and host permissions. Domain boundaries, real
+dependencies, and shared writes determine what can run together, not a fixed headcount.
 Nothing here assumes unlimited or free compute or changes host-owned settings.
 
 When a milestone candidate is ready, a separate Reviewer receives its requirements
@@ -57,10 +89,11 @@ for an answer. Existing authorization and repository rules still apply.
 Independently deliverable existing bug fixes, necessary refactors, and new features
 have distinct milestone boundaries. Ordinary errors introduced while implementing a
 feature remain within that feature. See the [fictional project story](story.md) for
-an example of all three, continuous repair, milestone review, and final closure.
+an example of all three, early adversarial investigation, continuous repair, a
+challenge to the Reviewer, and final closure.
 
-The package includes four native specialist profiles: Designer, Worker, Verifier,
-and Reviewer. Verifier uses the host default without adding model or reasoning
+The package includes five native specialist profiles: Designer, Worker, Verifier,
+Reviewer, and Adversary. Verifier uses the host default without adding model or reasoning
 selectors. Existing host-owned configuration stays unchanged. Main starts the Verifier through
 the host during the default workflow; installing a profile does not launch an agent.
 The independent Reviewer may resume across milestones and final review while remaining
@@ -99,9 +132,9 @@ python3 scripts/install.py doctor --agents codex
 ```
 
 Updates refresh the skill and role prompts while preserving existing model, tool,
-permission, and sandbox configuration. A narrow migration adds only a missing
-Verifier profile to recognized older installations; same-name custom roles or uncertain
-ownership are reported without replacement. The installed package includes this guide,
+permission, and sandbox configuration. A narrow migration adds only missing
+Verifier and Adversary profiles to recognized older installations; same-name custom
+roles or uncertain ownership are reported without replacement. The installed package includes this guide,
 the offline presentation, and the license. See [host configuration](../references/host-configuration.md)
 for installation locations, receipts, and Doctor diagnostics.
 

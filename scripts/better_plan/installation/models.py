@@ -12,7 +12,7 @@ SKILL_NAME = "better-plan"
 # One version for the whole package: the CLI reports it and host manifests embed it.
 VERSION = __version__
 # Five supported hosts. Only Codex has packaged role presets: its original three
-# roles pin a model and reasoning effort; Verifier inherits host defaults.
+# roles pin a model and reasoning effort; Verifier and Adversary inherit host defaults.
 # Claude Code, Cursor, and Kilo install unpinned role files and inherit whatever
 # the host and the user configured locally.
 AGENTS = ("codex", "claude", "cursor", "kilo", "dsh")
@@ -52,6 +52,7 @@ CURRENT_SKILL_FILES = (
     "references/worker.md",
     "references/reviewer.md",
     "references/verifier.md",
+    "references/adversary.md",
     "scripts/__init__.py",
     "scripts/manifest_tool.py",
     "scripts/install.py",
@@ -92,19 +93,23 @@ CURRENT_SKILL_FILES = (
     "agents/codex/worker.toml",
     "agents/codex/reviewer.toml",
     "agents/codex/verifier.toml",
+    "agents/codex/adversary.toml",
     "agents/kilo/better-plan.md",
     "agents/kilo/better-plan-designer.md",
     "agents/kilo/better-plan-worker.md",
     "agents/kilo/better-plan-reviewer.md",
     "agents/kilo/better-plan-verifier.md",
+    "agents/kilo/better-plan-adversary.md",
     "agents/claude-code/designer.md",
     "agents/claude-code/worker.md",
     "agents/claude-code/reviewer.md",
     "agents/claude-code/verifier.md",
+    "agents/claude-code/adversary.md",
     "agents/cursor/designer.md",
     "agents/cursor/worker.md",
     "agents/cursor/reviewer.md",
     "agents/cursor/verifier.md",
+    "agents/cursor/adversary.md",
 )
 
 

@@ -37,6 +37,23 @@ and the shared requirements. Pause dependent work while an answer is needed. Cor
 observed deviations by identifying the unmet requirement and actual evidence; leave
 the technical remedy to the responsible specialist.
 
+## Assigning Adversaries
+
+When using Adversaries, explicitly name each target agent and describe the relevant
+functional domain or activity. One Adversary can cover one or multiple targets;
+group Workers by functional domain, not fixed headcounts. Main, Designer, Verifier,
+and Reviewer can also be targets. Give available context without making a plan or
+work reference a prerequisite. Have them investigate from the beginning of their
+assignment rather than wait for completed code.
+
+Use direct target messaging where the host supports it. Otherwise relay the
+Adversary's message unchanged to its named target. Keep target assignments current
+as agents finish or change activity. Adversaries only inspect and send feedback;
+they never edit artifacts, repair, integrate, or decide acceptance. Their challenges
+do not transfer the target's responsibilities or add a gate to the final handoff.
+Use available host capacity and report actual limitations; installing the profile
+does not automatically start an Adversary. See [its guide](adversary.md).
+
 ## Final-phase transition
 
 1. Confirm assigned Workers and milestone-review repair writers have finished.
@@ -68,6 +85,7 @@ role guide directly. Installation does not itself launch the persistent agent.
 - Designer: "Design the plan for these user requirements: <requirements/source>. Repository: <repo>. Plan: <plan>."
 - Worker: "Implement <node> in <plan>. Repository: <repo>. Return the code location and blockers."
 - Verifier: "Read the installed better-plan SKILL.md and references/verifier.md. Independently inspect, integrate, verify, and repair <plan> throughout execution. Repository: <repo>."
+- Adversary: "Independently challenge <target agent IDs> in <functional domain/activity>. Investigate actual work, environment, applicable rules, and relevant external best practices. Send only feedback directly to targets, or through the coordinator for unchanged relay. No plan is required."
 - Reviewer: "Independently review and complete these user requirements: <requirements/source>. Final code: <revision/repo>."
 
 `tree next` is a readiness view, not agent liveness or permission to launch another

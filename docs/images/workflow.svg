@@ -1,19 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 590" role="img" aria-labelledby="title desc">
-<title id="title">Continuous verification, independent closure</title>
-<desc id="desc">Main manages requirements, dispatch, and process alongside a persistent Verifier. Designer supplies architecture, Workers implement, and Verifier inspects, integrates, tests, and repairs every actual change. A separate Reviewer closes immutable milestones while other work continues. After all Workers and milestone-review repair writes finish and corrected revisions are incorporated, Verifier performs final regression, notifies Main, and is stopped before a separate final Reviewer closes all requirements from requirements and code.</desc>
-<rect width="1200" height="590" rx="16" fill="#f4f2ec"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" role="img" aria-labelledby="title desc">
+<title id="title">Continuous verification, independent closure and challenge</title>
+<desc id="desc">Main manages requirements, dispatch, and process alongside a persistent Verifier. Designer supplies architecture, functional-domain Workers implement, and Verifier inspects, integrates, tests, and repairs every actual change. A separate Reviewer closes immutable milestones while other work continues. Separately, a coordinator can assign an independent Adversary one or more named targets among Main, Designer, Workers grouped by functional domain, Verifier, and Reviewer. It immediately investigates actual work, goals, environment, rules, and external guidance without requiring a plan. It only sends opinions, directly to targets or relayed unchanged by the coordinator, and never edits or vetoes. After all Workers and milestone-review repair writes finish and corrected revisions are incorporated, Verifier performs final regression, notifies Main, and is stopped before a separate final Reviewer closes all requirements from requirements and code.</desc>
+<rect width="1200" height="830" rx="16" fill="#f4f2ec"/>
 <g font-family="Arial, Helvetica, sans-serif" fill="#222a26">
-<text x="40" y="48" font-size="14" font-weight="700" letter-spacing="2" fill="#335c43">CONTINUOUS VERIFICATION. INDEPENDENT CLOSURE.</text>
+<text x="40" y="48" font-size="14" font-weight="700" letter-spacing="2" fill="#335c43">CONTINUOUS VERIFICATION. INDEPENDENT JUDGMENT.</text>
 <rect x="40" y="70" width="1120" height="58" rx="6" fill="#e4eadf"/>
 <text x="62" y="106" font-size="21"><tspan font-weight="700">Main</tspan><tspan dx="24">Requirements · Dispatch · Process · Host handoffs</tspan></text>
 <g stroke="#ccd2c7" fill="none"><rect x="40" y="155" width="325" height="156" rx="6"/><rect x="415" y="155" width="325" height="156" rx="6"/><rect x="790" y="155" width="370" height="156" rx="6"/></g>
 <g font-size="30" font-weight="700" fill="#335c43"><text x="62" y="202">Designer</text><text x="437" y="202">Workers</text><text x="812" y="202">Persistent Verifier</text></g>
-<g font-size="18"><text x="62" y="244">Light architecture and</text><text x="62" y="274">deliverable milestones</text><text x="437" y="244">Parallel implementation</text><text x="437" y="274">Untrusted changes, no QA duty</text><text x="812" y="244">Inspect · Integrate · Test · Repair</text><text x="812" y="274">Default-on alongside Main</text></g>
+<g font-size="18"><text x="62" y="244">Light architecture and</text><text x="62" y="274">deliverable milestones</text><text x="437" y="244">Grouped by functional domain</text><text x="437" y="274">Parallel implementation</text><text x="812" y="244">Inspect · Integrate · Test · Repair</text><text x="812" y="274">Default-on alongside Main</text></g>
 <g stroke="#335c43" stroke-width="3" fill="none"><path d="M376 230h27m-8-8 8 8-8 8"/><path d="M752 230h27m-8-8 8 8-8 8"/></g>
 <rect x="40" y="336" width="1120" height="86" rx="6" fill="#e4eadf"/>
 <text x="62" y="370" font-size="22" font-weight="700">Separate milestone Reviewer</text><text x="62" y="399" font-size="18">Requirements + immutable code candidate → independent validation, repairs, and closure</text>
 <text x="40" y="453" font-size="17" fill="#636d65">Verifier continues other work outside the candidate. Review repairs return for integration.</text>
-<text x="40" y="498" font-size="15" font-weight="700" fill="#335c43">FINAL HANDOFF</text>
-<text x="40" y="527" font-size="18">All Workers done → Verifier final regression → notify Main → Main stops Verifier</text>
-<text x="40" y="556" font-size="18">→ Separate final Reviewer: independently validate, repair, and close every requirement</text>
+<rect x="40" y="480" width="1120" height="195" rx="6" fill="#ece5f1" stroke="#bda9cb"/>
+<text x="62" y="515" font-size="24" font-weight="700" fill="#684180">Independent Adversary</text>
+<text x="371" y="514" font-size="18" fill="#684180">Alongside any collaboration, with or without a plan</text>
+<text x="62" y="549" font-size="18">Coordinator assigns named targets: Main · Designer · Worker domains · Verifier · Reviewer</text>
+<text x="62" y="580" font-size="18">Investigate now: actual work and goals · host capabilities · applicable rules · external guidance</text>
+<text x="62" y="611" font-size="18">Question infeasibility, waste, coupling, privacy, and assumptions beyond a plan</text>
+<text x="62" y="644" font-size="17" fill="#684180">Opinions only → target directly, or coordinator relays unchanged. No artifact edits, repairs, integration, or veto.</text>
+<text x="40" y="715" font-size="15" font-weight="700" fill="#335c43">FINAL HANDOFF</text>
+<text x="40" y="748" font-size="18">All Workers done → Verifier final regression → notify Main → Main stops Verifier</text>
+<text x="40" y="781" font-size="18">→ Separate final Reviewer: independently validate, repair, and close every requirement</text>
 </g></svg>

@@ -1,4 +1,4 @@
 interface:
   display_name: "Better Plan"
   short_description: "Shared plans for autonomous, long-lived collaboration"
-  default_prompt: "Use $better-plan to keep the user's goal moving through parallel implementation, default persistent verification, and independent milestone and final review."
+  default_prompt: "Use $better-plan to keep the user's goal moving through parallel implementation, default persistent verification, and independent milestone and final review. Assign feedback-only Adversaries to explicit targets when using independent challenge; this role can also work without a plan."

@@ -67,3 +67,11 @@ Report how all user requirements are satisfied, what you corrected, your verific
 and unresolved questions. Keep PRs Draft by default; release, installation, merge,
 and live acceptance require their existing project authorization. No new human
 approval flow is implied by this role separation.
+
+## Adversary feedback
+
+An assigned Adversary may challenge your assumptions, approach, environment
+feasibility, or conclusions, including concerns outside the plan. Consider its
+feedback on its merits and respond through available host messages. You retain
+your role's decisions and responsibilities; feedback is not a veto or acceptance
+gate, and the Adversary does not edit artifacts or perform repairs.
