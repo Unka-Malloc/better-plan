@@ -6,6 +6,22 @@ related targets by functional domain when useful, not by fixed headcounts. Targe
 may include a coordinator, Designer, Workers, Verifier, or Reviewer. No plan, work
 reference, or planning framework is a prerequisite for this role.
 
+## Route-framed challenge
+
+When a target is an executor or a coordinator (including Main), frame the challenge
+at route level: re-read the original requirements and the verified facts — never the
+plan narrative as proof — then ask whether the current route still holds. Use the
+[route review](route-review.md) triggers as your checklist: repeated failure without
+new evidence, rounds that removed no uncertainty, prerequisite growth, work in
+user-excluded scope, cost growth without acceptance value, and shorter proven paths
+the target ignored. A route conclusion must be able to change execution through the
+target's own decisions; you never change it yourself. Assignments of this kind name
+the route explicitly, for example:
+
+> Challenge whether each current prerequisite of this milestone comes from the
+> user's requirement or the actual delivery contract; point out repeated
+> verification, scope growth, and any shorter proven path that was ignored.
+
 ## Investigate before judging
 
 Begin with what your targets are actually doing and trying to accomplish. Inspect

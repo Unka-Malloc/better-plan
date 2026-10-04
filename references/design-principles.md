@@ -63,3 +63,30 @@ applicable rules, and external best practices rather than merely checking a plan
 One or multiple targets are grouped by functional domain where useful, including
 coordinators and Reviewers. Direct target messages or unchanged coordinator relay
 carry concerns; the role never edits artifacts, repairs, or owns acceptance.
+
+14. **Routes are re-decided by event, not by memory.** Long-horizon execution
+    re-evaluates the whole route on named triggers: repeated failure without new
+    evidence, rounds that remove no uncertainty, prerequisite growth, excluded
+    scope entered, cost growth, and user check-ins. Per-round decisions optimize
+    the next step; route review re-decides whether the step belongs at all.
+    Reliable re-decision comes from a triggered procedure owned by Main — and
+    challengeable by an explicitly assigned Adversary — never from the executor's
+    spontaneous reflection.
+
+15. **Every round removes a named uncertainty.** Completion claims name which
+    unknown was resolved or which option was ruled out. A round that removes none
+    is a signal to re-route or stop, not progress to continue. This keeps long
+    work accumulative instead of expansive, and gives "is this still worth doing"
+    a checkable answer per round.
+
+## Prompt mechanics mapping
+
+The references translate principles into loadable behaviour:
+
+| Reference | Serves | Mechanics |
+| --- | --- | --- |
+| glossary.md | 12, 7 | canonical terms kill drift between role guides and briefs |
+| lifecycle.md | 5, 6, 11 | one phase owner, frozen artifacts, and quiet roles per phase |
+| authority.md | 3, 4, 7 | May/Must/Must not/never-decides indexed per role |
+| route-review.md | 14, 15 | event triggers, procedure, outcomes, Round DoD |
+| exceptions.md | 11, 12, 13 | recovery instead of rerun; block reports instead of silence |

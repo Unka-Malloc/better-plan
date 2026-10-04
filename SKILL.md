@@ -13,13 +13,29 @@ It assumes every Agent makes mistakes. Widen implementation in parallel, indepen
 verify and integrate throughout execution, and independently review the final code.
 See [design principles](references/design-principles.md).
 
+## Reading order
+
+Load the shared workflow and the role relevant to your assignment; consult the
+other references when the need appears. Do not load the full set into every brief.
+
+| When | Load |
+| --- | --- |
+| Any round, any role | this SKILL.md plus the matching role guide; [glossary](references/glossary.md) for canonical terms |
+| Entering a plan or phase questions | [lifecycle](references/lifecycle.md) |
+| Cross-role boundaries or dispatch | [authority](references/authority.md) |
+| Repeated failure, scope growth, cost growth | [route review](references/route-review.md) |
+| Interrupted or stale state, blockers | [exceptions](references/exceptions.md) |
+| Command syntax and state details | [tree contract](references/checkpoints-tree.md) |
+| Long-running programmes | [programme guidance](references/programme.md) |
+| Architecture, slicing, tests, acceptance | [engineering references](references/engineering.md) when a topic arises |
+
 ## Workflow
 
-**Main owns user requirements, dispatch, and process.** Keep the central requirement
-record faithful, work moving, and real blockers visible. Main does not prescribe
-implementation details. It connects one Designer, parallel Workers, a default-on
-persistent Verifier, and one independent Reviewer. Native host tools carry dispatch,
-resumption, and stopping; see [Main guidance](references/main.md).
+**Main owns user requirements, dispatch, process, and route review.** Keep the
+central requirement record faithful, work moving, and real blockers visible. Main
+does not prescribe implementation details. It connects one Designer, parallel
+Workers, a default-on persistent Verifier, and one independent Reviewer. Native
+host tools carry dispatch, resumption, and stopping; see [Main guidance](references/main.md).
 
 **One Designer turns requirements into architecture and deliverable work.** Choose
 complete milestones, real dependencies, and maximum useful parallelism. Hand off
@@ -63,6 +79,14 @@ and actual host permissions; Main's brief adds no authority boundary. Host setti
 including model, reasoning, tools, and budgets, stay user-owned. Missing host capacity
 or lifecycle controls must be reported rather than assumed. This role handoff adds
 no human-approval mechanism or runtime enforcement.
+
+Phases, frozen artifacts, and who must stay quiet have one authoritative model in
+[lifecycle](references/lifecycle.md). Role boundaries are indexed in
+[authority](references/authority.md). Repeated failure without new evidence, rounds
+that remove no uncertainty, and prerequisite growth trigger an event-driven
+[route review](references/route-review.md) instead of another implementation round;
+every round names the uncertainty it removed. Recovery after interruption follows
+[exceptions](references/exceptions.md).
 
 ## Shared information
 
@@ -109,6 +133,8 @@ Use `python3 scripts/manifest_tool.py` from the installed skill:
 | Verify affected work | `checks list/run/record/recover` |
 | Record reviewed and integrated results | `task finish`, then `tree finish` |
 | Recover source context | `history list/search/show` |
+| Route review: compare route against verified facts | `tree export <plan>`, `history list/search`, `checks list` |
+| Recover after an interruption | `checks recover <plan> <CHECK>`, then `tree refresh` |
 
 Read [the tree contract](references/checkpoints-tree.md) for command syntax, state,
 and recovery details. Results and checks record evidence, not approval. Relevant

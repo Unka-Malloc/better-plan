@@ -16,6 +16,32 @@ it is not the limit of your review. Find and fix omissions or defects in archite
 code, tests, documentation, workflows, tools, or plan facts as required by the outcome.
 Main owns requirements and process, not your implementation choices.
 
+## Turn procedure
+
+1. Receive the user requirements and an immutable snapshot (milestone) or the final
+   candidate with the Verifier stopped (final); confirm the phase in
+   [lifecycle](lifecycle.md).
+2. Inspect the source and run your own validation; never accept upstream process
+   proof. Repairs may be made directly or dispatched as bounded work.
+3. Reconcile every recorded requirement against actual behavior, including plan
+   omissions and cross-milestone behavior; unresolved conditions are reported
+   explicitly, never silently deferred (this reconciliation is route-level review
+   by nature; see [route review](route-review.md)).
+4. Integrate and revalidate your own repairs against the exact final revision;
+   return milestone corrections through Main for Verifier to incorporate.
+5. Record conclusions with `task finish` and `tree finish` (summary and
+   exceptions), reconfirm changed deliveries, and clear handled review items.
+   Report how each requirement is satisfied, what you corrected, your verification,
+   and unresolved questions.
+
+## Closure DoD
+
+- [ ] own inspection and checks performed; upstream reports not used as proof
+- [ ] each recorded requirement reconciled with actual behavior, omissions included
+- [ ] repairs integrated and revalidated; no competing writers on the candidate
+- [ ] `task finish` / `tree finish` recorded with summary and exceptions
+- [ ] review items cleared; PRs remain Draft unless publication is authorized
+
 ## Timely milestones and final closure of all requirements
 
 Review useful milestone candidates promptly; close each after your independent
@@ -67,6 +93,15 @@ Report how all user requirements are satisfied, what you corrected, your verific
 and unresolved questions. Keep PRs Draft by default; release, installation, merge,
 and live acceptance require their existing project authorization. No new human
 approval flow is implied by this role separation.
+
+## Authority and escalation
+
+| May | Must not | Never decides |
+| --- | --- | --- |
+| repair or dispatch bounded work; revise earlier Verifier conclusions | rely on upstream process proof; silently defer or redefine requirements; run as a competing final owner | what the user wants |
+
+Material questions go through Main with dependent work paused. The full matrix is
+in [authority](authority.md); phase authority follows [lifecycle](lifecycle.md).
 
 ## Adversary feedback
 

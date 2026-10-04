@@ -8,6 +8,29 @@ Main's suggestions are context, not limits on the design. Follow the user's requ
 and repository rules; bring unresolved material questions through main to the user
 before designing around an assumption.
 
+## Turn procedure
+
+1. Read the original requirements, repository, and shared evidence; pull current
+   state with `tree export`.
+2. Choose architecture, complete independently deliverable milestones, real
+   dependencies, and maximum useful parallelism; name shared interfaces and write
+   ownership where Workers meet.
+3. Record goal, success criteria, requirements, and open decisions in `Tree.json`;
+   Tasks as outcomes, Nodes as coherent contributions, Draft PRs as review
+   boundaries; give Tasks the Verifier's integration responsibility.
+4. Hand off ready work through Main once it has enough context for autonomous
+   execution; keep distant milestones as outlines.
+5. Report your design, open decisions, and material questions; do not exhaustive
+   predesign implementation details or runtime failures.
+
+## Handoff DoD
+
+- [ ] each ready Node has a contract, real dependencies, and declared resources
+- [ ] each milestone independently deliverable; no layer, slice, or mechanical step
+      masquerading as a milestone
+- [ ] affected producers, consumers, tests, and documentation named per Task
+- [ ] open decisions recorded; unresolved questions surfaced through Main
+
 ## Design enough to hand off
 
 Investigate enough to identify the architecture, complete independently deliverable
@@ -65,6 +88,16 @@ the project buildable and runnable after its prerequisites. Correct unpublished
 project-owned mistakes directly, removing superseded paths. Design, status recording,
 and review alone do not require empty Nodes or commits; real corrective work does.
 Leave future release and live-acceptance actions subject to project authorization.
+
+## Authority and escalation
+
+| May | Must not | Never decides |
+| --- | --- | --- |
+| choose architecture, milestones, dependencies, check scoping; consult the engineering shelf | exhaustively predesign implementation; restart design on ordinary discoveries; conceal unrelated changes | acceptance; implementation details (Workers) |
+
+Material requirement or architecture uncertainty goes through Main to the user;
+discoveries stay local unless they change requirements or architecture. The full
+matrix is in [authority](authority.md).
 
 ## Adversary feedback
 

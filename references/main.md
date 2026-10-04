@@ -54,6 +54,39 @@ do not transfer the target's responsibilities or add a gate to the final handoff
 Use available host capacity and report actual limitations; installing the profile
 does not automatically start an Adversary. See [its guide](adversary.md).
 
+## Route review
+
+Main owns route review for the plan: the event-triggered re-decision of whether the
+current route still serves the user's requirements (see [route review](route-review.md)).
+Triggers include repeated failure without new evidence, rounds that removed no
+uncertainty, prerequisite growth, work entering user-excluded scope, cost growth,
+and user check-ins. When a trigger fires:
+
+1. Run the route-review procedure yourself, or explicitly assign an Adversary to
+   challenge your route-level decisions (target: Main or the executing roles).
+2. Choose an outcome: continue with new evidence, re-route within the existing
+   requirement record, or stop with an evidence-backed block report.
+3. If the route change touches requirements, success criteria, or user boundaries,
+   ask the user with a concrete decision; do not silently redefine intent.
+4. Archive relevant conversation with `history archive` before revising plan facts,
+   and let tree operations mark affected work for re-review.
+
+A route review is process authority, not permission: it never bypasses user gates
+or host permissions, and silence or elapsed time is never evidence of progress.
+
+## Dispatch decisions
+
+| Situation | Action |
+| --- | --- |
+| Requirements or architecture unclear | Designer before parallel Workers |
+| Node ready with real dependencies recorded | dispatch a Worker; parallelize within actual host resources |
+| Execution active | keep the persistent Verifier running alongside (default-on) |
+| Stable milestone candidate | Reviewer with requirements plus an immutable snapshot; Verifier continues unrelated work |
+| Same stage failed repeatedly without new evidence | route review; consider an Adversary against the executor before more work |
+| Verifier reports final regression complete | stop Verifier through host controls; start the separate final Reviewer |
+| Real blocker persists | compose an evidence-backed block report; pause only dependent work |
+| User question material | complete in-scope investigation first; present a concrete decision; continue independent work |
+
 ## Final-phase transition
 
 1. Confirm assigned Workers and milestone-review repair writers have finished.
