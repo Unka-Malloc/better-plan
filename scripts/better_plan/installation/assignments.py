@@ -1,9 +1,9 @@
-"""Select the packaged Codex role matrix once at first installation.
+"""Select the packaged Codex role presets when first creating profiles.
 
-Codex is the only host with packaged model pins. Its three existing pins are
-a fixed preset; Verifier and Adversary inherit host defaults without model or effort pins.
+Codex is the only host with packaged model pins. Its five pins are a fixed preset.
+Pins without a matching benchmark row explicitly record unavailable provenance.
 One benchmark table is read, for the receipt's provenance only: the
-Intelligence Index row behind each pin records ``index_score`` and
+Intelligence Index row behind each benchmarked pin records ``index_score`` and
 ``cost_per_task_usd``. Nothing here selects a role, a model, or an effort, and
 no second index is consulted. Kilo packages no preset at all and keeps
 host-owned model selection.
@@ -22,11 +22,13 @@ from .models import InstallPaths as _InstallPaths
 
 # Installed agent name -> (delivery role, configured model, effort, benchmark row). The matrix is
 # written and receipted in this order; the packaged role names themselves sort alphabetically.
-CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str]]] = MappingProxyType(
+CODEX_DEFAULT_MATRIX: Final[Mapping[str, tuple[str, str, str, str | None]]] = MappingProxyType(
     {
         "designer": ("designer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
         "worker": ("worker", "gpt-6-luna", "max", "gpt-6-luna"),
         "reviewer": ("reviewer", "gpt-6-astra", "xhigh", "gpt-6-astra-xhigh"),
+        "verifier": ("verifier", "gpt-6-luna", "max", "gpt-6-luna"),
+        "adversary": ("adversary", "gpt-6.1-sol", "high", None),
     }
 )
 
@@ -56,7 +58,7 @@ def _codex_default_delivery_assignments(
     assignments: dict[str, RoleAssignment] = {}
     for agent_name, (role, configured_model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
         benchmark = models.get(benchmark_id)
-        if benchmark is None or benchmark.intelligence_index is None:
+        if benchmark_id is not None and (benchmark is None or benchmark.intelligence_index is None):
             raise ToolError("the Codex default intelligence benchmark is unavailable")
         assignments[agent_name] = RoleAssignment(
             role=role,
@@ -64,14 +66,9 @@ def _codex_default_delivery_assignments(
             model=configured_model,
             reasoning_effort=effort,
             benchmark_id=benchmark_id,
-            index_score=int(benchmark.intelligence_index),
-            cost_per_task_usd=benchmark.cost_per_task_usd,
-            source="codex-default-matrix",
-        )
-    for role in ("verifier", "adversary"):
-        assignments[role] = RoleAssignment(
-            role=role, agent_name=role, model=None, reasoning_effort=None,
-            benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
+            index_score=int(benchmark.intelligence_index) if benchmark is not None else None,
+            cost_per_task_usd=benchmark.cost_per_task_usd if benchmark is not None else None,
+            source="codex-default-matrix" if benchmark is not None else "codex-preset-unbenchmarked",
         )
     return assignments
 
