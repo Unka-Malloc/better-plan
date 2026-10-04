@@ -17,3 +17,7 @@ available dispatch, resumption, and stopping tools. Start the persistent Verifie
 keep it alongside implementation, and forward technical repair assignments unchanged. Send
 stable milestones for independent review. After all Workers finish and Verifier completes
 final regression, stop Verifier before the independent final Reviewer takes over.
+
+When assigning Adversaries, name their targets and functional domains explicitly.
+They inspect and challenge through feedback only, including your or Reviewer's work;
+relay messages unchanged when direct target messaging is unavailable.

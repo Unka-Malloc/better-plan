@@ -5,8 +5,8 @@ configuration changes, installation/update/Doctor work, or host integration. Ord
 delivery turns do not load it.
 
 Better Plan supports five targets: Codex, Claude Code, Cursor, Kilo Code, and DeepSeek Harness.
-Codex has packaged model presets for Designer, Worker, and Reviewer. The new Verifier
-profile has no model or reasoning selector and inherits host configuration. Other
+Codex has packaged model presets for Designer, Worker, and Reviewer. The Verifier and Adversary
+profiles have no model or reasoning selectors and inherit host configuration. Other
 targets likewise inherit model and reasoning settings; DeepSeek Harness uses prompts
 instead of native role files.
 
@@ -17,7 +17,7 @@ host's session state.
 
 ## Optional packaged roles
 
-Fresh installations offer four native role profiles. The workflow starts one
+Fresh installations offer five native role profiles. The workflow starts one
 persistent Verifier by default alongside Main and parallel Workers; Designer shapes
 the work and Reviewer independently closes stable milestones and the final result.
 A native profile loads instructions; it does not automatically launch a process:
@@ -27,7 +27,14 @@ A native profile loads instructions; it does not automatically launch a process:
 | `designer` | authors current Tasks, Nodes, dependencies, requirements, and scoped checks | `gpt-6-astra / xhigh` |
 | `worker` | implements assigned code; no quality/process/integration ownership or required evidence pack | `gpt-6-luna / max` |
 | `verifier` | persistently inspects actual code, integrates, checks, and repairs throughout execution | host-inherited; no model or effort pin |
+| `adversary` | independently challenges explicitly assigned targets through feedback only; reusable without a plan | host-inherited; no model or effort pin |
 | `reviewer` | independently validates and repairs stable milestone and final code against user requirements, then records conclusions | `gpt-6-astra / xhigh` |
+
+Adversaries are explicitly assigned one or multiple target agents, grouped by
+functional domain when useful. They investigate actual activity, host capabilities,
+applicable rules, and external best practices; targets may include Main or Reviewer.
+They send feedback directly where host messaging supports it, otherwise Main relays
+unchanged. No profile creates a scheduler, automatic startup, or new acceptance gate.
 
 A worker slot (`worker`, `worker-1`, …) is a name, not a person and not a strength tier. The packaged
 worker profile handles an assigned Node or bounded repair. Tasks describe outcomes, Nodes describe
@@ -43,11 +50,11 @@ regresses and notifies Main, and Main stops Verifier before final review. No ups
 proof pack is required. See `references/main.md` for the native handoff.
 
 Existing installations preserve their user-owned role files and assignment settings.
-A narrow upgrade exception adds the missing packaged Verifier profile and its necessary
-receipt entry where ownership is known and no same-name role or destination conflicts.
+A narrow upgrade exception adds the missing packaged Verifier and Adversary profiles and their necessary
+receipt entries where ownership is known and no same-name role or destination conflicts.
 It never changes existing model, tool, or permission settings, replaces a custom
-Verifier, or adopts unrelated files. A collision or uncertain ownership is reported
-without overwriting the conflicting configuration. The workflow can use the Verifier
+role, or adopts unrelated files. A collision or uncertain ownership is reported
+without overwriting the conflicting configuration. The workflow can use the appropriate role
 guide with an authorized host agent while the user resolves that host setup.
 Host concurrency and lifecycle limitations remain real; report them rather than claim
 that installing a profile started a running agent.
@@ -68,10 +75,10 @@ local roles.
 
 | Target | Roles installed as | Selector |
 |---|---|---|
-| Codex | `$CODEX_HOME/agents/{designer,worker,verifier,reviewer}.toml` | three packaged pins; Verifier host-inherited; existing selectors preserved |
-| Claude Code | `~/.claude/agents/{designer,worker,verifier,reviewer}.md` | host-inherited |
-| Cursor | `~/.cursor/agents/{designer,worker,verifier,reviewer}.md` | host-inherited |
-| Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,verifier,reviewer}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
+| Codex | `$CODEX_HOME/agents/{designer,worker,verifier,reviewer,adversary}.toml` | three packaged pins; Verifier/Adversary host-inherited; existing selectors preserved |
+| Claude Code | `~/.claude/agents/{designer,worker,verifier,reviewer,adversary}.md` | host-inherited |
+| Cursor | `~/.cursor/agents/{designer,worker,verifier,reviewer,adversary}.md` | host-inherited |
+| Kilo Code | `better-plan.md` primary plus `better-plan-{designer,worker,verifier,reviewer,adversary}.md` Subagents under the Kilo agents directory (`KILO_CONFIG_HOME`, default `~/.config/kilo/agents`) | none |
 | DeepSeek Harness | no role file at all; roles are prompts | none |
 
 Claude Code and Cursor inherit model and effort from host configuration; no identity
@@ -97,13 +104,13 @@ subagents from a prompt, so there is no role file, no pin, and no receipt to man
 Codex and Kilo keep a managed receipt next to — never inside — their role directory
 (`$CODEX_HOME/agents.better-plan.json`, `<kilo-config>/agents.better-plan.json`). Codex's receipt
 records each file digest plus the assignment it was rendered from; Kilo's records file digests only.
-Claude Code and Cursor now keep a Verifier-only ownership receipt at
+Claude Code and Cursor keep an additive-role ownership receipt at
 `<host-home>/agents.better-plan.json`: schema version 1, the target host, and a `files`
-map containing only `verifier.md` and its SHA256 digest. Older three-role installations
-had no such receipt. This narrow record distinguishes the new managed profile from
+map containing the owned `verifier.md` and/or `adversary.md` SHA256 digests. Older three-role installations
+had no such receipt; four-role installations recorded only Verifier. This narrow record distinguishes the new managed profiles from
 a same-name custom role without adopting the other files; role templates are still
 compared independently. Missing or invalid ownership records never authorize replacing
-an existing Verifier.
+an existing additive role.
 
 A receipt is an integrity record, never an authority. A prompt refresh rewrites the digests of the
 files it maintained and keeps the recorded assignment provenance; a mismatch outside that refresh is
@@ -113,7 +120,7 @@ that disagrees with local files never causes a role file to be replaced.
 ## Codex presets
 
 Codex writes its three pinned selectors once at first installation and never rewrites
-them afterwards. The fourth Verifier profile has no selector; it inherits host defaults.
+them afterwards. Verifier and Adversary have no selectors; they inherit host defaults.
 Role prompt content is refreshed by install and update.
 Every pin is evaluated on one standard basis: the Intelligence Index row for the model and effort it
 selects. The packaged catalog records those rows at 52 for `designer` and `reviewer` and 37 for
@@ -140,7 +147,7 @@ repair, and Doctor leave them byte-identical. Description and instruction text a
 install and update refresh them from the current packaged template, preserve every host-owned field,
 and refresh the receipt digests to match. A role file without a recognizable prompt structure is
 left untouched. After first installation, Better Plan never removes role files; the
-only addition allowed is the narrow missing-Verifier upgrade described above.
+only additions allowed are the narrow missing-Verifier/Adversary upgrades described above.
 
 Neither a receipt mismatch nor an explicit replacement request authorizes changing host-owned fields
 or rewriting prompts outside install and update. Doctor reports the integrity finding as a warning
@@ -189,8 +196,8 @@ Doctor is read-only and reports each selected target separately:
 | Target | Checks |
 |---|---|
 | Codex | local role names, receipt integrity, role template comparison, installed skill structure, source comparison |
-| Claude Code | local role files, Verifier receipt, plugin manifest, `claude plugin validate` when the CLI is present |
-| Cursor | local role files, Verifier receipt, installed skill structure, the Cursor CLI version when it is present |
+| Claude Code | local role files, additive-role receipt, plugin manifest, `claude plugin validate` when the CLI is present |
+| Cursor | local role files, additive-role receipt, installed skill structure, the Cursor CLI version when it is present |
 | Kilo | Agent matrix against the packaged sources, installed skill structure, `kilo agent list` when the CLI is present |
 | DeepSeek Harness | installed skill structure |
 
@@ -207,3 +214,26 @@ templates. A user-edited role can match current instructions while differing fro
 original receipt. Neither result causes replacement; only an install or update prompt
 refresh rewrites receipt digests. Codex template comparison uses native role names and
 instruction fields, not model selectors.
+
+## Adversary inspection controls
+
+New Adversary profiles use the host's supported inspection controls: Codex uses
+`sandbox_mode = "read-only"`; Claude Code allows only
+Read, Glob, Grep, WebFetch, WebSearch, and SendMessage; Cursor sets `readonly: true`; Kilo uses a deny fallback with read, glob, grep, and webfetch allowed, and explicitly
+denies edit, write, shell, and subagent dispatch. Claude's SendMessage entry is usable only when the actual host session exposes
+that capability; otherwise feedback returns to the coordinator for relay.
+Where host facilities permit direct messages, the guide uses them; otherwise the
+coordinator relays unchanged. Missing inspection capabilities are reported, not
+worked around by granting writes. DeepSeek Harness uses the same feedback-only guide
+without inventing a native permission profile.
+
+These are initial profile settings, not new Better Plan runtime enforcement. Host
+configuration remains user-owned: updates preserve existing tools, permissions,
+and sandbox fields even when they differ from the new template. The feedback-only
+role instruction still applies; report a concrete capability conflict rather than
+rewriting configuration. No live host behavior is established by template tests alone.
+
+Host references: [Codex subagents](https://developers.openai.com/codex/subagents),
+[Claude Code subagents](https://code.claude.com/docs/en/sub-agents),
+[Cursor subagents](https://cursor.com/docs/subagents), and
+[Kilo agent permissions](https://kilo.ai/docs/customize/agent-permissions).

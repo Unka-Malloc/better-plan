@@ -1,7 +1,7 @@
 """Select the packaged Codex role matrix once at first installation.
 
 Codex is the only host with packaged model pins. Its three existing pins are
-a fixed preset; Verifier inherits host defaults without a model or effort pin.
+a fixed preset; Verifier and Adversary inherit host defaults without model or effort pins.
 One benchmark table is read, for the receipt's provenance only: the
 Intelligence Index row behind each pin records ``index_score`` and
 ``cost_per_task_usd``. Nothing here selects a role, a model, or an effort, and
@@ -68,10 +68,11 @@ def _codex_default_delivery_assignments(
             cost_per_task_usd=benchmark.cost_per_task_usd,
             source="codex-default-matrix",
         )
-    assignments["verifier"] = RoleAssignment(
-        role="verifier", agent_name="verifier", model=None, reasoning_effort=None,
-        benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
-    )
+    for role in ("verifier", "adversary"):
+        assignments[role] = RoleAssignment(
+            role=role, agent_name=role, model=None, reasoning_effort=None,
+            benchmark_id=None, index_score=None, cost_per_task_usd=None, source="host-default",
+        )
     return assignments
 
 

@@ -65,3 +65,11 @@ the project buildable and runnable after its prerequisites. Correct unpublished
 project-owned mistakes directly, removing superseded paths. Design, status recording,
 and review alone do not require empty Nodes or commits; real corrective work does.
 Leave future release and live-acceptance actions subject to project authorization.
+
+## Adversary feedback
+
+An assigned Adversary may challenge your assumptions, approach, environment
+feasibility, or conclusions, including concerns outside the plan. Consider its
+feedback on its merits and respond through available host messages. You retain
+your role's decisions and responsibilities; feedback is not a veto or acceptance
+gate, and the Adversary does not edit artifacts or perform repairs.

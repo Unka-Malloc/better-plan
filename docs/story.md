@@ -8,15 +8,40 @@ requirements, people, and events below are invented.
 
 ## The request
 
-A small reading-list application already stores books locally. Its user asks for
+A small browser-based reading-list application already stores books locally. Its user asks for
 three outcomes: fix an existing bug that drops a book's notes when its title changes,
 make storage easier to extend without changing current behavior, and add portable
 JSON export and import. An exported list must import without losing notes or tags.
 Existing saved lists must continue to open.
 
 Main records these requirements and keeps the original wording accessible. It starts
-a persistent Verifier alongside itself. Designer examines the application and proposes
-three independently deliverable milestones:
+a persistent Verifier alongside itself. For this project, Main also explicitly assigns
+an Adversary to the named agents `main` and `architecture`, serving as Main and
+Designer. The assignment is to question their
+actual choices, not merely to check a plan. Designer begins examining the application.
+
+## Questions begin before the plan is ready
+
+The Adversary starts immediately. It reads what Main and Designer are actually doing,
+examines the browser application and the development host's available tools and sandbox,
+checks project and organization guidance plus local repository rules, and consults
+relevant browser API documentation and software guidance on importing untrusted data.
+No completed plan is available or needed.
+
+Designer is considering a native filesystem service to simplify import. The Adversary
+notices that the application runs entirely in a browser and that the proposed service
+would add a runtime and deployment burden the project does not have. It messages
+Designer directly: “What requires a native service here? The existing browser file
+picker can read a user-selected file. A new service adds a deployment dependency before
+we have established a need for it.” It also asks Main why service deployment work is
+already being queued. Following a draft plan would not settle either concern.
+
+Designer checks the observation and chooses the existing browser boundary. Main removes
+the unnecessary queued work. The Adversary has offered opinions, not edited their design
+or plan. A host without direct agent messaging would have Main relay those same messages
+unchanged. This role could challenge the same choices in a team with no formal plan.
+
+Designer now proposes three independently deliverable milestones:
 
 1. **Existing bug fix:** preserve notes when a title changes. This improves the current
    application on its own and can ship without import or export.
@@ -32,19 +57,27 @@ not enumerate every implementation branch or guess every future bug.
 
 ## Work arrives; verification keeps going
 
-Main dispatches the existing bug fix and independent refactor preparation to separate
-Workers, with clear write ownership. The feature Worker can study the agreed format
-while the refactor completes, but does not integrate code against an unfinished boundary.
-The number of inexpensive Workers stays within actual host resources.
+Main groups Workers by functional domain: storage ownership covers the title-update
+fix and storage boundary, while transfer ownership covers import/export behavior. It
+dispatches independent contributions with clear write ownership. Transfer Workers can
+study the agreed format while the refactor completes, but do not integrate code against
+an unfinished boundary. Domain needs and actual host resources determine how many
+Workers are useful. Neither work nor adversarial coverage uses fixed-size groups.
 
-A Worker submits a title-update change and a short location-and-result handoff. It is
+Main explicitly updates the Adversary's assignment: `storage-owner` belongs to the
+storage domain, `transfer-owner` to the transfer domain, and `verification` is the
+Verifier. It can question a proposed
+cross-domain shortcut or a Verifier's unproductive retry loop while those agents retain
+implementation, testing, and integration ownership.
+
+A storage Worker submits a title-update change and a short location-and-result handoff. It is
 not asked to certify quality, run the delivery process, integrate other work, or build
 a proof package. The Verifier reads the actual diff and discovers that blank titles
 still overwrite notes through a second update path. It fixes that path, tests both
 cases independently, integrates the correction, and checks the resulting application.
 A convincing Worker report would not have replaced that inspection.
 
-The refactor Worker finishes next. Verifier inspects its actual changes, notices a
+The storage refactor finishes next. Verifier inspects its actual changes, notices a
 saved-data compatibility regression, repairs it, and checks old saved lists. Neither
 ordinary repair restarts the entire architecture exercise.
 
@@ -65,7 +98,7 @@ verification, not a mandatory new agent session for every candidate.
 
 ## A feature error stays inside the feature
 
-The feature Worker implements export and import. Verifier discovers that import drops
+A transfer Worker implements export and import. Verifier discovers that import drops
 empty tags and incorrectly decodes a note containing a line break. It repairs those
 problems directly or sends a bounded implementation repair through Main, then independently
 inspects the returned changes and tests them. These are errors in the new feature,
@@ -77,6 +110,21 @@ and code. It can find and repair more defects, then retest; review is not merely
 pass/fail vote. Any corrected revision returns to the persistent Verifier, which
 inspects and incorporates the correction into the ongoing whole-plan candidate.
 Persistent verification of other work can continue in parallel.
+
+## The Reviewer can be challenged too
+
+Main explicitly adds `milestone-review`, the Reviewer, to the Adversary's targets. The Adversary reads
+the Reviewer's actual inspection and sees it preparing to close the feature after
+successful round trips. It asks: “What happens to an existing list when an import file
+is valid JSON but has the wrong structure? Could a failed import erase the user's data
+before validation finishes?” Neither the plan nor the original request spells out that
+failure case, but the risk to existing data is reason enough to question the conclusion.
+
+The Reviewer independently investigates. It reproduces an early-clear path, repairs the
+candidate so rejected input leaves the list untouched, and verifies the fix and affected
+behavior. The persistent Verifier then inspects and integrates that corrected revision.
+The Adversary did not change the code, add a plan entry, demand an evidence package, or
+veto closure. Its message prompted the responsible agents to exercise their own judgment.
 
 ## The last handoff is deliberately different
 
