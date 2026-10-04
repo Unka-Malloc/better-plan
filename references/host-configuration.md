@@ -99,6 +99,70 @@ or Reviewer independently inspects the returned code according to the current ph
 DeepSeek Harness installs only the shared skill: it reads the shared scan directory and spawns
 subagents from a prompt, so there is no role file, no pin, and no receipt to manage.
 
+### DeepSeek Harness role delegation is operator configuration
+
+The harness still lets an operator give each role its own delegation tool and LLM route. That
+configuration lives in the operator's harness profile; Better Plan neither installs, reads, nor
+updates it, and nothing described here recommends a model.
+
+Two harness facilities decide where delegated work runs.
+
+A **pinned delegation tool** is one `@deepseek-ai/dsh-tool-subagent` row whose `agentOptions`
+(`provider`, `model`, `reasoningEffort`, `maxTokens`) applies to every child it starts. The pin is
+unconditional, and no child of that tool inherits another route.
+
+A **route allowlist** is the Host setting published by
+`@deepseek-ai/dsh-tool-subagent/model-selection-settings`: `{ enabled, allowedModels: [{ provider,
+model }] }`. While it is enabled, a newly composed top-level Session also receives model-facing
+`provider`, `model`, and `reasoning_effort` fields on its delegation tools and a
+`list_subagent_models` discovery tool. An explicit route outside the list is refused before any
+request leaves the host, with
+`child LLM route "<provider>/<model>" is not allowed for this Session`.
+
+The allowlist authorizes explicit choice; it does not filter inheritance. A delegation that names no
+route keeps the parent Agent's route even when `allowedModels` omits it, so a pin is the only way to
+guarantee a child's route. Configure both when a role must hold one route and may choose only within
+a short list.
+
+```yaml
+# Inside the delegation group of the preset that composes the operator's sessions.
+- id: tool-subagent-worker
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent_worker
+    backgroundMode: continuable
+    agentOptions:
+      provider: <provider>
+      model: <model>
+      reasoningEffort: <effort>
+
+# Host opt-in sampled when a new top-level Session receives its delegation tools.
+- id: subagent-model-selection-settings
+  config:
+    enabled: true
+    allowedModels:
+      - provider: <provider>
+        model: <model>
+```
+
+Two harness mechanics decide how such a row is written.
+
+- A profile patch replaces the targeted entry's whole `config` object, and a preset is not a loader
+  group, so a preset's inner rows cannot be addressed from the patch. Restate the complete preset
+  `config`, and read the composed tree with `dsh --profile <name> --dump-config`, which prints what
+  the host will mount and warns about a patch that matched nothing.
+- A delegation tool that samples the allowlist must be mounted inside the preset scope. The same row
+  at the composition root fails to mount with
+  `standing modelSelectionSettings requires a scoped preset Context`.
+
+The allowlist is sampled when a top-level Session is composed, so it reaches new Sessions only;
+Sessions already composed keep their tools and policy. Effort identifiers are adapter-owned, so a
+level one provider advertises need not exist on the chosen route. One verified deployment pinned
+every role tool to a single provider and model pair and split the adapter's top two efforts between
+design and review work on one side and implementation and verification work on the other; the
+harness accepted both that pin and the refusal path above.
+
 ## Receipts
 
 Codex and Kilo keep a managed receipt next to — never inside — their role directory
