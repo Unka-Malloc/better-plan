@@ -11,8 +11,8 @@ from .. import __version__
 SKILL_NAME = "better-plan"
 # One version for the whole package: the CLI reports it and host manifests embed it.
 VERSION = __version__
-# Five supported hosts. Only Codex has packaged role presets: its original three
-# roles pin a model and reasoning effort; Verifier and Adversary inherit host defaults.
+# Five supported hosts. Only Codex has packaged role presets: all five
+# roles pin a model and reasoning effort on first creation.
 # Claude Code, Cursor, and Kilo install unpinned role files and inherit whatever
 # the host and the user configured locally.
 AGENTS = ("codex", "claude", "cursor", "kilo", "dsh")

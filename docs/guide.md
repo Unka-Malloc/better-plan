@@ -93,8 +93,9 @@ an example of all three, early adversarial investigation, continuous repair, a
 challenge to the Reviewer, and final closure.
 
 The package includes five native specialist profiles: Designer, Worker, Verifier,
-Reviewer, and Adversary. Verifier uses the host default without adding model or reasoning
-selectors. Existing host-owned configuration stays unchanged. Main starts the Verifier through
+Reviewer, and Adversary. New Codex Verifier profiles use GPT-6 Luna / max; new
+Codex Adversary profiles use GPT-6.1 Sol / high. Other hosts inherit their settings,
+and existing host-owned configuration stays unchanged. Main starts the Verifier through
 the host during the default workflow; installing a profile does not launch an agent.
 The independent Reviewer may resume across milestones and final review while remaining
 separate from the persistent Verifier.

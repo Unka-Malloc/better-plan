@@ -61,7 +61,7 @@ class CatalogReferenceTests(unittest.TestCase):
                 self.assertFalse(hasattr(model_routing, name), name)
 
     def test_packaged_codex_preset_rows_supply_receipted_provenance(self) -> None:
-        """Every preset pin receipts one Intelligence Index row and the cost that row publishes."""
+        """Benchmarked preset pins receipt the Intelligence Index row and its published cost."""
 
         models = {model.model_id: model for model in load_model_catalog().models}
         self.assertEqual(models["gpt-6-astra"].intelligence_index, 53)
@@ -71,7 +71,7 @@ class CatalogReferenceTests(unittest.TestCase):
         self.assertAlmostEqual(models["gpt-6-luna"].cost_per_task_usd, 0.06809498628701058)
 
     def test_every_preset_pin_resolves_to_its_own_catalog_row(self) -> None:
-        """A pin is the row it names; a pin with no row fails at first installation."""
+        """A named benchmark must resolve; explicitly unbenchmarked presets invent no row."""
 
         models = {model.model_id: model for model in load_model_catalog().models}
         self.assertEqual(
@@ -80,10 +80,16 @@ class CatalogReferenceTests(unittest.TestCase):
                 "designer": ("gpt-6-astra", "xhigh"),
                 "worker": ("gpt-6-luna", "max"),
                 "reviewer": ("gpt-6-astra", "xhigh"),
+                "verifier": ("gpt-6-luna", "max"),
+                "adversary": ("gpt-6.1-sol", "high"),
             },
         )
         for role, (_, model, effort, benchmark_id) in CODEX_DEFAULT_MATRIX.items():
             with self.subTest(role=role):
+                if benchmark_id is None:
+                    self.assertEqual(role, "adversary")
+                    self.assertFalse(any(row.model.startswith("GPT-6.1 Sol") for row in models.values()))
+                    continue
                 selected = models.get(benchmark_id)
                 self.assertIsNotNone(selected, "%s pin has no catalog row" % role)
                 assert selected is not None
